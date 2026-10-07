@@ -2,6 +2,7 @@ import React from 'react';
 import { useGameStore } from '../store/useGameStore';
 import { TEMP_MAX, overloadShare, thermalRead } from '../economy/thermal';
 import { formatNumber } from '../economy/format';
+import { Num } from './Num';
 import { ThermalSparks } from './ThermalSparks';
 
 /**
@@ -222,7 +223,7 @@ export const ThermalDial: React.FC = () => {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
         <span>
-          Доход ×<span className="pixel-font">{formatNumber(read.mult, notation)}</span>
+          Доход ×<Num>{formatNumber(read.mult, notation)}</Num>
         </span>
         <span style={{ color: read.heat > 0.6 ? 'var(--thermal-hot)' : 'var(--text-muted)' }}>
           {read.heat > 0.6

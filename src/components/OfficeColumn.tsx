@@ -463,7 +463,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
             ЦЕЛЬ ПОКОЛЕНИЯ
           </div>
-          <div style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: '2px' }}>
+          <div className="pixel-22" style={{ color: 'var(--text-main)', marginTop: '2px' }}>
             Флагман: <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
           </div>
           <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
@@ -476,8 +476,8 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
         {prestigeReady && !finale && (
           <button
             onClick={requestPrestige}
-            className="pixel-btn pixel-btn-gold"
-            style={{ fontSize: '1rem', padding: '10px 16px' }}
+            className="pixel-btn pixel-btn-gold pixel-22"
+            style={{ padding: '10px 16px' }}
           >
             <Icon name="rocket" />
             Совершить Престиж
@@ -494,7 +494,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
               textAlign: 'center',
             }}
           >
-            <div style={{ color: 'var(--gold)', fontSize: '1rem' }}>Финал контента MVP!</div>
+            <div className="pixel-22" style={{ color: 'var(--gold)' }}>Финал контента MVP!</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
               Ты на острие ИИ! Жди новые реальные модели в будущих апдейтах.
             </div>
@@ -601,7 +601,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
               background: 'linear-gradient(to bottom, var(--bg-scrim) 0%, var(--bg-scrim) 55%, transparent 100%)',
             }}
           >
-            <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
+            <span className="pixel-22" style={{ color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
             <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
               <Num>{formatNumber(totalAgents, notation)}</Num>{' '}
               {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов', notation)}
@@ -803,7 +803,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                   Стендбай: Сцена готова к запуску
                 </span>
               </div>
-              <div style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: 600 }}>
+              <div className="pixel-22" style={{ color: 'var(--text-main)' }}>
                 Офис пока пуст
               </div>
               {/* Куда идти — по раскладке, а не всегда «вправо». `full` и есть признак
@@ -836,18 +836,26 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
           gap: '8px',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '4px 8px',
+          }}
+        >
+          <span className="pixel-22" style={{ color: 'var(--text-main)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
+          <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '4px 8px' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
               {activeLabs.length}{' '}
               {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий', notation)} в офисе
             </span>
             {/* Кнопка коллекции реплик: счётчик — длина quipsSeen, окно — локальное. */}
             <button
-              className="pixel-btn"
+              className="pixel-btn pixel-22"
               onClick={() => setQuipLogOpen(true)}
-              style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+              style={{ padding: '4px 10px', whiteSpace: 'nowrap' }}
             >
               Переписка ({quipsSeenCount})
             </button>
@@ -893,9 +901,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                     ×<Num>{formatNumber(count, notation)}</Num>{' '}
                     {formatCount(count, 'Агент', 'Агента', 'Агентов', notation)}
                   </span>
-                  {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой.
-                      Без пиксельного шрифта: среди тиров есть «1M контекст», а строка с
-                      кириллицей набирается Nunito (ADR-0003). */}
+                  {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой. */}
                   {work !== '' && (
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                       {work}
@@ -906,7 +912,7 @@ export const OfficeColumn: React.FC<{ full?: boolean }> = ({ full = false }) => 
                       неотличима от нуля. На восьми Лабораториях такая мелочь занимала бы
                       пять строк из восьми и читалась как «у всех всё одинаково». */}
                   {activeLabs.length > 1 && share >= SHARE_MIN && (
-                    <span className="pixel-font" style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
+                    <span className="num" style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
                       {Math.round(share * 100)}%
                     </span>
                   )}

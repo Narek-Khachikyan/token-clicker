@@ -372,25 +372,27 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         overflowY: 'hidden',
       }}
     >
-      {/* Переключатель вкладок магазина */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+      {/* Переключатель вкладок магазина. Подписи — Departure Mono на ступени 22 px (ADR-0009):
+          три слова с плашкой Апгрейдов занимают 376 px (замерено), и колонка в 430 px их вмещает (SHOP_COL_MIN),
+          а там, где колонка уже, последняя вкладка встаёт во второй ряд, а не уходит за край. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
         <button
           onClick={() => setTab('models')}
-          className={`pixel-btn ${tab === 'models' ? 'pixel-btn-accent' : ''}`}
-          style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem' }}
+          className={`pixel-btn pixel-22 ${tab === 'models' ? 'pixel-btn-accent' : ''}`}
+          style={{ flex: '1 1 auto', padding: '8px 4px' }}
         >
           Модели
         </button>
         <button
           onClick={() => setTab('upgrades')}
-          className={`pixel-btn ${tab === 'upgrades' ? 'pixel-btn-accent' : ''}`}
-          style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem', position: 'relative' }}
+          className={`pixel-btn pixel-22 ${tab === 'upgrades' ? 'pixel-btn-accent' : ''}`}
+          style={{ flex: '1 1 auto', padding: '8px 4px', position: 'relative' }}
         >
           Апгрейды
           {upgrades.length > 0 && (
             <span
               key={upgrades.length}
-              className="tab-badge--pulse"
+              className="tab-badge--pulse body-font"
               style={{
                 marginLeft: '4px',
                 backgroundColor: 'var(--red)',
@@ -408,7 +410,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
         </button>
         <button
           onClick={() => setTab('perks')}
-          className={`pixel-btn ${tab === 'perks' ? 'pixel-btn-accent' : ''}`}
+          className={`pixel-btn pixel-22 ${tab === 'perks' ? 'pixel-btn-accent' : ''}`}
           title={
             finale
               ? 'Ты дошёл до последнего поколения — дальше престиж недоступен'
@@ -417,9 +419,8 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 : 'Найми 1 агента флагмана, чтобы разблокировать престиж'
           }
           style={{
-            flex: 1,
+            flex: '1 1 auto',
             padding: '8px 4px',
-            fontSize: '0.9rem',
             ...(prestigeLocked
               ? { color: 'var(--text-muted)', borderColor: 'var(--border)' }
               : undefined),
@@ -478,9 +479,9 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               <button
                 key={amt}
                 onClick={() => setBuyAmount(amt)}
-                className="pixel-btn"
+                className="pixel-btn pixel-22"
                 aria-pressed={buyAmount === amt}
-                style={{ padding: '4px 7px', fontSize: '0.8rem' }}
+                style={{ padding: '4px 7px' }}
               >
                 {amt === 'max' ? 'Max' : <>&times;<Num>{amt}</Num></>}
               </button>
@@ -565,15 +566,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       <MascotSprite lab={m.lab} size={28} />
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span
-                            style={{
-                              fontSize: '1rem',
-                              color: 'var(--text-main)',
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                            }}
-                          >
+                          {/* Имя Модели — Departure Mono на ступени 22 px (ADR-0009) и переносится по
+                              словам: в 22 px «Claude 3 Haiku» шире колонки телефона, а многоточие
+                              отрезало бы ровно то, что отличает одну Модель от соседней. */}
+                          <span className="pixel-22" style={{ color: 'var(--text-main)' }}>
                             {m.name}
                           </span>
                           {m.isFlagship && (
@@ -639,7 +635,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
                     {/* Подпись обязательна: голое число не отличить от счётчика чего-то другого. */}
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'right' }}>
-                      <div style={{ fontSize: '1.2rem' }}>
+                      <div className="pixel-22" style={{ color: 'var(--text-main)' }}>
                         <Num>{owned}</Num>
                       </div>
                       <div>{formatCount(owned, 'Агент', 'Агента', 'Агентов', notation)}</div>
@@ -663,7 +659,18 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   >
                   {/* Прирост Дохода и кнопка покупки/продажи. Цена живёт только здесь — на всех
                       вкладках магазина, чтобы её не приходилось искать в двух местах. */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  {/* Кнопка — Departure Mono на ступени 22 px и растёт вширь: «Купить ×10 (61,5 M)»
+                      шире строки прироста рядом с ней, поэтому при нехватке места строка стоит над
+                      кнопкой, а не сжимает её. */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '4px 8px',
+                    }}
+                  >
                     <div style={{ fontSize: '0.8rem', color: sellMode ? 'var(--red)' : 'var(--green)' }}>
                       {/* При пустом действии строка молчит: «−0 к доходу» и «+0 к доходу» не
                           говорят ничего, а место под строку всё равно зарезервировано. */}
@@ -678,10 +685,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
 <button
                       onClick={() => (sellMode ? sellAgents(m.id) : buyAgents(m.id))}
                       disabled={!canAfford}
-                      className={`pixel-btn pixel-btn-accent model-row__buy`}
+                      className={`pixel-btn pixel-btn-accent pixel-22 model-row__buy`}
                       style={{
                         padding: '7px 12px',
-                        fontSize: '0.85rem',
+                        flex: '1 1 auto',
                         backgroundColor: sellMode && canAfford ? 'var(--red-solid)' : undefined,
                         borderColor: sellMode && canAfford ? 'var(--red)' : undefined,
                         // Недоступная кнопка прозрачна для указателя: иначе браузер подавил бы
@@ -717,12 +724,12 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           )}
                         </span>
                         {!canAfford && missing > 0 && (
-                          <span style={{ fontSize: '0.7rem', opacity: 0.85 }}>
+                          <span className="body-font" style={{ fontSize: '0.7rem', opacity: 0.85 }}>
                             не хватает <Num>{formatNumber(missing, notation)}</Num>
                           </span>
                         )}
                         {sellMode && count > 0 && (
-                          <span style={{ fontSize: '0.7rem', opacity: 0.85 }}>
+                          <span className="body-font" style={{ fontSize: '0.7rem', opacity: 0.85 }}>
                             вернёт <Num>{formatNumber(refund, notation)}</Num>
                           </span>
                         )}
@@ -961,7 +968,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 gap: '8px',
               }}
             >
-              <div style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>Престиж в следующее поколение</div>
+              <div className="pixel-22" style={{ color: 'var(--gold)' }}>Престиж в следующее поколение</div>
 
               <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                 Сбросит текущий забег (токены, агенты, апгрейды) и перенесёт тебя в следующее поколение.
@@ -979,8 +986,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   <div>
                     Получишь Compute:{' '}
                     {/* Через formatNumber, иначе в поздней игре это число с пятнадцатью
-                        значащими цифрами: `Num` только набирает пиксельным шрифтом (ADR-0003)
-                        и ничего не форматирует. То же число показывает окно подтверждения,
+                        значащими цифрами: `Num` ничего не форматирует. То же число показывает окно подтверждения,
                         и расходиться они не должны. */}
                     <Num>+{formatNumber(prestigeGain(state), notation)}</Num>
                   </div>

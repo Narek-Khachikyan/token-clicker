@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { formatNumber } from './economy/format';
 import {
   CLICK_COL_MAX,
   CLICK_COL_MIN,
+  CLICK_COL_PAD,
   clickColWidth,
+  COUNTER_CHARS,
+  counterWidth,
   HEADER_H,
   NARROW_MAX,
   OFFICE_COL_MIN,
@@ -119,6 +123,31 @@ describe('layout', () => {
     }
     for (let vw = THREE_COL_MIN; vw < 2560; vw += 7) {
       expect(toastStackWidth(vw + 7)).toBeGreaterThanOrEqual(toastStackWidth(vw));
+    }
+  });
+
+  // Счётчик Токенов набран моноширинным шрифтом на ступени 33 px, поэтому его ширина — это
+  // число знаков, помноженное на ширину знака. Самая длинная запись обязана влезть в самую
+  // узкую колонку Клика, иначе она полезла бы за край и колонка получила бы горизонтальную
+  // прокрутку.
+  it('reserves enough characters for the longest number either notation prints', () => {
+    let longest = 0;
+    for (let exp = 0; exp <= 297; exp++) {
+      for (const mantissa of [1, 1.5, 9.99, 99.9, 842.6, 999.94]) {
+        for (const notation of ['short', 'sci'] as const) {
+          longest = Math.max(longest, formatNumber(mantissa * 10 ** exp, notation).length);
+        }
+      }
+    }
+    expect(COUNTER_CHARS).toBeGreaterThanOrEqual(longest);
+    // Резерв не раздут: лишние знаки отнимали бы место у колонки зря.
+    expect(COUNTER_CHARS).toBeLessThanOrEqual(longest + 1);
+  });
+
+  it('fits the counter inside the Click column on every window, down to 320 px', () => {
+    for (let vw = 320; vw <= 2560; vw += 7) {
+      const column = vw < THREE_COL_MIN ? vw : clickColWidth(vw);
+      expect(counterWidth()).toBeLessThanOrEqual(column - CLICK_COL_PAD * 2);
     }
   });
 });
