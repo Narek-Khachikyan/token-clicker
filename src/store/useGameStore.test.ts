@@ -16,6 +16,7 @@ import {
   totalIncome,
 } from '../economy/engine';
 import { EVENT_TABLES, grantAmount } from '../economy/events';
+import { HOLD_CLICK_MAX_PER_SEC } from '../economy/streak';
 import { RED_TABLES } from '../economy/glitches';
 import {
   GLITCH_CLICKS,
@@ -1874,5 +1875,131 @@ describe('corrupt save on load', () => {
     expect(cell.get(CORRUPT_SAVE_KEY)).toBeUndefined();
     expect(snapshot.toasts).toEqual([]);
     expect(snapshot.state.totalTokens).toBe(5);
+  });
+});
+
+describe('the Серия and holding a key down', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  /** Свежая игра без чисел и искр в воздухе и без Кликов в окне Серии. */
+  const freshRun = (): void => {
+    // Система движение разрешает; запрос о нём нужен стору при каждом решении об искрах.
+    vi.stubGlobal('window', { matchMedia: (media: string) => ({ matches: false, media }) });
+    freshStore();
+    useGameStore.setState({ floaters: [], clickSparks: [] });
+  };
+
+  it('pays the same Токены for every Клик at any level of the Серия', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    const price = clickValue(state());
+    const paid: number[] = [];
+    const levels: number[] = [];
+    for (let i = 0; i < 25; i += 1) {
+      const before = state().tokens;
+      store().clickPrompt(10, 10);
+      paid.push(state().tokens - before);
+      levels.push(store().floaters[store().floaters.length - 1].level);
+      vi.advanceTimersByTime(80);
+    }
+    // Тест охватывает и покой, и высший уровень Серии, иначе равенство ничего не доказывало бы.
+    expect(levels[0]).toBe(0);
+    expect(levels[levels.length - 1]).toBeGreaterThan(2);
+    for (const p of paid) expect(p).toBe(price);
+  });
+
+  it('plays the Клик sound one level higher as the Серия grows, and back down after a pause', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    vi.mocked(playClickSound).mockClear();
+    for (let i = 0; i < 15; i += 1) {
+      store().clickPrompt(10, 10);
+      vi.advanceTimersByTime(80);
+    }
+    const levels = vi.mocked(playClickSound).mock.calls.map((c) => c[1]);
+    expect(levels[0]).toBe(0);
+    expect(levels[levels.length - 1]).toBeGreaterThan(levels[0] ?? 0);
+    vi.advanceTimersByTime(5000);
+    store().clickPrompt(10, 10);
+    expect(vi.mocked(playClickSound).mock.calls.at(-1)?.[1]).toBe(0);
+  });
+
+  it('shows more sparks and a bigger +N at a higher level, none of them with the switches off', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    for (let i = 0; i < 15; i += 1) {
+      store().clickPrompt(10, 10);
+      vi.advanceTimersByTime(80);
+    }
+    const sparks = store().clickSparks;
+    expect(sparks.length).toBeGreaterThan(0);
+    expect(sparks[sparks.length - 1].level).toBeGreaterThan(sparks[0]?.level ?? 0);
+    expect(store().floaters[store().floaters.length - 1].level).toBeGreaterThan(2);
+
+    store().setEffect('particles', false);
+    expect(store().clickSparks).toEqual([]);
+    store().clickPrompt(10, 10);
+    expect(store().clickSparks).toEqual([]);
+    expect(store().floaters.length).toBeGreaterThan(0);
+
+    store().setEffect('floaters', false);
+    store().clickPrompt(10, 10);
+    expect(store().floaters).toEqual([]);
+  });
+
+  it('makes no sparks under less animation, and the Клик still counts', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    vi.stubGlobal('window', { matchMedia: (media: string) => ({ matches: true, media }) });
+    for (let i = 0; i < 10; i += 1) store().clickPrompt(10, 10);
+    expect(store().clickSparks).toEqual([]);
+    expect(state().clicks).toBe(10);
+  });
+
+  it('clears the sparks from the air once they have flown', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    for (let i = 0; i < 10; i += 1) {
+      store().clickPrompt(10, 10);
+      vi.advanceTimersByTime(60);
+    }
+    vi.advanceTimersByTime(2000);
+    expect(store().clickSparks).toEqual([]);
+  });
+
+  it('holding a key gives no more Кликов per second than the ceiling, however often the key repeats', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    const accepted: number[] = [];
+    // Автоповтор клавиши шлёт десятки нажатий в секунду; повторяем его шагом в 8 мс на три секунды.
+    for (let t = 0; t < 3000; t += 8) {
+      vi.setSystemTime(T0 + t);
+      if (store().holdClick(10, 10)) accepted.push(t);
+    }
+    expect(state().clicks).toBe(accepted.length);
+    expect(accepted.length).toBeGreaterThan(20);
+    for (const at of accepted) {
+      const inSecond = accepted.filter((other) => other > at - 1000 && other <= at).length;
+      expect(inSecond).toBeLessThanOrEqual(HOLD_CLICK_MAX_PER_SEC);
+    }
+  });
+
+  it('a held key pays the ordinary price of a Клик', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    const price = clickValue(state());
+    const before = state().tokens;
+    expect(store().holdClick(10, 10)).toBe(true);
+    expect(state().tokens - before).toBe(price);
   });
 });

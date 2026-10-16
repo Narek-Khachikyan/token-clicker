@@ -2,7 +2,8 @@ import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { motionAllowed, reduceMotionMedia, useGameStore, useStateSlice } from '../store/useGameStore';
 import { clickButtonView, incomeOf, incomeView, purchaseProgressView } from '../store/selectors';
 import { formatNumber } from '../economy/format';
-import { COUNTER_CHARS, COUNTER_STEP } from '../layout';
+import { COUNTER_CHARS, COUNTER_STEP, floaterLeft, floaterStep } from '../layout';
+import { holdClickAllowed, isHoldKey } from './holdClickKeys';
 import { Num } from './Num';
 import { FullNumber } from './FullNumber';
 import { Icon } from './Icon';
@@ -170,33 +171,138 @@ const Floaters: React.FC = () => {
   if (!enabled) return null;
   return (
     <>
-      {floaters.map((f) => (
-        <div key={f.id} className="floater pixel-22" style={{ left: f.x, top: f.y }}>
-          {f.text}
-        </div>
-      ))}
+      {floaters.map((f) => {
+        // Ступень растёт с Серией: 22/33/44 px, без промежуточных масштабов (ADR-0009).
+        const step = floaterStep(f.level);
+        return (
+          <div
+            key={f.id}
+            className={`floater pixel-${step}`}
+            style={{ left: floaterLeft(f.x, f.text.length, step, window.innerWidth), top: f.y }}
+          >
+            {f.text}
+          </div>
+        );
+      })}
     </>
+  );
+};
+
+/** Лучи искр по уровню Серии (индекс = уровень): одиночный Клик искр не даёт, как и прежде. */
+const SPARKS_BY_LEVEL = [0, 3, 5, 7, 9];
+
+/** Веер вверх от точки Клика: лучи делят верхний полукруг поровну, размах растёт с уровнем. */
+const sparkFan = (level: number) => {
+  const n = SPARKS_BY_LEVEL[Math.min(level, SPARKS_BY_LEVEL.length - 1)] ?? 0;
+  return Array.from({ length: n }, (_, i) => {
+    const angle = -Math.PI + (Math.PI * (i + 0.5)) / n;
+    const dist = 22 + level * 8 + (i % 3) * 6;
+    return {
+      dx: Math.round(Math.cos(angle) * dist),
+      dy: Math.round(Math.sin(angle) * dist),
+      size: level >= 3 ? 4 : 3,
+    };
+  });
+};
+
+/**
+ * Искры Серии над кнопкой Клика. Узлы рождает стор, и только когда частицы включены и движение
+ * разрешено (`effectAllowed`), а убирает его таймер: слой сам ничего не решает и не хранит.
+ */
+const ClickSparks: React.FC = () => {
+  const bursts = useGameStore((s) => s.clickSparks);
+  if (bursts.length === 0) return null;
+  return (
+    <div aria-hidden="true" style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 999 }}>
+      {bursts.map((b) =>
+        sparkFan(b.level).map((p, i) => (
+          <span
+            key={`${b.id}-${i}`}
+            className="spark"
+            style={
+              {
+                left: b.x,
+                top: b.y,
+                width: p.size,
+                height: p.size,
+                '--spark-dx': `${p.dx}px`,
+                '--spark-dy': `${p.dy}px`,
+              } as React.CSSProperties
+            }
+          />
+        )),
+      )}
+    </div>
   );
 };
 
 const ClickButton: React.FC = () => {
   const clickPrompt = useGameStore((s) => s.clickPrompt);
+  const holdClick = useGameStore((s) => s.holdClick);
   const { value, word, tier, power } = useStateSlice(clickButtonView);
   const btnRef = useRef<HTMLButtonElement>(null);
 
-  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = rect.left + rect.width / 2 + (Math.random() * 40 - 20);
-    const y = rect.top + 10;
-    clickPrompt(x, y);
-    // Перезапуск сквоша тем же сбросом, что у ModelRow: снятие класса и чтение ширины
-    // между снятием и возвратом, иначе быстрый повторный Клик не перезапустил бы анимацию.
+  /** Точка Клика на кнопке и сквош: общие для мыши и для удержанной клавиши. */
+  const press = (act: (x: number, y: number) => boolean | void) => {
     const node = btnRef.current;
     if (!node) return;
+    const rect = node.getBoundingClientRect();
+    const x = rect.left + rect.width / 2 + (Math.random() * 40 - 20);
+    const y = rect.top + 10;
+    if (act(x, y) === false) return;
+    // Перезапуск сквоша тем же сбросом, что у ModelRow: снятие класса и чтение ширины
+    // между снятием и возвратом, иначе быстрый повторный Клик не перезапустил бы анимацию.
     node.classList.remove('click-btn--squash');
     void node.offsetWidth;
     node.classList.add('click-btn--squash');
   };
+
+  const handleClick = () => {
+    // Пробел и Enter на кнопке обслуживает слушатель ниже и гасит их родное нажатие, поэтому
+    // сюда доходит мышь, касание и вспомогательные технологии — их `click` без клавиши.
+    press((x, y) => clickPrompt(x, y));
+  };
+
+  // Удержание Пробела/Enter повторяет Клик. Слушатель на окне, а не на кнопке: Клик должен идти,
+  // и когда фокус в никуда (после клика мышью по Сцене). Потолок в секунду держит действие стора,
+  // здесь только решение «это Клик» (holdClickKeys). Слушатель живёт, пока на экране кнопка Клика:
+  // на телефоне вне вкладки «Промпт» клавиши ей не принадлежат.
+  useEffect(() => {
+    const handled = new Set<string>();
+    const target = (e: KeyboardEvent) => {
+      const el = e.target instanceof HTMLElement ? e.target : null;
+      return {
+        tag: el?.tagName ?? '',
+        editable: el?.isContentEditable ?? false,
+        role: el?.getAttribute('role') ?? null,
+        isClickButton: el !== null && el === btnRef.current,
+        // Окна — aria-modal; занавес Престижа не окно, но так же закрывает экран и мышь.
+        dialogOpen: document.querySelector('[aria-modal="true"], .prestige-veil') !== null,
+      };
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || !isHoldKey(e) || !holdClickAllowed(target(e))) return;
+      // Без preventDefault Пробел прокрутил бы страницу, а Enter на кнопке дал бы второй Клик.
+      e.preventDefault();
+      handled.add(e.key);
+      press((x, y) => holdClick(x, y));
+    };
+    // Firefox нажимает кнопку на keyup Пробела, даже если keydown отменён, поэтому отмена и здесь.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!handled.delete(e.key)) return;
+      e.preventDefault();
+    };
+    // Потеря фокуса окном посреди удержания не должна оставить «нажатую» клавишу в памяти.
+    const forget = () => handled.clear();
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', forget);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', forget);
+    };
+  }, [holdClick]);
 
   // Снятие по концу анимации, а не по таймеру: таймеры в компонентах запрещены.
   const handleSquashEnd = () => {
@@ -404,6 +510,7 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
     >
       {/* Floating numbers */}
       <Floaters />
+      <ClickSparks />
 
       {/* Токены и Доход */}
       <div className="click-counter" style={{ textAlign: 'left', width: '100%' }}>

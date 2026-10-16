@@ -41,6 +41,7 @@ import {
   uprisingStage,
 } from '../economy/glitches';
 import { pickNews } from '../economy/news';
+import { HOLD_CLICK_MIN_GAP_MS, pushClick } from '../economy/streak';
 import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX } from '../economy/thermal';
 import { perkEffects } from '../economy/perks';
 import { pickQuip, recordQuip } from '../economy/quips';
@@ -93,6 +94,16 @@ export interface ClickFloater {
   x: number;
   y: number;
   text: string;
+  /** Уровень Серии в момент Клика: от него зависит ступень шрифта числа. */
+  level: number;
+}
+
+/** Искры одного Клика: веер из точки Клика, число лучей и размах зависят от уровня Серии. */
+export interface ClickSparkBurst {
+  id: number;
+  x: number;
+  y: number;
+  level: number;
 }
 
 /** Событие, на которое интерфейсу нужен собственный громкий отклик. */
@@ -257,6 +268,10 @@ interface GameStore {
   sellMode: boolean;
   toasts: ToastMessage[];
   floaters: ClickFloater[];
+  /** Искры Клика в воздухе: живут `CLICK_SPARK_MS` и только при включённых частицах. */
+  clickSparks: ClickSparkBurst[];
+  /** Моменты последних Кликов для Серии. Вне GameState: Серия живёт секунды и в сейв не идёт. */
+  clickMoments: readonly number[];
   chatHistory: ChatMessage[];
   /** Пузырь реплики в офисе, null = пузырь скрыт. Авто-скрытие — bounded one-shot в clickPrompt. */
   lastQuip: LastQuip | null;
@@ -289,6 +304,13 @@ interface GameStore {
   // Actions
   tick: (dt: number) => void;
   clickPrompt: (x?: number, y?: number) => void;
+  /**
+   * Клик удержанной клавишей (Пробел/Enter): тот же Клик, но не чаще `HOLD_CLICK_MIN_GAP_MS`.
+   * Потолок стоит здесь, а не в компоненте: автоповтор клавиши шлёт нажатия десятками в секунду,
+   * и любой другой слушатель (горячие клавиши) получит тот же предел. Возвращает true, если Клик
+   * засчитан.
+   */
+  holdClick: (x?: number, y?: number) => boolean;
   buyAgents: (modelId: string) => void;
   sellAgents: (modelId: string) => void;
   buyUpgrade: (upgradeId: string) => void;
@@ -413,6 +435,10 @@ function loadInitialState(): { state: GameState; offline: OfflineReport | null; 
 }
 
 let floaterCounter = 0;
+let sparkCounter = 0;
+/** Момент последнего Клика удержания: общий для всех слушателей, как и потолок. */
+let lastHoldClickAt = -Infinity;
+
 let chatCounter = 0;
 let toastCounter = 0;
 let burstCounter = 0;
@@ -421,6 +447,12 @@ let quipCounter = 0;
 /** Пузырь реплики висит 4.5 с: входной pop занимает 0.25 с, уходной fade стартует CSS-задержкой
  *  на 4.32 с, и стор гасит поле уже после него — fade видно целиком. */
 const QUIP_HIDE_MS = 4500;
+/** Сколько искры Клика висят в сторе, мс: чуть дольше их анимации в index.css, чтобы узел не
+ *  исчезал на середине полёта; уборку делает этот таймер, а не animationend, которого отменённая
+ *  анимация не даёт. */
+const CLICK_SPARK_MS = 700;
+/** Искр одновременно в воздухе: при удержании их было бы вдвое больше, а читается не больше шести. */
+const CLICK_SPARK_CAP = 6;
 
 /**
  * Лаборатория говорящего: Лаборатория последней купленной Модели. Агентов нет — говорить
@@ -833,6 +865,8 @@ export const useGameStore = create<GameStore>((set, get) => {
     sellMode: false,
     toasts: initial.notice ? [initial.notice] : [],
     floaters: [],
+    clickSparks: [],
+    clickMoments: [],
     chatHistory: [
       {
         id: 0,
@@ -889,10 +923,13 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     clickPrompt: (x?: number, y?: number) => {
-      const { state, floaters, chatHistory, lastBoughtModelId } = get();
+      const { state, floaters, chatHistory, lastBoughtModelId, clickSparks, clickMoments } = get();
       const earned = clickValue(state);
       const clicked = engineClick(state);
-      playClickSound(state.settings);
+      // Серия считается по моментам Кликов и нигде не входит в `earned`: цена Клика на любом
+      // уровне одна, уровень меняет только звук, искры и размер числа.
+      const { moments, level } = pushClick(clickMoments, Date.now());
+      playClickSound(state.settings, level);
 
       // Добавление всплывающего числа. Выключатель гасит число, а не Клик: при выключенных числах
       // список остаётся как был, и убирать за ним нечего.
@@ -905,8 +942,18 @@ export const useGameStore = create<GameStore>((set, get) => {
             // Не через Math.floor: у Токенов до 1e300 сырое число растянулось бы на весь экран,
             // а формат обязан совпадать с подписью под кнопкой Клика.
             text: `+${formatNumber(earned, state.settings.notation)}`,
+            level,
           }]
         : floaters;
+
+      // Искры: уровень 0 — одиночный Клик, он их не рождал и раньше. Решение о создании здесь, а не
+      // в компоненте (CSS-гейт не убирает узел). В node окна нет — и смотреть на искры некому.
+      const sparkId = ++sparkCounter;
+      const sparked =
+        level > 0 && typeof window !== 'undefined' && effectAllowed('particles');
+      const newSparks = sparked
+        ? [...clickSparks.slice(-(CLICK_SPARK_CAP - 1)), { id: sparkId, x: x ?? window.innerWidth / 2, y: y ?? window.innerHeight / 2, level }]
+        : clickSparks;
 
       // Обновление чата раз в несколько кликов
       let newChat = chatHistory;
@@ -934,6 +981,8 @@ export const useGameStore = create<GameStore>((set, get) => {
           // он проверяет все пятьдесят с лишним условий на каждом Клике.
           state: awardEarned(recordQuip(clicked, quip.id)),
           floaters: newFloaters,
+          clickSparks: newSparks,
+          clickMoments: moments,
           chatHistory: newChat,
           lastQuip: { id: quip.id, text: quip.text, lab: quip.lab, nonce },
         });
@@ -944,7 +993,13 @@ export const useGameStore = create<GameStore>((set, get) => {
           if (cur?.nonce === nonce) set({ lastQuip: null });
         }, QUIP_HIDE_MS);
       } else {
-        set({ state: awardEarned(clicked), floaters: newFloaters, chatHistory: newChat });
+        set({
+          state: awardEarned(clicked),
+          floaters: newFloaters,
+          clickSparks: newSparks,
+          clickMoments: moments,
+          chatHistory: newChat,
+        });
       }
       // Отложенная запись, а не немедленная: Кликов двадцать в секунду не бывает, но пять бывает,
       // и на них хватает дросселя вместе с тиком — доход за пропущенную секунду вернётся
@@ -956,6 +1011,20 @@ export const useGameStore = create<GameStore>((set, get) => {
           set((s) => ({ floaters: s.floaters.filter((f) => f.id !== floaterId) }));
         }, 900);
       }
+      if (sparked) {
+        setTimeout(() => {
+          set((s) => ({ clickSparks: s.clickSparks.filter((p) => p.id !== sparkId) }));
+        }, CLICK_SPARK_MS);
+      }
+    },
+
+    holdClick: (x?: number, y?: number) => {
+      const now = Date.now();
+      // Часы, отведённые назад, дали бы отрицательную паузу и заперли бы удержание до нагона.
+      if (now >= lastHoldClickAt && now - lastHoldClickAt < HOLD_CLICK_MIN_GAP_MS) return false;
+      lastHoldClickAt = now;
+      get().clickPrompt(x, y);
+      return true;
     },
 
     buyAgents: (modelId: string) => {
@@ -1317,6 +1386,7 @@ toggleMute: () => {
         // Число в воздухе уходит вместе с выключателем: оно живёт в сторе, и оставить его значило бы
         // показывать то, что игрок только что попросил не показывать, ещё секунду.
         ...(effect === 'floaters' && !on ? { floaters: [] } : {}),
+        ...(effect === 'particles' && !on ? { clickSparks: [] } : {}),
       }));
       saveNow();
     },
@@ -1397,6 +1467,7 @@ toggleMute: () => {
     },
 
     resetGame: () => {
+      lastHoldClickAt = -Infinity;
       // Звук по настройкам, с которыми игрок нажал сброс: свежая игра пришла бы без мьюта.
       playRestartSound(get().state.settings);
       const fresh = newGame(Date.now());
@@ -1419,6 +1490,8 @@ toggleMute: () => {
         collectedRumorId: 0,
         lastQuip: null,
         lastBoughtModelId: null,
+        clickMoments: [],
+        clickSparks: [],
         // Экран финала показывается сам, пока игрок его не закрывал, поэтому рестарт обязан
         // вернуть флаг в исходное состояние: иначе второе прохождение до последнего
         // Поколения встретило бы игрока молчащим финалом.
