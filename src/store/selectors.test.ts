@@ -14,8 +14,10 @@ import {
   totalIncome,
 } from '../economy/engine';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
-import { canPrestige, isContentFinale, labIncomeShare, prestigeGain } from '../economy/engine';
 import { LAB_IDS, LABS } from '../data/labs';
+import { canPrestige, isContentFinale, labIncomeShare, prestigeGain, shatterCrystal } from '../economy/engine';
+import { prestigeForecast } from '../economy/prestigeForecast';
+import { CHALLENGES, startChallenge } from '../economy/challenges';
 import { CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
 import {
   canLicense,
@@ -32,7 +34,10 @@ import { MILESTONES } from '../economy/milestones';
 import {
   availableUpgradesOf,
   clickButtonView,
+  challengeCardView,
+  challengeView,
   crystalGrowthView,
+  crystalShatterView,
   crystalStockView,
   crystalUpgradeView,
   droneView,
@@ -366,6 +371,48 @@ describe('prestige tab slices', () => {
     expect(view.gain).toBe(formatNumber(prestigeGain(ready)));
   });
 
+  it('names the Compute boost and the Tokens still missing for it, as the engine counts them', () => {
+    const ready = buyAgents(rich(newGame(T0), 1e12), flagship(0).id, 1);
+    const f = prestigeForecast(ready);
+    const view = prestigeCardView(ready);
+    expect(view.boostGain).toBe(formatNumber(f.boostGain));
+    expect(view.boostShortfall).toBe(formatNumber(f.boostShortfall));
+    expect(view.boostShortfallWord).toBe(formatCount(f.boostShortfall, 'Токен', 'Токена', 'Токенов'));
+    // От двух Compute прибавка — настоящие +50%; ниже неё порог — «следующая единица».
+    expect(view.boostIsHalf).toBe(f.gain >= 2);
+    expect(prestigeCardView({ ...ready, runTokens: 0 }).boostIsHalf).toBe(false);
+  });
+
+  it('lets a challenge be picked only on a fresh run and shows which one is taken and which is closed', () => {
+    const fresh = newGame(T0);
+    expect(challengeCardView(fresh).canStart).toBe(true);
+    expect(challengeCardView(fresh).none).toBe(true);
+    const picked = startChallenge(fresh, CHALLENGES[0].id);
+    expect(challengeCardView(picked).none).toBe(false);
+    expect(challengeView(picked, CHALLENGES[0])).toEqual({ active: true, done: false });
+    expect(challengeView(picked, CHALLENGES[1])).toEqual({ active: false, done: false });
+    // Первый клик закрывает выбор: ядро больше не принимает Испытание.
+    expect(challengeCardView({ ...fresh, runClicks: 1 }).canStart).toBe(false);
+    // Закрытое Испытание платит +10% к Доходу, и карточка называет сумму.
+    const closed = { ...fresh, challengesDone: [CHALLENGES[0].id, CHALLENGES[1].id] };
+    expect(challengeCardView(closed).bonusText).toBe(formatNumber(20));
+    expect(challengeCardView(closed).doneCount).toBe(2);
+    expect(challengeView(closed, CHALLENGES[1]).done).toBe(true);
+  });
+
+  it('opens the shatter button with the first whole crystal and names what it pays', () => {
+    const s: GameState = { ...lateGame(), crystals: 0.9 };
+    expect(crystalShatterView(s).canShatter).toBe(false);
+    const grown = { ...s, crystals: 1 };
+    const view = crystalShatterView(grown);
+    expect(view.canShatter).toBe(true);
+    // Названная сумма — ровно та, что кладёт разбитие в кошелёк.
+    const paid = shatterCrystal(grown).tokens - grown.tokens;
+    expect(view.payoutText).toBe(formatNumber(paid));
+    expect(view.payoutWord).toBe(formatCount(paid, 'Токен', 'Токена', 'Токенов'));
+    expect(view.lostText).toBe('1');
+  });
+
   it('closes Prestige at the content finale', () => {
     const last = buyAgents(
       { ...rich(newGame(T0), 1e300), generation: LAST_GENERATION, maxGeneration: LAST_GENERATION },
@@ -428,7 +475,11 @@ describe('prestige tab slices', () => {
 
   it('repaints the prestige tab only for what changed while a late run idles', () => {
     const states = idle({ ...rich(lateGame(), 1e300), uprising: 2, crystalPlantedAt: T0 }, 200);
-    expect(changes(states, prestigeCardView)).toBe(0);
+    // Заработок Забега растёт каждый тик, и «ещё N Токенов» уменьшается вместе с ним, но
+    // строка записи (три значащие цифры) меняется на порядки реже, чем тикает кошелёк.
+    expect(changes(states, prestigeCardView)).toBeLessThan(25);
+    expect(changes(states, challengeCardView)).toBe(0);
+    expect(changes(states, crystalShatterView)).toBeLessThan(25);
     expect(changes(states, pledgeView)).toBeLessThanOrEqual(1);
     expect(changes(states, crystalStockView)).toBe(0);
     expect(changes(states, (s) => crystalUpgradeView(s, CRYSTAL_UPGRADES[0]))).toBe(0);

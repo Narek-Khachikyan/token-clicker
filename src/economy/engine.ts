@@ -333,6 +333,36 @@ export function offlineIncome(state: GameState): number {
   return CATALOG[state.generation].models.reduce((s, m) => s + modelBaseIncome(state, m), 0);
 }
 
+/** Строка разбивки экрана возвращения: сколько Токенов принесла одна Лаборатория. */
+export interface OfflineRow {
+  lab: LabId;
+  earned: number;
+}
+
+/**
+ * Делит начисленный за простой Оффлайн-доход по Лабораториям.
+ *
+ * Доли берутся из `modelBaseIncome` — того же дохода, из которого `offlineIncome` платит простой, —
+ * а не из `labIncomeShare`: тот делит на живой Доход с событием, Температурой и Глюками, и строки
+ * в сумме давали бы не то число, что стоит над ними. Состояние нужно ДО `applyOffline`: кристалл,
+ * дозревший за простой, поднимает множитель, которого в выплате ещё не было.
+ *
+ * Лаборатории без дохода в список не попадают, строки идут от самой доходной. Нулевая выплата
+ * даёт пустой список: показывать нечего.
+ */
+export function offlineBreakdown(state: GameState, earned: number): OfflineRow[] {
+  const base = offlineIncome(state);
+  if (!(earned > 0) || !(base > 0)) return [];
+  const byLab = new Map<LabId, number>();
+  for (const m of CATALOG[state.generation].models) {
+    const income = modelBaseIncome(state, m);
+    if (income > 0) byLab.set(m.lab, (byLab.get(m.lab) ?? 0) + income);
+  }
+  return [...byLab]
+    .map(([lab, income]) => ({ lab, earned: (earned * income) / base }))
+    .sort((a, b) => b.earned - a.earned);
+}
+
 /**
  * Разбивание Compute-кристалла: обмен вечного бонуса к Доходу на разовый впрыск Токенов.
  *
@@ -346,8 +376,15 @@ export function offlineIncome(state: GameState): number {
  */
 export function shatterCrystal(state: GameState): GameState {
   if (Math.floor(state.crystals) < 1) return state;
-  const payout = Math.max(offlineIncome(state) * 3600, state.tokens * 0.15);
-  return earnTokens({ ...state, crystals: state.crystals - 1 }, payout);
+  return earnTokens({ ...state, crystals: state.crystals - 1 }, shatterPayout(state));
+}
+
+/**
+ * Сколько Токенов даст разбитие кристалла прямо сейчас. Отдельная функция, чтобы кнопка в
+ * интерфейсе называла ту же сумму, что платит `shatterCrystal`, а не считала свою копию.
+ */
+export function shatterPayout(state: GameState): number {
+  return Math.max(offlineIncome(state) * 3600, state.tokens * 0.15);
 }
 
 /**
