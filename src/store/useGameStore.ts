@@ -14,6 +14,8 @@ import {
   isContentFinale,
   isValidInterval,
   OFFLINE_THRESHOLD_SEC,
+  offlineBreakdown,
+  type OfflineRow,
   prestige as enginePrestige,
   prestigeGain,
   sellAgents as engineSellAgents,
@@ -104,11 +106,31 @@ export interface BurstEvent {
 }
 
 export interface OfflineReport {
+  /** Сколько времени засчитано: то, что оплатил `applyOffline` после потолка. */
   seconds: number;
+  /** Сколько прошло на самом деле. Больше `seconds`, когда простой упёрся в потолок: из этой
+   *  пары экран и пишет «засчитано X из Y». */
+  elapsed: number;
   earned: number;
+  /** Откуда пришли `earned` Токенов: по Лабораториям, от самой доходной. Считается в момент
+   *  возвращения, а не при показе: к тому времени игрок уже мог купить Агентов и сдвинуть доли. */
+  rows: OfflineRow[];
   /** Сколько кристаллов дозрело за простой: их собирает applyOffline, и без этой строки игрок
    *  узнал бы о них только по прибавке к Доходу на экране. */
   crystals: number;
+}
+
+/** Складывает два простоя в один отчёт: экран один, а время и Токены обоих игрок получил. */
+function mergeReports(a: OfflineReport, b: OfflineReport): OfflineReport {
+  const rows = new Map<OfflineRow['lab'], number>();
+  for (const r of [...a.rows, ...b.rows]) rows.set(r.lab, (rows.get(r.lab) ?? 0) + r.earned);
+  return {
+    seconds: a.seconds + b.seconds,
+    elapsed: a.elapsed + b.elapsed,
+    earned: a.earned + b.earned,
+    crystals: a.crystals + b.crystals,
+    rows: [...rows].map(([lab, earned]) => ({ lab, earned })).sort((x, y) => y.earned - x.earned),
+  };
 }
 
 interface ChatMessage {
@@ -192,6 +214,11 @@ interface GameStore {
   state: GameState;
   news: string;
   offlineReport: OfflineReport | null;
+  /** Простой, который накопился, пока страница скрыта, и ещё не показан: экран возвращения
+   *  открывается, когда игрок вернулся, а не когда браузер разбудил таймер скрытой вкладки.
+   *  Вне GameState: «что игрок уже видел» в сейв не пишется, и защита от повторного экрана
+   *  не стоит миграции. */
+  pendingAway: OfflineReport | null;
   /** Открыто ли окно подтверждения Престижа. Намеренно вне GameState, как burst: Престиж —
    *  единственный необратимый переход в игре, и стирать Забег одним кликом без вопроса нельзя.
    *  Кнопки обеих колонок открывают окно (requestPrestige), а переход выполняет triggerPrestige —
@@ -348,7 +375,10 @@ function loadInitialState(): { state: GameState; offline: OfflineReport | null; 
       state: updated,
       // Отчёт показывается и из-за одного кристалла: доход за простой бывает нулевым (например,
       // когда все Агенты проданы), а игрок всё равно что-то получил.
-      offline: earned > 0 || crystals > 0 ? { seconds, earned, crystals } : null,
+      offline:
+        earned > 0 || crystals > 0
+          ? { seconds, elapsed: (now - base.lastTick) / 1000, earned, rows: offlineBreakdown(base, earned), crystals }
+          : null,
       notice,
     };
   }
@@ -698,6 +728,41 @@ export const useGameStore = create<GameStore>((set, get) => {
   };
 
   /**
+   * Отчёт о простое длинного тика, или null, если простой ничего не принёс.
+   *
+   * Условие то же, что у отчёта при загрузке: не только Токены, но и кристалл стоит экрана.
+   */
+  const awayReport = (before: GameState, dt: number): OfflineReport | null => {
+    const { state: after, seconds, earned } = applyOffline(before, before.lastTick + dt * 1000);
+    const crystals = after.crystals - before.crystals;
+    if (!(earned > 0) && crystals <= 0) return null;
+    return { seconds, elapsed: dt, earned, rows: offlineBreakdown(before, earned), crystals };
+  };
+
+  /**
+   * Куда деть простой длинного тика: на открытый экран, в запас до возвращения или на новый экран.
+   *
+   * Открытый экран пополняется, а не заменяется и не дублируется: второй простой подряд — это
+   * тот же уход игрока. Пока страница скрыта, экран не открывается — тик в скрытой вкладке будит
+   * браузер раз в минуту, а увидеть отчёт игрок должен там, куда вернулся.
+   */
+  const collectAway = (away: OfflineReport): Pick<GameStore, 'offlineReport' | 'pendingAway'> => {
+    const { offlineReport, pendingAway, tabHidden } = get();
+    if (offlineReport) return { offlineReport: mergeReports(offlineReport, away), pendingAway };
+    const total = pendingAway ? mergeReports(pendingAway, away) : away;
+    return tabHidden ? { offlineReport, pendingAway: total } : { offlineReport: total, pendingAway: null };
+  };
+
+  /** Превращает накопленный в фоне простой в экран; без простоя не меняет ничего. */
+  const showAway = (s: GameStore): Pick<GameStore, 'offlineReport' | 'pendingAway'> | null => {
+    if (!s.pendingAway) return null;
+    return {
+      offlineReport: s.offlineReport ? mergeReports(s.offlineReport, s.pendingAway) : s.pendingAway,
+      pendingAway: null,
+    };
+  };
+
+  /**
    * Держит UI-состояние окна события: объявляет новое окно и сообщает о просроченном.
    *
    * Оба сообщения нужны игроку, а не магазину: без объявления он не узнает, что окно открылось,
@@ -756,6 +821,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     state: initial.state,
     news: pickNews(initial.state),
     offlineReport: initial.offline,
+    pendingAway: null,
     prestigePrompt: false,
     activeTab: 'click',
     tabHidden: false,
@@ -790,6 +856,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Длинный тик идёт той же веткой простоя, что и advanceTime (то же сравнение с тем же
       // порогом): весь его интервал игрок не видел, и окна событий в нём не уведомляются.
       const longTick = dt >= OFFLINE_THRESHOLD_SEC;
+      // Что именно заплатил простой, спрашивается у той же `applyOffline`, что платит его внутри
+      // `advanceTime`: она чистая, а своя формула потолка разошлась бы с настоящей.
+      const away = longTick ? awayReport(state, dt) : null;
       const ticked = advanceTime(state, dt, Math.random);
       const advanced = awardEarned(ticked);
       announceThermal(state, advanced, dt);
@@ -819,7 +888,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         pushToast('Паразит в офисе', 'Паразит', 'Он сел на твой Доход. Кликай по нему, пока не лопнет.');
       }
       const eventWindow = watchEventWindow(withMilestones, longTick);
-      set({ state: withMilestones, ...eventWindow });
+      set({ state: withMilestones, ...eventWindow, ...(away ? collectAway(away) : null) });
       // Голос идёт после set, чтобы читать уже новое состояние, и до записи в localStorage:
       // звук не должен ждать завершения сериализации.
       syncThermalVoice();
@@ -1231,7 +1300,9 @@ export const useGameStore = create<GameStore>((set, get) => {
     // громкости, поэтому возвращение снимает её, не гадая, что игрок выбрал до ухода.
     setTabHidden: (hidden: boolean) => {
       if (get().tabHidden === hidden) return;
-      set({ tabHidden: hidden });
+      // Игрок вернулся: накопленный в фоне простой становится экраном. Скрытие и показ без
+      // простоя между ними копить нечего, поэтому быстрое переключение вкладок экран не открывает.
+      set({ tabHidden: hidden, ...(hidden ? null : showAway(get())) });
       setAudioHidden(hidden, get().state.settings);
     },
 
@@ -1334,6 +1405,8 @@ toggleMute: () => {
       // нечем: они приезжают вместе с состоянием и принадлежат ему.
       set({
         state: imported,
+        pendingAway: null,
+        offlineReport: null,
         news: pickNews(imported),
         eventWindowAt: NO_EVENT_WINDOW,
         eventCaught: caughtWindow(imported),
@@ -1364,6 +1437,8 @@ toggleMute: () => {
       }
       set({
         state: fresh,
+        pendingAway: null,
+        offlineReport: null,
         news: pickNews(fresh),
         eventWindowAt: NO_EVENT_WINDOW,
         eventCaught: false,
