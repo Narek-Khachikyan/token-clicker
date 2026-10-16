@@ -21,7 +21,7 @@ export const STATE_ICON: Record<ThermalStateId, IconName> = {
 
 /** Цвет подписи состояния: подкрепляет значок и слово, а не заменяет их. Красный на тёмной
  *  панели — светлый `--red-text`, потому что `--danger` держит на ней лишь 3,6:1. */
-const STATE_COLOR: Record<ThermalStateId, string> = {
+export const STATE_COLOR: Record<ThermalStateId, string> = {
   cold: 'var(--text-main)',
   normal: 'var(--text-main)',
   hot: 'var(--accent-color)',
@@ -111,7 +111,7 @@ export const ThermalDial: React.FC = () => {
         <span
           className="pixel-22 thermal-dial__state"
           style={{
-            display: 'inline-flex',
+            // `display` живёт в index.css (`.thermal-dial__state`): инлайн не дал бы телефону его скрыть.
             alignItems: 'center',
             gap: 'var(--space-1)',
             color: STATE_COLOR[view.state],

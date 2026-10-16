@@ -53,6 +53,7 @@ import {
   prestigeCardView,
   purchaseProgressView,
   sparksView,
+  thermalMiniView,
   thermalTone,
   thermalView,
   upgradeView,
@@ -241,6 +242,28 @@ describe('temperature slices', () => {
     expect(changes(states, thermalView)).toBe(0);
     expect(changes(states, sparksView)).toBe(0);
     expect(changes(states, thermalTone)).toBe(0);
+  });
+
+  // Мини-шкала в закреплённой полосе телефона читает ту же Температуру, что и большая шкала.
+  it('prints the pinned strip gauge from the same temperature and state as the dial', () => {
+    const stunned = { ...heated(0, 0), overheatedAt: T0 + 1_000, lastTick: T0 + 1_100 };
+    for (const s of [heated(0, 0), heated(0.2, 0.45), heated(0.2, 1.3), heated(0.7, 0.45), stunned, heated(0.3, TEMP_MAX)]) {
+      const mini = thermalMiniView(s);
+      const full = thermalView(s);
+      expect(mini.state).toBe(full.state);
+      expect(mini.stateLabel).toBe(full.stateLabel);
+      expect(mini.pct).toBe(Math.round((full.temp / TEMP_MAX) * 100));
+    }
+    expect(thermalMiniView(heated(0, TEMP_MAX)).pct).toBe(100);
+    expect(thermalMiniView(heated(0, 0)).pct).toBe(0);
+  });
+
+  it('keeps the pinned strip gauge still while the heat builds and the scale rests', () => {
+    // Перегрев копится каждый тик, а мини-шкала показывает положение шкалы и слово состояния:
+    // полоса над каждой вкладкой не должна перерисовываться двадцать раз в секунду.
+    const states = idle({ ...lateGame(), temp: 0.9 }, 100);
+    expect(changes(states, thermalMiniView)).toBeLessThan(3);
+    expect(changes(idle(lateGame(), 200), thermalMiniView)).toBe(0);
   });
 
   it('moves the heat bar only as fast as the player can see it move', () => {
