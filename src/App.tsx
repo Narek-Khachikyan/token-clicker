@@ -20,6 +20,7 @@ import { HelpModal } from './components/HelpModal';
 import { useHotkeys } from './components/useHotkeys';
 import { PrestigeOverlay } from './components/PrestigeOverlay';
 import { Icon, type IconName } from './components/Icon';
+import { CoachArrow } from './components/CoachArrow';
 import { CATALOG } from './economy/catalog';
 import { totalIncome } from './economy/engine';
 import { TEMP_MAX } from './economy/thermal';
@@ -288,16 +289,20 @@ export const App: React.FC = () => {
               ['shop', 'shop', 'Магазин'],
             ] as [ActiveTab, IconName, string][]
           ).map(([t, icon, label]) => (
-            <button
-              key={t}
-              onClick={() => setActiveTab(t)}
-              className={`pixel-btn tab-bar__btn ${activeTab === t ? 'pixel-btn-accent' : ''}`}
-              aria-label={label}
-              style={{ flex: 1 }}
-            >
-              <Icon name={icon} />
-              {label}
-            </button>
+            // Слот нужен стрелке подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы.
+            <div key={t} style={{ flex: 1, position: 'relative', display: 'flex' }}>
+              <button
+                onClick={() => setActiveTab(t)}
+                className={`pixel-btn tab-bar__btn ${activeTab === t ? 'pixel-btn-accent' : ''}`}
+                aria-label={label}
+                style={{ flex: 1 }}
+              >
+                <Icon name={icon} />
+                {label}
+              </button>
+              {t === 'click' && <CoachArrow target="tab-click" single />}
+              {t === 'shop' && <CoachArrow target="tab-shop" single />}
+            </div>
           ))}
         </nav>
       )}

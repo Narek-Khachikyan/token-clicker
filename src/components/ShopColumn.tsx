@@ -17,6 +17,7 @@ import { CATALOG, type Model } from '../economy/catalog';
 import type { GameState } from '../economy/state';
 import { LABS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale } from '../economy/engine';
+import { openUi } from '../economy/reveal';
 import {
   labAgents,
   PAIR_SYNERGY_MULT,
@@ -34,6 +35,7 @@ import { Hint } from './Hint';
 import { FullNumber } from './FullNumber';
 import { ModelHintCard } from './ModelHintCard';
 import { Icon } from './Icon';
+import { CoachArrow } from './CoachArrow';
 import { ChallengeCard, PrestigeForecastCard, PrestigeSectionNav } from './PrestigeTab';
 import { playDenySound } from '../audio/sound';
 import { buyAmountFor } from '../hotkeys';
@@ -388,11 +390,13 @@ const AAReference = React.memo(AAReferenceView);
  * Карточка Модели. Подписана на свой срез `modelView` (множитель и режим берёт из стора), а не на
  * состояние: на тике перерисовывается, только когда в ней изменилась напечатанная цифра.
  */
-const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: string) => void }> = ({
-  model: m,
-  aaOpen: isAAOpen,
-  onToggleAA,
-}) => {
+const ModelCard: React.FC<{
+  model: Model;
+  aaOpen: boolean;
+  onToggleAA: (id: string) => void;
+  /** Задан только у первой Модели: стрелка подсказки новичку над её кнопкой найма. */
+  coachSingle?: boolean;
+}> = ({ model: m, aaOpen: isAAOpen, onToggleAA, coachSingle }) => {
   const buyAmount = useGameStore((s) => s.buyAmount);
   const sellMode = useGameStore((s) => s.sellMode);
   const buyAgents = useGameStore((s) => s.buyAgents);
@@ -530,6 +534,10 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
             )}
           </div>
 
+          {/* Слот держит стрелку подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы.
+              Стрелка стоит именно над кнопкой, а не над карточкой: область списка прокручивается и
+              режет всё, что выступает за верхний край первой карточки. */}
+          <div style={{ position: 'relative', display: 'flex', flex: '1 1 auto' }}>
           <button
             // Shift — ×10, Ctrl/Cmd — Max на одно нажатие (hotkeys.ts); без модификатора берётся
             // множитель кнопок. Клавиатурное нажатие Enter на кнопке несёт те же модификаторы.
@@ -599,6 +607,8 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
               )}
             </span>
           </button>
+          {coachSingle !== undefined && <CoachArrow target="first-model" single={coachSingle} />}
+          </div>
         </div>
 
         {/* Рельс цели отвечает на «как близко», а не на «сколько не хватает», и это
@@ -654,13 +664,23 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
 const ModelsTab: React.FC<{
   expandedAA: Record<string, boolean>;
   toggleAA: (id: string) => void;
-}> = ({ expandedAA, toggleAA }) => {
+  single: boolean;
+}> = ({ expandedAA, toggleAA, single }) => {
   const generation = useGameStore((s) => s.state.generation);
+  // Список открывается сверху вниз по ходу Забега (reveal.ts): число меняется редко, и тик
+  // вкладку не перерисовывает.
+  const shown = useStateSlice((s) => openUi(s).models);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-      {CATALOG[generation].models.map((m) => (
-        <ModelCard key={m.id} model={m} aaOpen={!!expandedAA[m.id]} onToggleAA={toggleAA} />
+      {CATALOG[generation].models.slice(0, shown).map((m, i) => (
+        <ModelCard
+          key={m.id}
+          model={m}
+          aaOpen={!!expandedAA[m.id]}
+          onToggleAA={toggleAA}
+          coachSingle={i === 0 ? single : undefined}
+        />
       ))}
 
       {/* Атрибуция один раз на вкладку, а не в каждой карточке. Пять одинаковых строк
@@ -1336,10 +1356,14 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const upgradesCount = useStateSlice((s) => availableUpgradesOf(s).length);
   const finale = useStateSlice(isContentFinale);
   const prestigeReady = useStateSlice(canPrestige);
+  const { upgradesTab, prestigeTab } = useStateSlice(openUi);
+  // Открытая вкладка не прячется (reveal.ts), но выбранной может оказаться вкладка, которой уже
+  // нет, — после импорта сохранения с меньшим прогрессом. Тогда показываем «Модели».
+  const shownTab = (tab === 'upgrades' && !upgradesTab) || (tab === 'perks' && !prestigeTab) ? 'models' : tab;
 
-  // Вкладка приглушена, а не скрыта: скрытая вкладка — дверь в одну сторону, и игрок
-  // не узнал бы, что Престиж вообще существует. На финале контента Престиж недоступен
-  // навсегда, поэтому приглушение там не снимается.
+  // Вкладка «Престиж» появляется вместе с Флагманом в списке Моделей, но пока Флагман не нанят,
+  // она приглушена: игрок видит цель, а подсказка на ней говорит, чего не хватает. На финале
+  // контента Престиж недоступен навсегда, поэтому приглушение там не снимается.
   const prestigeLocked = finale || !prestigeReady;
 
   // Престиж открывает окно подтверждения, а не выполняется здесь: сброс Забега необратим,
@@ -1372,59 +1396,67 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)', marginBottom: 'var(--space-3)' }}>
         <button
           onClick={() => setTab('models')}
-          className={`pixel-btn pixel-22 ${tab === 'models' ? 'pixel-btn-accent' : ''}`}
+          className={`pixel-btn pixel-22 ${shownTab === 'models' ? 'pixel-btn-accent' : ''}`}
           style={{ flex: '1 1 auto', padding: 'var(--space-2) var(--space-1)' }}
         >
           Модели
         </button>
-        <button
-          onClick={() => setTab('upgrades')}
-          className={`pixel-btn pixel-22 ${tab === 'upgrades' ? 'pixel-btn-accent' : ''}`}
-          style={{ flex: '1 1 auto', padding: 'var(--space-2) var(--space-1)', position: 'relative' }}
-        >
-          Апгрейды
-          {upgradesCount > 0 && (
-            <span
-              key={upgradesCount}
-              className="tab-badge--pulse body-font"
-              style={{
-                marginLeft: 'var(--space-1)',
-                backgroundColor: 'var(--red)',
-                /* Чистый белый на насыщенной заливке: --text-main уводит подпись в тёплый
-                   и роняет и без того пограничную пару до 3.06:1. */
-                color: '#fff',
-                fontSize: '0.7rem',
-                padding: 'var(--space-0) var(--space-1)',
-              }}
+        {upgradesTab && (
+          // Слот держит стрелку подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы.
+          <div style={{ flex: '1 1 auto', position: 'relative', display: 'flex' }}>
+            <button
+              onClick={() => setTab('upgrades')}
+              className={`pixel-btn pixel-22 ${shownTab === 'upgrades' ? 'pixel-btn-accent' : ''}`}
+              style={{ flex: 1, padding: 'var(--space-2) var(--space-1)', position: 'relative' }}
             >
-              {upgradesCount}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setTab('perks')}
-          className={`pixel-btn pixel-22 ${tab === 'perks' ? 'pixel-btn-accent' : ''}`}
-          title={
-            finale
-              ? 'Ты дошёл до последнего поколения — дальше престиж недоступен'
-              : prestigeReady
-                ? undefined
-                : 'Найми 1 агента флагмана, чтобы разблокировать престиж'
-          }
-          style={{
-            flex: '1 1 auto',
-            padding: 'var(--space-2) var(--space-1)',
-            ...(prestigeLocked
-              ? { color: 'var(--text-muted)', borderColor: 'var(--border)' }
-              : undefined),
-          }}
-        >
-          Престиж
-        </button>
+              Апгрейды
+              {upgradesCount > 0 && (
+                <span
+                  key={upgradesCount}
+                  className="tab-badge--pulse body-font"
+                  style={{
+                    marginLeft: 'var(--space-1)',
+                    backgroundColor: 'var(--red)',
+                    /* Чистый белый на насыщенной заливке: --text-main уводит подпись в тёплый
+                       и роняет и без того пограничную пару до 3.06:1. */
+                    color: '#fff',
+                    fontSize: '0.7rem',
+                    padding: 'var(--space-0) var(--space-1)',
+                  }}
+                >
+                  {upgradesCount}
+                </span>
+              )}
+            </button>
+            {shownTab !== 'upgrades' && <CoachArrow target="tab-upgrades" single={full} />}
+          </div>
+        )}
+        {prestigeTab && (
+          <button
+            onClick={() => setTab('perks')}
+            className={`pixel-btn pixel-22 ${shownTab === 'perks' ? 'pixel-btn-accent' : ''}`}
+            title={
+              finale
+                ? 'Ты дошёл до последнего поколения — дальше престиж недоступен'
+                : prestigeReady
+                  ? undefined
+                  : 'Найми 1 агента флагмана, чтобы разблокировать престиж'
+            }
+            style={{
+              flex: '1 1 auto',
+              padding: 'var(--space-2) var(--space-1)',
+              ...(prestigeLocked
+                ? { color: 'var(--text-muted)', borderColor: 'var(--border)' }
+                : undefined),
+            }}
+          >
+            Престиж
+          </button>
+        )}
       </div>
 
       {/* Верхняя панель множителей для Моделей */}
-      {tab === 'models' && (
+      {shownTab === 'models' && (
         <div
           style={{
             display: 'flex',
@@ -1493,7 +1525,7 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
       {/* Контент активной вкладки. key по вкладке: переключение даёт короткое появление
           только через opacity toast-fade, состояние tab не трогаем. */}
       <div
-        key={tab}
+        key={shownTab}
         style={{
           flex: 1,
           overflowY: 'auto',
@@ -1503,9 +1535,9 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           animation: 'toast-fade 0.15s ease-out',
         }}
       >
-        {tab === 'models' && <ModelsTab expandedAA={expandedAA} toggleAA={toggleAA} />}
-        {tab === 'upgrades' && <UpgradesTab />}
-        {tab === 'perks' && <PerksTab onBackToModels={() => setTab('models')} />}
+        {shownTab === 'models' && <ModelsTab expandedAA={expandedAA} toggleAA={toggleAA} single={full} />}
+        {shownTab === 'upgrades' && <UpgradesTab />}
+        {shownTab === 'perks' && <PerksTab onBackToModels={() => setTab('models')} />}
       </div>
     </div>
   );
