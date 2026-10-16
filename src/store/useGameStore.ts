@@ -73,6 +73,10 @@ export type BuyAmount = 1 | 10 | 100 | 'max';
 export type EffectSwitch = 'particles' | 'floaters' | 'shake' | 'ticker';
 /** Канал громкости поверх общей: музыка или звуковые эффекты. */
 export type VolumeChannel = 'music' | 'sfx';
+/** Подразделы вкладки «Престиж». Хранятся в UI-слое стора, а не в колонке: колонку размонтирует
+ *  смена нижней вкладки на телефоне, а выбранный подраздел должен пережить возврат на вкладку. */
+export type PrestigeSection = 'prestige' | 'perks' | 'legacy';
+
 export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'perks' | 'stats' | 'achievements' | 'settings';
 
 export interface ToastMessage {
@@ -225,6 +229,7 @@ interface GameStore {
    *  условия отказа живут там, а не в окне. */
   prestigePrompt: boolean;
   activeTab: ActiveTab;
+  prestigeSection: PrestigeSection;
   /** Скрыта ли страница. Вне GameState: это «где сейчас игрок», а не состояние Забега, и в сейв
    *  оно не попадает — молчание не настройка, и мьют с ползунком остаются такими, как есть. */
   tabHidden: boolean;
@@ -303,6 +308,7 @@ interface GameStore {
   setBuyAmount: (amt: BuyAmount) => void;
   setSellMode: (mode: boolean) => void;
   setActiveTab: (tab: ActiveTab) => void;
+  setPrestigeSection: (section: PrestigeSection) => void;
   /** Страница скрыта (фоновая вкладка, свёрнутое окно): звук молчит, пока она такая. Зовётся
    *  подпиской на `visibilitychange`; повтор того же значения ничего не делает. */
   setTabHidden: (hidden: boolean) => void;
@@ -824,6 +830,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     pendingAway: null,
     prestigePrompt: false,
     activeTab: 'click',
+    prestigeSection: 'prestige',
     tabHidden: false,
     buyAmount: 1,
     sellMode: false,
@@ -1296,6 +1303,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       set({ sellMode: mode });
     },
     setActiveTab: (tab: ActiveTab) => set({ activeTab: tab }),
+    setPrestigeSection: (section: PrestigeSection) => set({ prestigeSection: section }),
     // Звук получает настройки как есть: тишина живёт в звуковом модуле отдельно от мьюта и
     // громкости, поэтому возвращение снимает её, не гадая, что игрок выбрал до ухода.
     setTabHidden: (hidden: boolean) => {

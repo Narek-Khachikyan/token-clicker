@@ -376,8 +376,15 @@ export function offlineBreakdown(state: GameState, earned: number): OfflineRow[]
  */
 export function shatterCrystal(state: GameState): GameState {
   if (Math.floor(state.crystals) < 1) return state;
-  const payout = Math.max(offlineIncome(state) * 3600, state.tokens * 0.15);
-  return earnTokens({ ...state, crystals: state.crystals - 1 }, payout);
+  return earnTokens({ ...state, crystals: state.crystals - 1 }, shatterPayout(state));
+}
+
+/**
+ * Сколько Токенов даст разбитие кристалла прямо сейчас. Отдельная функция, чтобы кнопка в
+ * интерфейсе называла ту же сумму, что платит `shatterCrystal`, а не считала свою копию.
+ */
+export function shatterPayout(state: GameState): number {
+  return Math.max(offlineIncome(state) * 3600, state.tokens * 0.15);
 }
 
 /**

@@ -1158,6 +1158,26 @@ describe('starting a challenge', () => {
   });
 });
 
+describe('the prestige tab section', () => {
+  beforeEach(() => useGameStore.setState({ prestigeSection: 'prestige' }));
+
+  it('opens on «Престиж» and remembers the section the player picked, whatever tab comes between', () => {
+    expect(store().prestigeSection).toBe('prestige');
+    store().setPrestigeSection('legacy');
+    store().setActiveTab('click');
+    store().setActiveTab('perks');
+    expect(store().prestigeSection).toBe('legacy');
+    store().setPrestigeSection('perks');
+    expect(store().prestigeSection).toBe('perks');
+  });
+
+  it('does not touch the game state or the save, since the section is only where the player looks', () => {
+    const before = state();
+    store().setPrestigeSection('perks');
+    expect(state()).toBe(before);
+  });
+});
+
 describe('the volume setting', () => {
   // Стор — единственный владелец состояния, поэтому границы держит он: значение приходит из
   // ползунка и из импортируемого файла, а volume: 9999 означал бы хрип вместо музыки.
