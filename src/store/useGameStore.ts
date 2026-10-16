@@ -64,7 +64,6 @@ import {
   setAudioHidden,
 } from '../audio/sound';
 import type { LabId } from '../data/labs';
-import { PROMPT_TEMPLATES } from '../data/prompts';
 import { rewardMoment, type RewardMoment } from '../economy/rewardMoment';
 import { playCoolingSound, playHallucinationSound, updateThermalAudio } from '../audio/thermal';
 import { duckMusic } from '../audio/music';
@@ -155,12 +154,6 @@ function mergeReports(a: OfflineReport, b: OfflineReport): OfflineReport {
   };
 }
 
-interface ChatMessage {
-  id: number;
-  userPrompt: string;
-  aiResponse: string;
-}
-
 /** Реплика говорящей Модели, показанная пузырём в офисе. Вне GameState, как burst: это
  *  «показываем ли мы», а не состояние игры, и её добавление не должно стоить миграции.
  *  Тождество — nonce: потребитель смотрит на него, поэтому две одинаковые реплики подряд
@@ -171,27 +164,6 @@ export interface LastQuip {
   lab: LabId | null;
   nonce: number;
 }
-
-/**
- * Шаблон, который нельзя повторить дважды подряд.
- *
- * Один `Math.random` давал две одинаковые реплики подряд примерно в одном случае из
- * восьми, и чат выглядел залипшим наглухо. Индекс живёт в UI-слое рядом со счётчиками и в
- * GameState не попадает: это не часть сохранения, и его добавление не должно стоить миграции.
- */
-let lastTemplateIndex = -1;
-const nextTemplateIndex = (): number => {
-  const len = PROMPT_TEMPLATES.length;
-  const i = Math.floor(Math.random() * len);
-  if (i !== lastTemplateIndex) {
-    lastTemplateIndex = i;
-    return i;
-  }
-  // Выбор из остальных: сдвиг на единицу давал бы заметный перекос в пользу следующего шаблона.
-  const j = (i + 1 + Math.floor(Math.random() * (len - 1))) % len;
-  lastTemplateIndex = j;
-  return j;
-};
 
 /**
  * Поднимает стадию до уровня своего Поколения; ничего не меняет — возвращает тот же объект,
@@ -279,7 +251,6 @@ interface GameStore {
   clickSparks: ClickSparkBurst[];
   /** Моменты последних Кликов для Серии. Вне GameState: Серия живёт секунды и в сейв не идёт. */
   clickMoments: readonly number[];
-  chatHistory: ChatMessage[];
   /** Пузырь реплики в офисе, null = пузырь скрыт. Авто-скрытие — bounded one-shot в clickPrompt. */
   lastQuip: LastQuip | null;
   /** Модель последней покупки Агентов: её Лаборатория говорит следующим Кликом. Вне GameState
@@ -450,8 +421,6 @@ let floaterCounter = 0;
 let sparkCounter = 0;
 /** Момент последнего Клика удержания: общий для всех слушателей, как и потолок. */
 let lastHoldClickAt = -Infinity;
-
-let chatCounter = 0;
 let toastCounter = 0;
 let burstCounter = 0;
 let momentCounter = 0;
@@ -884,13 +853,6 @@ export const useGameStore = create<GameStore>((set, get) => {
     floaters: [],
     clickSparks: [],
     clickMoments: [],
-    chatHistory: [
-      {
-        id: 0,
-        userPrompt: 'Запуск системы Token Clicker...',
-        aiResponse: 'Добро пожаловать в эру искусственного интеллекта! Нажми «Отправить промпт».',
-      },
-    ],
     lastQuip: null,
     lastBoughtModelId: null,
     burst: null,
@@ -941,7 +903,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     clickPrompt: (x?: number, y?: number) => {
-      const { state, floaters, chatHistory, lastBoughtModelId, clickSparks, clickMoments } = get();
+      const { state, floaters, lastBoughtModelId, clickSparks, clickMoments } = get();
       const earned = clickValue(state);
       const clicked = engineClick(state);
       // Серия считается по моментам Кликов и нигде не входит в `earned`: цена Клика на любом
@@ -973,17 +935,6 @@ export const useGameStore = create<GameStore>((set, get) => {
         ? [...clickSparks.slice(-(CLICK_SPARK_CAP - 1)), { id: sparkId, x: x ?? window.innerWidth / 2, y: y ?? window.innerHeight / 2, level }]
         : clickSparks;
 
-      // Обновление чата раз в несколько кликов
-      let newChat = chatHistory;
-      if (clicked.clicks % 5 === 1) {
-        const pair = PROMPT_TEMPLATES[nextTemplateIndex()];
-        chatCounter++;
-        newChat = [
-          { id: chatCounter, userPrompt: pair[0], aiResponse: pair[1] },
-          ...chatHistory.slice(0, 4),
-        ];
-      }
-
       // Реплика показана только для нового id: повтор услышанного не пишется в Переписку
       // и не звучит — собранная коллекция молчит, а не гоняет повторы. Дубль id ядро может
       // вернуть как fallback, когда всё услышано, но стор его не показывает: показ повтора
@@ -1001,7 +952,6 @@ export const useGameStore = create<GameStore>((set, get) => {
           floaters: newFloaters,
           clickSparks: newSparks,
           clickMoments: moments,
-          chatHistory: newChat,
           lastQuip: { id: quip.id, text: quip.text, lab: quip.lab, nonce },
         });
         // Bounded one-shot, а не интервал: пузырь уходит сам один раз, и только если его
@@ -1016,7 +966,6 @@ export const useGameStore = create<GameStore>((set, get) => {
           floaters: newFloaters,
           clickSparks: newSparks,
           clickMoments: moments,
-          chatHistory: newChat,
         });
       }
       // Отложенная запись, а не немедленная: Кликов двадцать в секунду не бывает, но пять бывает,

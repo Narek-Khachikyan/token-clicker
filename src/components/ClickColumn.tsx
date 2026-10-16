@@ -392,95 +392,6 @@ const PurchaseProgress: React.FC = () => {
   );
 };
 
-/** Переписка с моделью: свежая пара лежит первой и меняется только на Клик. */
-const ChatLog: React.FC = () => {
-  const chatHistory = useGameStore((s) => s.chatHistory);
-  const chatRef = useRef<HTMLDivElement>(null);
-
-  // Свежая пара лежит первой, поэтому якорь — это ноль прокрутки, а не конец списка.
-  const newestReplyId = chatHistory[0]?.id;
-  useEffect(() => {
-    chatRef.current?.scrollTo({ top: 0 });
-  }, [newestReplyId]);
-
-  return (
-    <div
-      style={{
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-2)',
-        marginTop: 'var(--space-1)',
-        flex: 1,
-      }}
-    >
-      <div style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>Диалог с моделью:</div>
-
-      {/* Якорь на свежую реплику. Свежая пара кладётся сверху, поэтому после прихода она
-          выталкивает прочитанное вниз и без якоря игрок вынужден искать её прокруткой.
-          Ставится ровно на смену верхней пары: пока игрок читает старую, лента не дёргается
-          под ногами. */}
-      <div
-        ref={chatRef}
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-2)',
-          overflowY: 'auto',
-          maxHeight: '340px',
-          paddingRight: 'var(--space-1)',
-        }}
-      >
-        {/* Только свежая обменная реплика: старые уже стоят на месте, и анимация на них
-            давно доиграла. Класс на новой реплике появляется вместе с её узлом. */}
-        {chatHistory.map((item, index) => (
-          <div
-            key={item.id}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--space-1)',
-              fontSize: '0.85rem',
-            }}
-          >
-            {/* Промпт игрока */}
-            <div
-              className={index === 0 ? 'chat-prompt--in' : undefined}
-              style={{
-                alignSelf: 'flex-end',
-                backgroundColor: 'var(--accent-solid-hover)',
-                color: 'var(--text-main)',
-                padding: 'var(--space-1) var(--space-2)',
-                maxWidth: '85%',
-                wordBreak: 'break-word',
-              }}
-            >
-              {item.userPrompt}
-            </div>
-
-            {/* Ответ ИИ */}
-            <div
-              className={index === 0 ? 'chat-reply--in' : undefined}
-              style={{
-                alignSelf: 'flex-start',
-                backgroundColor: 'var(--bg-card)',
-                color: 'var(--text-main)',
-                padding: 'var(--space-1) var(--space-2)',
-                border: 'var(--frame-w) solid var(--border)',
-                maxWidth: '90%',
-                whiteSpace: 'pre-line',
-                wordBreak: 'break-word',
-              }}
-            >
-              {item.aiResponse}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
 /**
  * Колонка Клика: каркас и порядок блоков. Данные из состояния читает каждый блок сам, поэтому
  * колонка не перерисовывается от тика — единственное, что она решает сама, это есть ли сейчас
@@ -551,8 +462,6 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           При пустом кошельке первого запуска полоска нулевая, но подсказка уже стоит —
           пустой полоски без текста здесь не бывает. */}
       <PurchaseProgress />
-
-      <ChatLog />
     </div>
   );
 };
