@@ -2003,3 +2003,73 @@ describe('the Серия and holding a key down', () => {
     expect(state().tokens - before).toBe(price);
   });
 });
+
+describe('горячие клавиши в сторе', () => {
+  beforeEach(() => {
+    freshStore();
+    useGameStore.setState({ shopTab: 'models', helpOpen: false, activeTab: 'click' });
+  });
+
+  it('1, 2 and 3 open the Models, Upgrades and Prestige tabs of the shop', () => {
+    store().runHotkey({ kind: 'shopTab', tab: 'upgrades' });
+    expect(store().shopTab).toBe('upgrades');
+    store().runHotkey({ kind: 'shopTab', tab: 'perks' });
+    expect(store().shopTab).toBe('perks');
+    store().runHotkey({ kind: 'shopTab', tab: 'models' });
+    expect(store().shopTab).toBe('models');
+  });
+
+  it('a tab key also brings the shop to the screen on a phone, where one column shows at a time', () => {
+    useGameStore.setState({ activeTab: 'click' });
+    store().runHotkey({ kind: 'shopTab', tab: 'upgrades' });
+    expect(store().activeTab).toBe('shop');
+  });
+
+  it('? opens the key card and a second ? closes it', () => {
+    store().runHotkey({ kind: 'help' });
+    expect(store().helpOpen).toBe(true);
+    store().runHotkey({ kind: 'help' });
+    expect(store().helpOpen).toBe(false);
+  });
+
+  it('a hotkey never touches the run: no Токены, no Агенты, nothing to save', () => {
+    const before = state();
+    store().runHotkey({ kind: 'shopTab', tab: 'perks' });
+    store().runHotkey({ kind: 'help' });
+    expect(state()).toBe(before);
+  });
+});
+
+describe('покупка с модификатором', () => {
+  beforeEach(() => {
+    freshStore();
+    withTokens(1e30);
+  });
+
+  it('buys exactly the requested amount and leaves the chosen ×N alone', () => {
+    store().buyAgents(first.id, 10);
+    expect(state().agents[first.id]).toBe(10);
+    expect(store().buyAmount).toBe(1);
+  });
+
+  it('with no amount it buys what the buttons chose, as before', () => {
+    useGameStore.setState({ buyAmount: 10 });
+    store().buyAgents(first.id);
+    expect(state().agents[first.id]).toBe(10);
+  });
+
+  it('Max spends what Max spends: the same purchase as choosing Max by button', () => {
+    const viaButton = engineBuyAgents(state(), first.id, 'max');
+    store().buyAgents(first.id, 'max');
+    expect(state().agents[first.id]).toBe(viaButton.agents[first.id]);
+    expect(state().tokens).toBe(viaButton.tokens);
+  });
+
+  it('a modifier on a sale sells that amount, capped at what is owned', () => {
+    store().buyAgents(first.id, 100);
+    store().sellAgents(first.id, 10);
+    expect(state().agents[first.id]).toBe(90);
+    store().sellAgents(first.id, 'max');
+    expect(state().agents[first.id] ?? 0).toBe(0);
+  });
+});

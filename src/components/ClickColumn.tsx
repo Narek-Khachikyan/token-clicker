@@ -3,7 +3,7 @@ import { motionAllowed, reduceMotionMedia, useGameStore, useStateSlice } from '.
 import { clickButtonView, incomeOf, incomeView, purchaseProgressView } from '../store/selectors';
 import { formatNumber } from '../economy/format';
 import { COUNTER_CHARS, COUNTER_STEP, floaterLeft, floaterStep } from '../layout';
-import { holdClickAllowed, isHoldKey } from './holdClickKeys';
+import { holdClickAllowed, isHoldKey, readKeyTarget } from './holdClickKeys';
 import { Num } from './Num';
 import { FullNumber } from './FullNumber';
 import { Icon } from './Icon';
@@ -269,19 +269,8 @@ const ClickButton: React.FC = () => {
   // на телефоне вне вкладки «Промпт» клавиши ей не принадлежат.
   useEffect(() => {
     const handled = new Set<string>();
-    const target = (e: KeyboardEvent) => {
-      const el = e.target instanceof HTMLElement ? e.target : null;
-      return {
-        tag: el?.tagName ?? '',
-        editable: el?.isContentEditable ?? false,
-        role: el?.getAttribute('role') ?? null,
-        isClickButton: el !== null && el === btnRef.current,
-        // Окна — aria-modal; занавес Престижа не окно, но так же закрывает экран и мышь.
-        dialogOpen: document.querySelector('[aria-modal="true"], .prestige-veil') !== null,
-      };
-    };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.isComposing || !isHoldKey(e) || !holdClickAllowed(target(e))) return;
+      if (e.defaultPrevented || e.isComposing || !isHoldKey(e) || !holdClickAllowed(readKeyTarget(e, btnRef.current))) return;
       // Без preventDefault Пробел прокрутил бы страницу, а Enter на кнопке дал бы второй Клик.
       e.preventDefault();
       handled.add(e.key);

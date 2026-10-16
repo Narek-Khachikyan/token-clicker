@@ -251,7 +251,7 @@ const EffectRow: React.FC<{
 // Повторный запрос во время выхода — игнор: иначе спам ✕ перезапускал бы выход.
 // Открытие (open поменялся) сбрасывает closing, иначе повторное открытие показало бы
 // выходной кадр вместо окна. Один вызов хука — одно окно, один таймер.
-function useModalExit(
+export function useModalExit(
   open: boolean,
   onClose: () => void,
 ): { closing: boolean; requestClose: () => void } {
@@ -379,7 +379,7 @@ interface ModalFrameProps {
  * оборачивает содержимое в один div и задаёт ритм сам — оболочка не навязывает его
  * содержимому, но и не запрещает ему свой.
  */
-const ModalFrame: React.FC<ModalFrameProps> = ({
+export const ModalFrame: React.FC<ModalFrameProps> = ({
   isOpen,
   closing,
   requestClose,

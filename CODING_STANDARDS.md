@@ -85,6 +85,10 @@ components/    presentation: reads state, calls actions
   (`ModelHintCard`) reads `modelCardSummary` from `src/economy/modelCard.ts`, whose breakdown comes
   from the same `modelMultiplier` the tick pays from; `FullNumber` shows `formatFull` for an
   abbreviated number. Where a hint sits is `placeHint` in `layout.ts`.
+- **Keys are `src/hotkeys.ts`** (1/2/3, `?`, the Shift/Ctrl/Cmd amount of a purchase) plus the hold of Space/Enter
+  in `ClickColumn` and Ctrl + arrows on the Температура dial. A key's meaning is a pure function; its effect is
+  the store's `runHotkey` / `buyAgents(id, amount)`; one guard (`holdClickKeys.ts`: not in a field, not over an
+  `aria-modal` window or the Престиж veil) serves all of them. A new key goes into `HOTKEY_HELP`, the «?» card.
 - **Audio is synthesized** — no files, no asset pipeline. `AudioContext` resumes only after a user
   gesture, so silence before the first click is expected. `sound.ts` owns the one context and the
   graph: the player's volume and mute live only on the master gain, the music and effects levels

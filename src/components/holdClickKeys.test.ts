@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { holdClickAllowed, isHoldKey, type HoldKeyTarget } from './holdClickKeys';
+import { holdClickAllowed, hotkeyAllowed, isHoldKey, type HoldKeyTarget } from './holdClickKeys';
 
 const on = (patch: Partial<HoldKeyTarget>): HoldKeyTarget => ({
   tag: 'DIV',
@@ -43,5 +43,27 @@ describe('когда удержание Пробела и Enter становит
     expect(key('a')).toBe(false);
     expect(key('Enter', { ctrlKey: true })).toBe(false);
     expect(key(' ', { metaKey: true })).toBe(false);
+  });
+});
+
+describe('когда цифра или «?» становятся горячей клавишей', () => {
+  it('works on an empty page and on a button that has focus, such as the tab just clicked', () => {
+    expect(hotkeyAllowed(on({ tag: 'BODY' }))).toBe(true);
+    expect(hotkeyAllowed(on({ tag: 'BUTTON' }))).toBe(true);
+    expect(hotkeyAllowed(on({ tag: 'DIV', role: 'slider' }))).toBe(true);
+  });
+
+  it('never types over a text field, in any spelling of one', () => {
+    expect(hotkeyAllowed(on({ tag: 'TEXTAREA' }))).toBe(false);
+    expect(hotkeyAllowed(on({ tag: 'input' }))).toBe(false);
+    expect(hotkeyAllowed(on({ tag: 'SELECT' }))).toBe(false);
+    expect(hotkeyAllowed(on({ editable: true }))).toBe(false);
+    expect(hotkeyAllowed(on({ role: 'textbox' }))).toBe(false);
+    expect(hotkeyAllowed(on({ role: 'combobox' }))).toBe(false);
+  });
+
+  it('does nothing while a window is open', () => {
+    expect(hotkeyAllowed(on({ tag: 'BODY', dialogOpen: true }))).toBe(false);
+    expect(hotkeyAllowed(on({ tag: 'BUTTON', dialogOpen: true }))).toBe(false);
   });
 });

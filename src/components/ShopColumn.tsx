@@ -36,6 +36,7 @@ import { ModelHintCard } from './ModelHintCard';
 import { Icon } from './Icon';
 import { ChallengeCard, PrestigeForecastCard, PrestigeSectionNav } from './PrestigeTab';
 import { playDenySound } from '../audio/sound';
+import { buyAmountFor } from '../hotkeys';
 
 // 8 искр из точки покупки. Радиус 14–26 px — чуть больше самой кнопки, поэтому жест читается
 // как отклик на нажатие, а не как залп.
@@ -530,7 +531,13 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
           </div>
 
           <button
-            onClick={() => (sellMode ? sellAgents(m.id) : buyAgents(m.id))}
+            // Shift — ×10, Ctrl/Cmd — Max на одно нажатие (hotkeys.ts); без модификатора берётся
+            // множитель кнопок. Клавиатурное нажатие Enter на кнопке несёт те же модификаторы.
+            onClick={(e) => {
+              const amount = buyAmountFor(buyAmount, e);
+              if (sellMode) sellAgents(m.id, amount);
+              else buyAgents(m.id, amount);
+            }}
             disabled={!canAfford}
             className={`pixel-btn pixel-btn-accent pixel-22 model-row__buy`}
             style={{
@@ -1311,7 +1318,10 @@ const PerksTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels }) 
  * вкладок читает своё само, поэтому тик колонку не перерисовывает.
  */
 const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
-  const [tab, setTab] = useState<'models' | 'upgrades' | 'perks'>('models');
+  // Вкладка в сторе, а не в колонке: горячие клавиши 1/2/3 приходят снаружи, и колонку на
+  // телефоне размонтирует смена нижней вкладки.
+  const tab = useGameStore((s) => s.shopTab);
+  const setTab = useGameStore((s) => s.setShopTab);
   // Раскрытые справки AA живут в колонке, а не во вкладке: вкладку размонтирует смена вкладки
   // магазина, а открытая справка не должна закрываться оттого, что игрок заглянул в Апгрейды.
   const [expandedAA, setExpandedAA] = useState<Record<string, boolean>>({});
