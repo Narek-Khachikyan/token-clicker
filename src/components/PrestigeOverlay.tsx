@@ -52,9 +52,7 @@ export const PrestigeOverlay: React.FC = () => {
     // Моты — частицы, и выключатель игрока гасит их, не трогая тиканье Compute и масштаб карточки.
     setWithMotes(effectAllowed('particles'));
     // Счётчик пишет прямо в DOM-ноду, как счётчик Токенов: ре-рендер на каждый кадр не нужен.
-    // Письмо идёт в textContent, поэтому класс pixel-font обязан стоять на самой этой ноде —
-    // на обёртке он остался бы в Nunito, и число меняло бы начертание в момент старта
-    // тиканья, то есть ровно тогда, когда игрок на него смотрит.
+    // Письмо идёт прямо в textContent этой ноды: React не должен знать о каждом кадре счёта.
     let raf = 0;
     if (motion && payload.computeGain > 0) {
       const t0 = performance.now() + TICK_DELAY_MS;
@@ -120,15 +118,14 @@ export const PrestigeOverlay: React.FC = () => {
         >
           ПРЕСТИЖ
         </div>
-        {/* Строка названия Поколения — в Nunito: слово «Поколение» кириллическое, а в
-            Pixelify Sans её нет (ADR-0003), и в пиксельном начертании она молча уходила в
-            фолбэк — слово обычным шрифтом рядом с пиксельным номером на одной строке.
-            Пиксельным остаётся только число, ради которого этот приём и существует. */}
-        <div style={{ fontSize: '1.6rem', color: 'var(--accent-color)' }}>
+        {/* Название Поколения — Departure Mono на ступени 33 px, число Compute — на 22 (ADR-0009).
+            Шрифт покрывает «О» и «П», поэтому слово и число стоят в одном начертании, и строку
+            больше не надо разбирать на части. */}
+        <div className="pixel-33" style={{ color: 'var(--accent-color)' }}>
           Поколение <Num>{shown.generation + 1}</Num>: {gen.name}
         </div>
-        <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
-          +<span ref={gainRef} className="pixel-font">
+        <div className="pixel-22" style={{ color: 'var(--text-main)' }}>
+          +<span ref={gainRef}>
             {withMotion ? 0 : formatNumber(shown.computeGain, notation)}
           </span>{' '}
           Compute навсегда

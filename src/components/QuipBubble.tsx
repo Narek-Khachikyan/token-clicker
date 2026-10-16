@@ -171,13 +171,13 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
         >
           <h2
             id="quiplog-title"
+            className="pixel-22"
             style={{
               display: "flex",
               flexWrap: "wrap",
               alignItems: "center",
               gap: 'var(--space-2)',
               minWidth: 0,
-              fontSize: "1.2rem",
               color: "var(--gold)",
               // Капс даёт text-transform, а не текст в DOM: иначе скринридер читал бы
               // «П Е Р Е П И С К А» по буквам, а имя окна — это то, что он произносит.
@@ -249,11 +249,11 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
 
 /**
  * Счётчик у названия Переписки: «7 из 42». Слово «из», а не слеш, — и для глаза, и для
- * произносимого вслух. Цифры пиксельным шрифтом, который по ADR-0003 выдерживает только
- * строку без кириллицы, поэтому «из» стоит рядом числом, а не внутри него.
+ * произносимого вслух. Стоит внутри заголовка окна, набранного Departure Mono на 22 px, а сам
+ * мельче ступени, поэтому `body-font` возвращает его в Nunito (ADR-0009).
  */
 const QuipCount: React.FC<{ seen: number; total: number }> = ({ seen, total }) => (
-  <span style={{ fontSize: "0.9rem", color: "var(--text-muted)", fontWeight: 400 }}>
+  <span className="body-font" style={{ fontSize: "0.9rem", color: "var(--text-muted)", fontWeight: 400 }}>
     (<Num>{seen}</Num> из <Num>{total}</Num>)
   </span>
 );

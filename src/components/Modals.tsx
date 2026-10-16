@@ -115,9 +115,8 @@ const AchievementCard: React.FC<{
         <span style={SR_ONLY}>
           {unlocked ? (shadow ? 'Теневое получено' : 'Получено') : 'Ещё не получено'}
         </span>
-        {/* Без pixel-font: название Достижения по-русски, а в Pixelify Sans нет
-            заглавных «О» и «П», и они молча уходили в фолбэк прямо посреди слова
-            («Промпт-джуниор»). Это ровно то, что ADR-0003 запрещает. */}
+        {/* Название Достижения — Nunito: оно мельче 22 px, а пиксельный шрифт бывает только на
+            ступенях 22/33/44 (ADR-0009). */}
         <div
           /* Светлее --green намеренно: так открытое Достижение читается ярче закрытой
              карточки, а --green на подложке сравнялся бы с --text-muted описания рядом.
@@ -290,7 +289,6 @@ const MODAL_MAX_WIDTH = 520;
 const MODAL_MAX_HEIGHT = '85vh';
 const MODAL_PAD = 'var(--space-4)';
 const MODAL_GAP = 'var(--space-3)';
-const MODAL_TITLE_SIZE = '1.2rem';
 
 /** Слой окон. Тосты живут на 100 (см. useDialogFocus: тост о Достижении обязан пережить
  *  открытое окно), оверлей Престижа — на 40, поэтому единого 50 хватает всем окнам. Бывшие
@@ -454,6 +452,7 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
               поэтому окно — второй уровень, и скринридер получает имя из aria-labelledby. */}
           <h2
             id={titleId}
+            className="pixel-22"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -462,7 +461,6 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
               // крестик, поэтому minWidth 0 плюс перенос, а не жёсткое nowrap.
               flexWrap: 'wrap',
               minWidth: 0,
-              fontSize: MODAL_TITLE_SIZE,
               color: TONE_TITLE[tone],
               // Капс даёт text-transform, а не текст в DOM: иначе скринридер читал бы
               // «Д О С Т И Ж Е Н И Я» по буквам, а имя окна — это то, что он произносит.
@@ -512,11 +510,12 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
 
 /**
  * Счётчик рядом с названием окна: «12 из 21». Слово «из», а не слеш, — и для читающего
- * глаза, и для произносимого вслух (слеш скринридер читает как «слэш»). Цифры остаются
- * пиксельным шрифтом: строка из одних чисел такой шрифт по ADR-0003 выдерживает.
+ * глаза, и для произносимого вслух (слеш скринридер читает как «слэш»). Стоит внутри заголовка
+ * окна, набранного Departure Mono на 22 px, а сам мельче ступени, поэтому `body-font` возвращает
+ * его в Nunito (ADR-0009).
  */
 const ModalCount: React.FC<{ earned: number; total: number }> = ({ earned, total }) => (
-  <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+  <span className="body-font" style={{ fontSize: '0.9rem', color: 'var(--text-muted)', fontWeight: 400 }}>
     (<Num>{earned}</Num> из <Num>{total}</Num>)
   </span>
 );
@@ -588,8 +587,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
           borderTop: 'var(--frame-w) solid var(--border)',
         }}
       >
-        {/* Без pixel-font: в строке есть кириллица, а по ADR-0003 пиксельный шрифт
-            допустим только там, где её нет. Подпись рядом есть, поэтому луна скрыта. */}
+        {/* Подпись рядом есть, поэтому значок луны скрыт от скринридера. */}
         <span
           style={{
             display: 'inline-flex',
@@ -681,8 +679,7 @@ const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
   // значило бы держать в компоненте вторую копию формулы, которая разойдётся с ним при первой
   // правке баланса.
   const toNextUnit = computeShortfall(state);
-  // Единица измерения — кириллица, поэтому она стоит рядом с числом, а не внутри него
-  // (ADR-0003): пиксельный шрифт на строке с «ч» ушёл бы в фолбэк.
+  // Единица измерения стоит рядом с числом, а не внутри него: `Num` оборачивает только число.
   const perHour = (v: number | null): React.ReactNode =>
     v === null ? '—' : (
       <>
@@ -690,8 +687,8 @@ const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
       </>
     );
 
-  // Значение-узел, а не строка: строка целиком из числа остаётся пиксельной (ADR-0003), а
-  // строка со словом («3 ч 12 мин», «1: Рассвет») набирается Nunito.
+  // Значение-узел, а не строка: число обёрнуто в `Num`, а строка со словом («3 ч 12 мин»,
+  // «1: Рассвет») остаётся обычным текстом.
   const statRows: [string, React.ReactNode][] = [
     ['Токенов сейчас', <Num key="tokens">{formatNumber(state.tokens, notation)}</Num>],
     ['Токенов за текущий Забег', <Num key="runTokens">{formatNumber(state.runTokens, notation)}</Num>],
@@ -1290,8 +1287,8 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
       footer={
         <button
           onClick={requestClose}
-          className="pixel-btn pixel-btn-accent"
-          style={{ flex: 1, padding: 'var(--space-3)', fontSize: '1.1rem' }}
+          className="pixel-btn pixel-btn-accent pixel-22"
+          style={{ flex: 1, padding: 'var(--space-3)' }}
         >
           Забрать Токены!
         </button>
@@ -1326,8 +1323,8 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
       )}
 
       <div
+        className="pixel-33"
         style={{
-          fontSize: '2rem',
           color: 'var(--green-text)',
           // Ореол — переменная со своим назначением: --tint-green это 10% подложка, а
           // свечению нужно 50%, ради него и заведена --green-glow.
@@ -1371,8 +1368,6 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
       >
         {labRows.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-            {/* Без pixel-font: в заголовке есть кириллица, а по ADR-0003 пиксельный шрифт
-                допустим только на строках без неё. */}
             <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Кто заработал</div>
             {labRows.map((row) => (
               <div
@@ -1392,8 +1387,7 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
                 <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)' }}>
                   {LABS[row.lab].name}
                 </span>
-                {/* Строка целиком из числа: пиксельный шрифт тут разрешён (ADR-0003). */}
-                <span className="pixel-font" style={{ color: 'var(--green)', fontWeight: 600 }}>
+                <span className="num" style={{ color: 'var(--green)', fontWeight: 600 }}>
                   +{formatNumber(row.earned, notation)}
                 </span>
               </div>
@@ -1413,8 +1407,6 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
                 fontSize: '0.85rem',
               }}
             >
-              {/* Имя Модели без pixel-font: оно склеено со словом «Агент:», а по ADR-0003
-                  пиксельный шрифт допустим только на строках без кириллицы. */}
               <div style={{ color: 'var(--text-main)' }}>
                 Агент: <span>{bestModel.name}</span>
               </div>
@@ -1442,11 +1434,10 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
                 fontSize: '0.85rem',
               }}
             >
-              {/* Имя Апгрейда без pixel-font — та же причина, что и у Модели выше. */}
               <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)' }}>
                 Апгрейд: <span>{u.name}</span>
               </span>
-              <span className="pixel-font" style={{ color: 'var(--accent-color)' }}>
+              <span className="num" style={{ color: 'var(--accent-color)' }}>
                 {formatNumber(u.cost, notation)}
               </span>
             </div>
@@ -1614,7 +1605,7 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
               <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
                 Начислим Compute
               </span>
-              <span style={{ fontSize: '1.6rem', color: 'var(--gold)', fontWeight: 700 }}>
+              <span className="pixel-33" style={{ color: 'var(--gold)' }}>
                 <Num>{`+${formatNumber(preview.gain, notation)}`}</Num>
               </span>
             </div>
@@ -1634,8 +1625,6 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
                   }}
                 >
                   <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-                  {/* Слово рядом с числом — в Nunito: по ADR-0003 пиксельный шрифт живёт
-                      только внутри числа, поэтому Num стоит на самом числе. */}
                   <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{value}</span>
                 </div>
               ))}

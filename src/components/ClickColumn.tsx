@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { motionAllowed, reduceMotionMedia, useGameStore, useStateSlice } from '../store/useGameStore';
 import { clickButtonView, incomeView, purchaseProgressView } from '../store/selectors';
 import { formatNumber } from '../economy/format';
+import { COUNTER_CHARS, COUNTER_STEP } from '../layout';
 import { Num } from './Num';
 import { Icon } from './Icon';
 import { GoldenToken } from './GoldenToken';
@@ -37,7 +38,10 @@ const TokenCounter: React.FC = () => {
 
     let painted = '';
     const paint = (value: number) => {
-      const text = formatNumber(value, notation);
+      // Запись дополняется пробелами до резерва `COUNTER_CHARS` (ячейки моноширинного шрифта
+      // одинаковы, пробел тоже ячейка), поэтому ширина текста не зависит от числа знаков:
+      // растущий счётчик не двигает ничего правее и ниже себя.
+      const text = formatNumber(value, notation).padEnd(COUNTER_CHARS);
       if (text !== painted) {
         node.textContent = text;
         painted = text;
@@ -114,19 +118,14 @@ const TokenCounter: React.FC = () => {
   return (
     <>
       {/* Пустой узел: текст сюда пишет только requestAnimationFrame, и любой ререндер
-          React затирал бы его своими детьми. */}
+          React затирал бы его своими детьми. `pre` оставляет дополняющие пробелы ячейками, а
+          не схлопывает их. */}
       <div
         ref={counterRef}
-        className="pixel-font"
+        className={`pixel-${COUNTER_STEP}`}
         style={{
-          fontSize: '2.2rem',
-          fontWeight: 700,
           color: 'var(--accent-color)',
-          lineHeight: 1.1,
-          // nowrap плюс блочная коробка во всю ширину держат колонку: разряд больше не
-          // перетекает весь столбец. Табличные цифры не заказаны — в Pixelify Sans нет
-          // фичи tnum, см. пояснение в index.css.
-          whiteSpace: 'nowrap',
+          whiteSpace: 'pre',
           textShadow: '0 0 12px var(--accent-glow)',
         }}
       />
@@ -142,14 +141,7 @@ const IncomeLine: React.FC = () => {
   const { text, zero } = useStateSlice(incomeView);
   return (
     <>
-      <div
-        style={{
-          fontSize: '1.1rem',
-          color: 'var(--green)',
-          marginTop: 'var(--space-2)',
-          fontWeight: 600,
-        }}
-      >
+      <div className="pixel-22" style={{ color: 'var(--green)', marginTop: 'var(--space-2)', whiteSpace: 'nowrap' }}>
         +<Num bump>{text}</Num> / сек
       </div>
       {/* Подсказка при нулевом Доходе: игрок без Агентов иначе видит голый «+0/сек»
@@ -172,7 +164,7 @@ const Floaters: React.FC = () => {
   return (
     <>
       {floaters.map((f) => (
-        <div key={f.id} className="floater" style={{ left: f.x, top: f.y }}>
+        <div key={f.id} className="floater pixel-22" style={{ left: f.x, top: f.y }}>
           {f.text}
         </div>
       ))}
@@ -215,14 +207,13 @@ const ClickButton: React.FC = () => {
       style={{
         width: '100%',
         padding: 'var(--space-5) var(--space-4)',
-        fontSize: '1.25rem',
         flexDirection: 'column',
         gap: 'var(--space-2)',
         '--click-power': power,
       } as React.CSSProperties}
     >
       <Icon name="chat" size={30} />
-      <span>Отправить промпт</span>
+      <span className="pixel-33">Отправить промпт</span>
       <span
         style={{
           fontSize: '0.85rem',
@@ -404,7 +395,7 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
       <Floaters />
 
       {/* Токены и Доход */}
-      <div className="click-counter" style={{ textAlign: 'center', width: '100%' }}>
+      <div className="click-counter" style={{ textAlign: 'left', width: '100%' }}>
         <TokenCounter />
         <IncomeLine />
       </div>

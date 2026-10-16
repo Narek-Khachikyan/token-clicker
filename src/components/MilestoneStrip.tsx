@@ -56,8 +56,7 @@ export const MilestoneStrip: React.FC = () => {
         </span>
       </div>
       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{hint}</div>
-      {/* Награда видна сразу, а не по факту: игрок должен видеть, ради чего тянуть.
-          Число и слово разбираются на части — «+2.50 K» не является числом (ADR-0003). */}
+      {/* Награда видна сразу, а не по факту: игрок должен видеть, ради чего тянуть. */}
       <div style={{ fontSize: '0.75rem', color: 'var(--gold)' }}>
         Награда: +<Num>{reward}</Num> Токенов
       </div>

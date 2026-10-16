@@ -42,8 +42,8 @@ const MASCOT_SIZE = 48;
 // Нижняя граница ширины колонки ленты Маскотов, и число колонок на этот раз считает сама
 // сетка: фиксированный repeat() на 320 px делил восемь колонок по 33 px, и Маскоты в 48 px
 // наезжали друг на друга, а крайние ещё и обрезались краями Сцены. Порог задаёт не Маскот,
-// а его счётчик — самая широкая обычная строка formatNumber, «×1.23e300» в sci, это 62.7 px
-// в Pixelify Sans 12.8 px вместе с жёстким контуром. Восемь таких колонок — 512 px —
+// а его счётчик — самая широкая обычная строка formatNumber, «×1.23e300» в sci, это 63.5 px
+// в Nunito 12.8 px (замерено; контур text-shadow рисуется поверх и места не занимает). Восемь таких колонок — 512 px —
 // влезают в Сцену десктопа, поэтому там все восемь Лабораторий по-прежнему стоят в ряд.
 //
 // Порог нельзя опустить и ниже 64 px: стол занимает колонку целиком, и при 56 px
@@ -356,9 +356,7 @@ const RosterRow: React.FC<{ labId: LabId; showShare: boolean }> = ({ labId, show
         ×<Num>{formatNumber(count, notation)}</Num>{' '}
         {formatCount(count, 'Агент', 'Агента', 'Агентов', notation)}
       </span>
-      {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой.
-          Без пиксельного шрифта: среди тиров есть «1M контекст», а строка с
-          кириллицей набирается Nunito (ADR-0003). */}
+      {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой. */}
       {work !== '' && (
         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
           {work}
@@ -369,7 +367,7 @@ const RosterRow: React.FC<{ labId: LabId; showShare: boolean }> = ({ labId, show
           неотличима от нуля. На восьми Лабораториях такая мелочь занимала бы
           пять строк из восьми и читалась как «у всех всё одинаково». */}
       {share >= 0 && (
-        <span className="pixel-font" style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
+        <span className="num" style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
           {share}%
         </span>
       )}
@@ -536,7 +534,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           <div style={{ fontSize: '0.85rem', color: 'var(--accent-color)' }}>
             ЦЕЛЬ ПОКОЛЕНИЯ
           </div>
-          <div style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: 'var(--space-0)' }}>
+          <div className="pixel-22" style={{ color: 'var(--text-main)', marginTop: 'var(--space-0)' }}>
             Флагман: <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
           </div>
           <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
@@ -549,8 +547,8 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         {prestigeReady && !finale && (
           <button
             onClick={requestPrestige}
-            className="pixel-btn pixel-btn-gold"
-            style={{ fontSize: '1rem', padding: 'var(--space-2) var(--space-4)' }}
+            className="pixel-btn pixel-btn-gold pixel-22"
+            style={{ padding: 'var(--space-2) var(--space-4)' }}
           >
             <Icon name="rocket" />
             Совершить Престиж
@@ -566,7 +564,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               textAlign: 'center',
             }}
           >
-            <div style={{ color: 'var(--gold)', fontSize: '1rem' }}>Финал контента MVP!</div>
+            <div className="pixel-22" style={{ color: 'var(--gold)' }}>Финал контента MVP!</div>
             <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
               Ты на острие ИИ! Жди новые реальные модели в будущих апдейтах.
             </div>
@@ -672,7 +670,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               background: 'linear-gradient(to bottom, var(--bg-scrim) 0%, var(--bg-scrim) 55%, transparent 100%)',
             }}
           >
-            <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
+            <span className="pixel-22" style={{ color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
             <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
               <Num>{formatNumber(totalAgents, notation)}</Num>{' '}
               {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов', notation)}
@@ -741,7 +739,6 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     marginLeft: -SHADOW_W / 2,
                     // Эллипс на полу — рисунок Сцены, а не панель интерфейса: пол пиксель-арта
                     // не бывает квадратным, и срезанная ступенями тень выглядела бы дырой.
-                    borderRadius: '50%',
                     backgroundColor: CONTACT_SHADOW,
                     zIndex: 0,
                     // Декорация: ни клика, ни фокуса.
@@ -872,7 +869,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   Стендбай: Сцена готова к запуску
                 </span>
               </div>
-              <div style={{ fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: 600 }}>
+              <div className="pixel-22" style={{ color: 'var(--text-main)' }}>
                 Офис пока пуст
               </div>
               {/* Куда идти — по раскладке, а не всегда «вправо». `full` и есть признак
@@ -904,18 +901,26 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           gap: 'var(--space-2)',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <span style={{ fontSize: '0.85rem', color: 'var(--accent-color)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 'var(--space-1) var(--space-2)',
+          }}
+        >
+          <span className="pixel-22" style={{ color: 'var(--accent-color)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
+          <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 'var(--space-1) var(--space-2)' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
               {activeLabs.length}{' '}
               {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий', notation)} в офисе
             </span>
             {/* Кнопка коллекции реплик: счётчик — длина quipsSeen, окно — локальное. */}
             <button
-              className="pixel-btn"
+              className="pixel-btn pixel-22"
               onClick={() => setQuipLogOpen(true)}
-              style={{ fontSize: '0.8rem', padding: 'var(--space-1) var(--space-2)' }}
+              style={{ padding: 'var(--space-1) var(--space-2)', whiteSpace: 'nowrap' }}
             >
               Переписка ({quipsSeenCount})
             </button>

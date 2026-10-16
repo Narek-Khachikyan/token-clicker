@@ -69,15 +69,12 @@ const HeaderView: React.FC<HeaderProps> = ({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0, flexWrap: 'wrap' }}>
-        {/* Логотип — единственное место, где пиксельный шрифт законен на словах (ADR-0003).
-            clamp вместо фиксированного кегля: на 390 px «TOKEN CLICKER» в 1.4rem переносился
-            на две строки и поднимал всю шапку до 131 px, то есть на шестую часть экрана. */}
+        {/* Логотип набран Departure Mono на ступени 22 px, как и остальные заголовки (ADR-0009):
+            «TOKEN CLICKER» — 13 знаков по 14 px, 182 px, и на 390 px он стоит в одну строку. */}
         <h1
-          className="pixel-font"
+          className="pixel-22"
           style={{
-            fontSize: 'clamp(1rem, 4.4vw, 1.4rem)',
             color: 'var(--accent-color)',
-            letterSpacing: '1px',
             whiteSpace: 'nowrap',
           }}
         >
@@ -95,7 +92,6 @@ const HeaderView: React.FC<HeaderProps> = ({
         <span
           key={generation}
           style={{
-            fontSize: '0.85rem',
             backgroundColor: 'var(--tint-accent)',
             border: 'var(--frame-w) solid var(--border-strong)',
             color: 'var(--text-main)',
@@ -108,13 +104,18 @@ const HeaderView: React.FC<HeaderProps> = ({
           }}
         >
           <span className="tab-badge--pulse" style={{ display: 'inline-block' }}>
-            Поколение {gen.id}: {gen.name} ({gen.period})
+            {/* Номер Поколения — пиксельным шрифтом, а название и период — Nunito мельче 22 px:
+                период — данные и длиной не ограничен, в пиксельный кегль он не вмещается. */}
+            <span className="pixel-22">Поколение {gen.id}</span>{' '}
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+              {gen.name} · {gen.period}
+            </span>
           </span>
         </span>
         {compute > 0 && (
           <span
+            className="pixel-22"
             style={{
-              fontSize: '0.85rem',
               backgroundColor: 'var(--tint-gold)',
               border: 'var(--frame-w) solid var(--gold)',
               color: 'var(--gold)',
@@ -124,9 +125,9 @@ const HeaderView: React.FC<HeaderProps> = ({
               animation: 'toast-fade 0.15s ease-out',
               whiteSpace: 'nowrap',
             }}
-            title="Бонус к доходу от Compute"
+            title={`Бонус к доходу от Compute: +${compute}%`}
           >
-            <Num>{formatNumber(compute, notation)}</Num> Compute (+<Num>{compute}</Num>%)
+            <Num>{formatNumber(compute, notation)}</Num> Compute
           </span>
         )}
       </div>
@@ -146,23 +147,23 @@ const HeaderView: React.FC<HeaderProps> = ({
 
         <button
           ref={badgeRef}
-          className="pixel-btn ach-badge"
+          className="pixel-btn pixel-22 pixel-wide ach-badge"
           onClick={onOpenAchievements}
           title="Достижения"
           // Без aria-label доступное имя кнопки — это «14 / 21», то есть два числа без
           // единого слова; озвучка читала бы их вслух и не называла, что открывается.
           aria-label={`Достижения: ${unlockedAchCount} из ${totalAchCount}`}
-          style={{ padding: 'var(--space-1) var(--space-3)', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
+          style={{ padding: 'var(--space-1) var(--space-3)', whiteSpace: 'nowrap' }}
         >
           <Icon name="trophy" />
           <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
         </button>
 
         <button
-          className="pixel-btn"
+          className="pixel-btn pixel-22 pixel-wide"
           onClick={onOpenStats}
           title="Инфо"
-          style={{ padding: 'var(--space-1) var(--space-3)', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
+          style={{ padding: 'var(--space-1) var(--space-3)', whiteSpace: 'nowrap' }}
         >
           <Icon name="info" />
           Инфо
