@@ -36,7 +36,7 @@ export const OnboardingCoach: React.FC = () => {
     >
       <div
         style={{
-          fontSize: '0.72rem',
+          fontSize: 'var(--text-xs)',
           fontWeight: 700,
           letterSpacing: '0.5px',
           textTransform: 'uppercase',

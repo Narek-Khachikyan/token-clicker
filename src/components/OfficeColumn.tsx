@@ -159,7 +159,7 @@ const GLITCH_CHIP = {
   backgroundColor: DARK_STRIP,
   border: 'var(--frame-w) solid var(--border)',
   color: 'var(--text-main)',
-  fontSize: '0.7rem',
+  fontSize: 'var(--text-xs)',
   lineHeight: 1.4,
   padding: '0 var(--space-1)',
 } as const;

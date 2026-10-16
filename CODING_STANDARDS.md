@@ -88,6 +88,14 @@ components/    presentation: reads state, calls actions
   `borderRadius` or blurred shadow on a button, tab, card or panel — `index.test.ts` enforces the
   CSS side (ADR-0008). A button is clipped by `clip-path`, so its rings go inside it. Dialogs trap focus through `useDialogFocus.ts`. Over a
   Сцена, every readable label sits off the artwork or on a darkened HUD band of its own (ADR-0002).
+- **A row of tabs is `role="tablist"` with `onTabRowKeyDown`** (`components/tabRow.ts`, keys from
+  `nextTabIndex` in `src/a11y.ts`): `role="tab"`, `aria-selected`, `aria-controls` and a roving
+  `tabIndex` (the selected tab is the only one in the Tab order; arrows, Home and End walk the rest
+  and select as they go), with one `role="tabpanel"` it labels. The shop, the Престиж sections and
+  the phone's bottom bar are all rows of this kind. The one live region is `Announcer.tsx`
+  (`role="status"`, polite, always mounted, hidden with `.visually-hidden`): it reads an Achievement
+  toast and the moment «Престиж готов» begins, never the Токены counter or the Доход, which change
+  twenty times a second. No visible text is under 12 px (`--text-xs`); `index.test.ts` holds the CSS side.
 - **Hints are `Hint.tsx`, never `title=`.** It opens on hover, on keyboard focus and on a tap (touch),
   closes on Esc or a tap elsewhere, and mounts its content only while open. The Модель card
   (`ModelHintCard`) reads `modelCardSummary` from `src/economy/modelCard.ts`, whose breakdown comes

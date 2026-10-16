@@ -16,6 +16,8 @@ import {
   StatsModal,
 } from './components/Modals';
 import { Toasts } from './components/Toasts';
+import { Announcer } from './components/Announcer';
+import { onTabRowKeyDown } from './components/tabRow';
 import { HelpModal } from './components/HelpModal';
 import { useHotkeys } from './components/useHotkeys';
 import { PrestigeOverlay } from './components/PrestigeOverlay';
@@ -56,6 +58,8 @@ export const App: React.FC = () => {
   const tick = useGameStore((s) => s.tick);
   const activeTab = useGameStore((s) => s.activeTab);
   const setActiveTab = useGameStore((s) => s.setActiveTab);
+  // Нижняя вкладка, которой принадлежит рабочая область: Апгрейды и Престиж живут в «Магазине».
+  const bottomTab = activeTab === 'upgrades' || activeTab === 'perks' ? 'shop' : activeTab;
   const generation = useGameStore((s) => s.state.generation);
   const reducedMotion = useGameStore((s) => s.state.settings.reducedMotion);
   const shake = useGameStore((s) => s.state.settings.shake);
@@ -277,7 +281,13 @@ export const App: React.FC = () => {
             {/* key пересоздаёт обёртку на смене вкладки, поэтому появление через
                 существующий toast-fade (только opacity, без движения) проигрывается
                 один раз на переключение. Состояние activeTab и порог не тронуты. */}
-            <div key={activeTab} style={{ height: '100%', animation: 'toast-fade 0.15s ease-out' }}>
+            <div
+              key={activeTab}
+              id="nav-panel"
+              role="tabpanel"
+              aria-labelledby={`nav-tab-${bottomTab}`}
+              style={{ height: '100%', animation: 'toast-fade 0.15s ease-out' }}
+            >
               {activeTab === 'click' && <ClickColumn full />}
               {activeTab === 'office' && <OfficeColumn full />}
               {(activeTab === 'shop' || activeTab === 'upgrades' || activeTab === 'perks') && (
@@ -298,7 +308,7 @@ export const App: React.FC = () => {
       {/* Мобильная панель навигации внизу экрана. Ритм и высота — из index.css и layout.ts,
           здесь только то, что знает JS: активная вкладка и разворачивание кнопки. */}
       {viewport.single && (
-        <nav className="tab-bar">
+        <div className="tab-bar" role="tablist" aria-label="Разделы игры" onKeyDown={onTabRowKeyDown}>
           {(
             [
               ['click', 'chat', 'Промпт'],
@@ -307,10 +317,15 @@ export const App: React.FC = () => {
             ] as [ActiveTab, IconName, string][]
           ).map(([t, icon, label]) => (
             // Слот нужен стрелке подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы.
-            <div key={t} style={{ flex: 1, position: 'relative', display: 'flex' }}>
+            <div key={t} role="presentation" style={{ flex: 1, position: 'relative', display: 'flex' }}>
               <button
+                role="tab"
+                id={`nav-tab-${t}`}
+                aria-selected={bottomTab === t}
+                aria-controls="nav-panel"
+                tabIndex={bottomTab === t ? 0 : -1}
                 onClick={() => setActiveTab(t)}
-                className={`pixel-btn tab-bar__btn ${activeTab === t ? 'pixel-btn-accent' : ''}`}
+                className={`pixel-btn tab-bar__btn ${bottomTab === t ? 'pixel-btn-accent' : ''}`}
                 aria-label={label}
                 style={{ flex: 1 }}
               >
@@ -321,7 +336,7 @@ export const App: React.FC = () => {
               {t === 'shop' && <CoachArrow target="tab-shop" single />}
             </div>
           ))}
-        </nav>
+        </div>
       )}
 
       <Footer />
@@ -339,6 +354,7 @@ export const App: React.FC = () => {
       <HelpModal />
       <OfflineModal />
       <Toasts />
+      <Announcer />
       <PrestigeModal />
       {/* Экран финала контента: последнее Поколение пройдено, дальше идти некуда — игра обязана
           сказать об этом и предложить честный рестарт, а не прятать Престиж в приглушённую вкладку. */}
