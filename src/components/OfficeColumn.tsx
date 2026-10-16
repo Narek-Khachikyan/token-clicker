@@ -136,6 +136,22 @@ const moteCount = (agents: number): number => {
   return Math.round(MOTE_MIN + (MOTE_MAX - MOTE_MIN) * full);
 };
 
+// Конфетти праздника Флагмана: 28 квадратов, число не растёт ни с Агентами, ни с Поколением.
+// Угол и дальность разводит золотой угол, как у веера Достижения (Toasts.tsx): по равномерной
+// сетке веер встал бы розеткой. Все летят вверх (dy < 0) и расходятся в стороны; таблица строится
+// один раз на модуль, а не на каждый рендер.
+const CONFETTI_COUNT = 28;
+const CONFETTI = Array.from({ length: CONFETTI_COUNT }, (_, i) => {
+  const spread = (((i * 0.618034) % 1) * 2 - 1) * 86;
+  return {
+    dx: Math.round(spread),
+    dy: -(54 + ((i * 7) % 11) * 9),
+    size: 4 + (i % 2) * 2,
+    // Задержка до 0.3 с: конфетти выстреливает волной, а не одним кадром.
+    delay: ((i * 3) % 10) * 0.03,
+  };
+});
+
 const GLITCH_SIZE = 28;
 const DARK_STRIP = 'var(--bg-void)';
 
@@ -422,6 +438,9 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
   // Выключатель частиц из «Настроек»: пыль в воздухе Сцены — один из них.
   const particles = useGameStore((s) => s.state.settings.particles);
   const requestPrestige = useGameStore((s) => s.requestPrestige);
+  // Момент награды (вход Маскота, праздник Флагмана): живёт два секунды, и на нём строится весь
+  // отклик Сцены. Подписка на сам объект, а не на тик: поле меняется раз за покупку.
+  const moment = useGameStore((s) => s.sceneMoment);
   const prestigeReady = useStateSlice(canPrestige);
   const finale = useStateSlice(isContentFinale);
   // Два поля, которых хватает для подсчёта Агентов по Лабораториям: так видно, что от состояния
@@ -505,6 +524,9 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
       const now = labAgents(roster, labId);
       prev[labId] = now;
       if (now <= before) continue;
+      // Первый Агент Лаборатории не прыгает: Маскот входит (момент награды), а прыжок поверх
+      // входа и импорт сохранения, который растит Лабораторию с нуля, лишь мешали бы.
+      if (before === 0) continue;
       setHoppingLabId(labId);
       const node = hopNodes.current.get(labId);
       if (!node) continue;
@@ -771,7 +793,9 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               {prestigeReady && !finale && (
                 <button
                   onClick={requestPrestige}
-                  className="pixel-btn pixel-btn-gold pixel-22"
+                  // Загорается один раз, когда найм Флагмана открыл Престиж: класс держится, пока
+                  // жив момент награды, и снимается вместе с ним.
+                  className={`pixel-btn pixel-btn-gold pixel-22${moment?.flagship ? ' prestige-ignite' : ''}`}
                   style={{ padding: 'var(--space-1) var(--space-3)' }}
                 >
                   <Icon name="rocket" />
@@ -814,7 +838,11 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             padding: '0 var(--space-2) var(--space-3)',
           }}
         >
-          {activeLabs.map((labId) => (
+          {activeLabs.map((labId) => {
+            // Отклик на покупку, которая принесла момент награды, достаётся месту её Лаборатории.
+            const entering = moment?.entry === true && moment.lab === labId;
+            const celebrating = moment?.flagship === true && moment.lab === labId;
+            return (
             // Место Маскота — кнопка: наведение мышью, фокус с клавиатуры и касание открывают
             // одну и ту же карточку (MascotCard). Подпись читает то же, что видно в карточке, а
             // сама карточка от чтеца скрыта. Escape её закрывает (WCAG 1.4.13).
@@ -851,6 +879,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   висящих в воздухе над восемью столами — сцена читалась бы как
                   инвентарь, а не как офис. */}
               <div
+                className={entering ? 'booth--enter' : undefined}
                 style={{
                   position: 'relative',
                   width: '100%',
@@ -880,6 +909,12 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     же узле перезаписала бы бесконечное mascot-bob, а вложенный transform
                     складывается с ним — прыжок идёт поверх покачивания, не вместо него. Тень
                     остаётся на полу: прыгает только Маскот, а не его контакт с полом. */}
+                {/* Обёртка входа: подъём Маскота из-за стола висит на ней, а не на узле прыжка, чтобы
+                    классы двух анимаций не затирали друг друга. Стол (zIndex 2) лежит выше. */}
+                <div
+                  className={entering ? 'mascot-rise' : undefined}
+                  style={{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none' }}
+                >
                 <div
                   ref={(node) => {
                     if (node) hopNodes.current.set(labId, node);
@@ -897,6 +932,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 >
                   <MascotSprite lab={labId} size={MASCOT_SIZE} animated />
                 </div>
+                </div>
                 {/* Стол перекрывает Маскота по щиколотку: zIndex 2 выше Маскота,
                     а top сдвинут к его ногам. Поэтому стол читается как передний
                     план, Маскот — как тот, кто за ним сидит. */}
@@ -906,6 +942,33 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   className="scene__station"
                   style={{ position: 'absolute', left: '50%', top: STATION_TOP, marginLeft: -STATION_W / 2, zIndex: 2 }}
                 />
+                {/* Праздник Флагмана: рамка золота вокруг места мигает прозрачностью (она остаётся
+                    и при «меньше анимации»), а конфетти летит только при включённых частицах и
+                    разрешённом движении. Клики не ловит: это украшение, не кнопка. */}
+                {celebrating && (
+                  <>
+                    <span className="booth-ring" aria-hidden="true" />
+                    {particles && motionAllowed() && (
+                      <span className="confetti" aria-hidden="true" style={{ top: Math.round(MASCOT_SIZE * 0.3) }}>
+                        {CONFETTI.map((c, i) => (
+                          <span
+                            key={`${moment.nonce}-${i}`}
+                            className="confetti__bit"
+                            style={
+                              {
+                                width: c.size,
+                                height: c.size,
+                                '--cf-dx': `${c.dx}px`,
+                                '--cf-dy': `${c.dy}px`,
+                                '--cf-delay': `${c.delay.toFixed(2)}s`,
+                              } as React.CSSProperties
+                            }
+                          />
+                        ))}
+                      </span>
+                    )}
+                  </>
+                )}
               </div>
               <span
                 aria-hidden="true"
@@ -914,7 +977,8 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 ×<Num>{formatNumber(labAgents(roster, labId), notation)}</Num>
               </span>
             </button>
-          ))}
+            );
+          })}
         </div>
 
         {/* Карточка Маскота: над местом, на которое навели, поверх пузыря реплики. */}

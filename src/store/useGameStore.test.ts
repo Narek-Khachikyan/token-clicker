@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { effectAllowed, SAVE_INTERVAL_MS, useGameStore } from './useGameStore';
+import { effectAllowed, SAVE_INTERVAL_MS, SCENE_MOMENT_MS, useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { CHALLENGES } from '../economy/challenges';
 import { QUIPS } from '../data/quips';
@@ -1155,6 +1155,78 @@ describe('starting a challenge', () => {
     expect(state()).toBe(before);
     expect(store().toasts).toEqual([]);
     expect(vi.mocked(playUpgradeSound)).not.toHaveBeenCalled();
+  });
+});
+
+describe('reward moments on the scene', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('announces the first Agent of a new Лаборатория and nothing for the second one', () => {
+    freshStore();
+    expect(store().sceneMoment).toBeNull();
+    hire(first.id, 1);
+    expect(store().sceneMoment).toMatchObject({ lab: first.lab, entry: true, flagship: false });
+    const nonce = store().sceneMoment?.nonce;
+    hire(first.id, 1);
+    // Второй Агент той же Модели — обычная покупка: момент остаётся тем же, нового нет.
+    expect(store().sceneMoment?.nonce).toBe(nonce);
+  });
+
+  it('gives every new Лаборатория its own moment', () => {
+    freshStore();
+    hire(first.id, 1);
+    const firstNonce = store().sceneMoment?.nonce ?? 0;
+    const newcomer = g0.models.find((m) => m.lab !== first.lab && m.id !== g0.flagship.id);
+    if (!newcomer) throw new Error('в Поколении 0 одна Лаборатория');
+    hire(newcomer.id, 1);
+    expect(store().sceneMoment).toMatchObject({ lab: newcomer.lab, entry: true });
+    expect(store().sceneMoment?.nonce).toBeGreaterThan(firstNonce);
+  });
+
+  it('celebrates the first Флагман once, and a second Агент of it is just a purchase', () => {
+    freshStore();
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment).toMatchObject({ lab: g0.flagship.lab, flagship: true });
+    const nonce = store().sceneMoment?.nonce;
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment?.nonce).toBe(nonce);
+  });
+
+  it('raises no moment for a purchase that did not go through', () => {
+    freshStore();
+    useGameStore.setState({ state: { ...state(), tokens: 0 } });
+    store().buyAgents(g0.flagship.id);
+    expect(store().sceneMoment).toBeNull();
+  });
+
+  it('is not part of the save', () => {
+    freshStore();
+    hire(g0.flagship.id, 1);
+    expect(JSON.stringify(state())).not.toContain('sceneMoment');
+  });
+
+  it('lets go of the moment after its dwell, but only its own', () => {
+    vi.useFakeTimers();
+    freshStore();
+    hire(first.id, 1);
+    const old = store().sceneMoment?.nonce;
+    vi.advanceTimersByTime(SCENE_MOMENT_MS - 100);
+    const newcomer = g0.models.find((m) => m.lab !== first.lab);
+    if (!newcomer) throw new Error('в Поколении 0 одна Лаборатория');
+    hire(newcomer.id, 1);
+    expect(store().sceneMoment?.nonce).not.toBe(old);
+    // Срок первого момента вышел, но на сцене уже второй: первый таймер его не гасит.
+    vi.advanceTimersByTime(150);
+    expect(store().sceneMoment).not.toBeNull();
+    vi.advanceTimersByTime(SCENE_MOMENT_MS);
+    expect(store().sceneMoment).toBeNull();
+  });
+
+  it('is gone after a new run', () => {
+    freshStore();
+    hire(first.id, 1);
+    store().resetGame();
+    expect(store().sceneMoment).toBeNull();
   });
 });
 

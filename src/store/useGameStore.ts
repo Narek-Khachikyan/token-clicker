@@ -64,6 +64,7 @@ import {
 } from '../audio/sound';
 import type { LabId } from '../data/labs';
 import { PROMPT_TEMPLATES } from '../data/prompts';
+import { rewardMoment, type RewardMoment } from '../economy/rewardMoment';
 import { playCoolingSound, playHallucinationSound, updateThermalAudio } from '../audio/thermal';
 import { duckMusic } from '../audio/music';
 import { playCrystalSound, playMilestoneSound, playPrestigeConfirmSound, playToggleSound } from '../audio/sfx';
@@ -97,6 +98,12 @@ export interface ClickFloater {
 
 /** Событие, на которое интерфейсу нужен собственный громкий отклик. */
 export type BurstKind = 'achievement' | 'prestige';
+
+/** Момент награды на Сцене (вход Маскота, праздник Флагмана) с тождеством на nonce. UI-слой, как
+ *  burst: в GameState и в сейв не попадает, миграция не нужна. */
+export interface SceneMoment extends RewardMoment {
+  nonce: number;
+}
 
 export interface BurstEvent {
   kind: BurstKind;
@@ -248,6 +255,11 @@ interface GameStore {
    *  потребитель смотрит на nonce, поэтому два одинаковых подряд не схлопываются в один отклик
    *  и гасить канал вручную не нужно — тот, кто показал отклик, и так его показал. */
   burst: BurstEvent | null;
+  /** Момент награды, который Сцена сейчас показывает: вход Маскота новой Лаборатории и праздник
+   *  Флагмана. Живёт SCENE_MOMENT_MS и гаснет сам: Сцена рисует отклик, пока поле занято, а
+   *  размонтированная колонка (телефон, другая вкладка) застаёт хвост, а не вечный повтор.
+   *  Вне GameState по той же причине, что и burst. */
+  sceneMoment: SceneMoment | null;
   /** Окно события, о котором стор уже объявил игроку: момент старта, NO_EVENT_WINDOW = окна нет.
    *  Ключ окна — его старт, а не вид события: одно и то же событие переживает перезагрузку, и
    *  второй раз поймать его нельзя. Вне GameState по той же причине, что и остальной UI-слой:
@@ -396,7 +408,12 @@ let floaterCounter = 0;
 let chatCounter = 0;
 let toastCounter = 0;
 let burstCounter = 0;
+let momentCounter = 0;
 let quipCounter = 0;
+
+/** Сколько Сцена держит момент награды. Дольше самой длинной анимации момента (CSS: праздник
+ *  Флагмана идёт 1.6 с), и стор гасит поле уже после неё. */
+export const SCENE_MOMENT_MS = 2000;
 
 /** Пузырь реплики висит 4.5 с: входной pop занимает 0.25 с, уходной fade стартует CSS-задержкой
  *  на 4.32 с, и стор гасит поле уже после него — fade видно целиком. */
@@ -846,6 +863,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     lastQuip: null,
     lastBoughtModelId: null,
     burst: null,
+    sceneMoment: null,
     eventWindowAt: NO_EVENT_WINDOW,
     eventCaught: caughtWindow(initial.state),
     crashArmedAt: 0,
@@ -1007,6 +1025,17 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Отметка о последней покупке — это голос офиса: следующий Клик заговорит
       // Лабораторией именно этой Модели. Ставится только на успешной покупке.
       set({ state: awardEarned(risen), lastBoughtModelId: modelId });
+      // Момент читается по паре «до / после» самой покупки, поэтому импорт и загрузка сейва
+      // Маскотов заново не вводят. Гасит поле таймер на один срок: он сверяет nonce, и более
+      // свежий момент прежний таймер не снимает.
+      const moment = rewardMoment(state, bought, modelId);
+      if (moment) {
+        const nonce = ++momentCounter;
+        set({ sceneMoment: { ...moment, nonce } });
+        setTimeout(() => {
+          if (get().sceneMoment?.nonce === nonce) set({ sceneMoment: null });
+        }, SCENE_MOMENT_MS);
+      }
       saveNow();
     },
 
@@ -1454,6 +1483,7 @@ toggleMute: () => {
         collectedRumorId: 0,
         lastQuip: null,
         lastBoughtModelId: null,
+        sceneMoment: null,
         // Экран финала показывается сам, пока игрок его не закрывал, поэтому рестарт обязан
         // вернуть флаг в исходное состояние: иначе второе прохождение до последнего
         // Поколения встретило бы игрока молчащим финалом.
