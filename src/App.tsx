@@ -16,6 +16,8 @@ import {
   StatsModal,
 } from './components/Modals';
 import { Toasts } from './components/Toasts';
+import { HelpModal } from './components/HelpModal';
+import { useHotkeys } from './components/useHotkeys';
 import { PrestigeOverlay } from './components/PrestigeOverlay';
 import { Icon, type IconName } from './components/Icon';
 import { CoachArrow } from './components/CoachArrow';
@@ -52,6 +54,8 @@ export const App: React.FC = () => {
   const shake = useGameStore((s) => s.state.settings.shake);
   const ticker = useGameStore((s) => s.state.settings.ticker);
   const burst = useGameStore((s) => s.burst);
+
+  useHotkeys();
 
   const [isAchievementsOpen, setAchievementsOpen] = useState(false);
   const [isStatsOpen, setStatsOpen] = useState(false);
@@ -315,6 +319,7 @@ export const App: React.FC = () => {
         isOpen={isSettingsOpen}
         onClose={() => setSettingsOpen(false)}
       />
+      <HelpModal />
       <OfflineModal />
       <Toasts />
       <PrestigeModal />

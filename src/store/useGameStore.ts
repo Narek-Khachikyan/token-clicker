@@ -68,6 +68,7 @@ import { rewardMoment, type RewardMoment } from '../economy/rewardMoment';
 import { playCoolingSound, playHallucinationSound, updateThermalAudio } from '../audio/thermal';
 import { duckMusic } from '../audio/music';
 import { playCrystalSound, playMilestoneSound, playPrestigeConfirmSound, playToggleSound } from '../audio/sfx';
+import type { HotkeyCommand } from '../hotkeys';
 
 export type BuyAmount = 1 | 10 | 100 | 'max';
 /** Выключатели эффектов из «Настроек»: каждый гасит свой эффект, остальные не трогает. */
@@ -77,6 +78,10 @@ export type VolumeChannel = 'music' | 'sfx';
 /** Подразделы вкладки «Престиж». Хранятся в UI-слое стора, а не в колонке: колонку размонтирует
  *  смена нижней вкладки на телефоне, а выбранный подраздел должен пережить возврат на вкладку. */
 export type PrestigeSection = 'prestige' | 'perks' | 'legacy';
+
+/** Вкладки магазина: Модели, Апгрейды, Престиж. Живут в UI-слое стора, а не в колонке: колонку
+ *  размонтирует смена нижней вкладки на телефоне, а горячие клавиши 1/2/3 приходят снаружи. */
+export type ShopTab = 'models' | 'upgrades' | 'perks';
 
 export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'perks' | 'stats' | 'achievements' | 'settings';
 
@@ -245,6 +250,9 @@ interface GameStore {
   tabHidden: boolean;
   buyAmount: BuyAmount;
   sellMode: boolean;
+  shopTab: ShopTab;
+  /** Открыта ли карточка «?» со всеми горячими клавишами. */
+  helpOpen: boolean;
   toasts: ToastMessage[];
   floaters: ClickFloater[];
   /** Искры Клика в воздухе: живут `CLICK_SPARK_MS` и только при включённых частицах. */
@@ -294,8 +302,10 @@ interface GameStore {
    * засчитан.
    */
   holdClick: (x?: number, y?: number) => boolean;
-  buyAgents: (modelId: string) => void;
-  sellAgents: (modelId: string) => void;
+  /** `amount` — разовая покупка с модификатором (Shift ×10, Ctrl/Cmd Max); без него берётся
+   *  множитель, выбранный кнопками, и он при этом не меняется. */
+  buyAgents: (modelId: string, amount?: BuyAmount) => void;
+  sellAgents: (modelId: string, amount?: BuyAmount) => void;
   buyUpgrade: (upgradeId: string) => void;
   buyPerk: (perkId: string) => void;
   /** Покупает «Лобби»: красные события гаснут на полчаса, цена растёт на каждой покупке. */
@@ -333,6 +343,10 @@ interface GameStore {
   setBuyAmount: (amt: BuyAmount) => void;
   setSellMode: (mode: boolean) => void;
   setActiveTab: (tab: ActiveTab) => void;
+  setShopTab: (tab: ShopTab) => void;
+  setHelpOpen: (open: boolean) => void;
+  /** Горячая клавиша 1/2/3 или «?». Охранник (поле ввода, окно) стоит у слушателя, не здесь. */
+  runHotkey: (command: HotkeyCommand) => void;
   setPrestigeSection: (section: PrestigeSection) => void;
   /** Страница скрыта (фоновая вкладка, свёрнутое окно): звук молчит, пока она такая. Зовётся
    *  подпиской на `visibilitychange`; повтор того же значения ничего не делает. */
@@ -849,6 +863,8 @@ export const useGameStore = create<GameStore>((set, get) => {
     tabHidden: false,
     buyAmount: 1,
     sellMode: false,
+    shopTab: 'models',
+    helpOpen: false,
     toasts: initial.notice ? [initial.notice] : [],
     floaters: [],
     clickSparks: [],
@@ -994,9 +1010,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       return true;
     },
 
-    buyAgents: (modelId: string) => {
+    buyAgents: (modelId: string, amount?: BuyAmount) => {
       const { state, buyAmount } = get();
-      const bought = engineBuyAgents(state, modelId, buyAmount);
+      const bought = engineBuyAgents(state, modelId, amount ?? buyAmount);
       if (bought === state) return;
       playBuySound(state.settings);
       // Покупка Агентов — единственный путь роста их числа: продажа и Престиж его только
@@ -1040,9 +1056,10 @@ export const useGameStore = create<GameStore>((set, get) => {
       saveNow();
     },
 
-    sellAgents: (modelId: string) => {
+    sellAgents: (modelId: string, amount?: BuyAmount) => {
       const { state, buyAmount } = get();
-      const count = buyAmount === 'max' ? (state.agents[modelId] ?? 0) : buyAmount;
+      const chosen = amount ?? buyAmount;
+      const count = chosen === 'max' ? (state.agents[modelId] ?? 0) : chosen;
       const next = engineSellAgents(state, modelId, count);
       if (next !== state) {
         playBuySound(state.settings);
@@ -1317,6 +1334,17 @@ export const useGameStore = create<GameStore>((set, get) => {
       set({ sellMode: mode });
     },
     setActiveTab: (tab: ActiveTab) => set({ activeTab: tab }),
+    setShopTab: (tab: ShopTab) => set({ shopTab: tab }),
+    setHelpOpen: (open: boolean) => set({ helpOpen: open }),
+    // Клавиша «магазин, вкладка N» на телефоне ещё и показывает магазин: колонка там одна за раз,
+    // и вкладка, переключённая под чужим экраном, ничего не показала бы.
+    runHotkey: (command: HotkeyCommand) => {
+      if (command.kind === 'help') {
+        set((s) => ({ helpOpen: !s.helpOpen }));
+        return;
+      }
+      set({ shopTab: command.tab, activeTab: 'shop' });
+    },
     setPrestigeSection: (section: PrestigeSection) => set({ prestigeSection: section }),
     // Звук получает настройки как есть: тишина живёт в звуковом модуле отдельно от мьюта и
     // громкости, поэтому возвращение снимает её, не гадая, что игрок выбрал до ухода.
