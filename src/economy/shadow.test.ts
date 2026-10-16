@@ -153,9 +153,9 @@ const REACH: Record<string, () => GameState> = {
     return idle(stocked, 1e6);
   },
   sh_hardcore: () => buyAgents(rich(newGame(T0), 1e30), g0.flagship.id, 1),
-  // 778³ × делитель — минимальный заработок, дающий прирост 777, и минус единица, чтобы
-  // кубический корень не перевалил через 778.
-  sh_777: () => ({ ...newGame(T0), runTokens: Math.pow(778, 3) * prestigeDivisor(0) - 1 }),
+  // 778³ × делитель — минимальный заработок, дающий прирост 778; чуть меньше, чтобы кубический
+  // корень не перевалил через 778. Вычитать единицу нельзя: на 1e20 она теряется в точности double.
+  sh_777: () => ({ ...newGame(T0), runTokens: Math.pow(778, 3) * prestigeDivisor(0) * (1 - 1e-9) }),
   // Числовая лестница: Доход последнего Поколения доводит общий счёт до любого рубежа.
   shadow_tok_33: () => idle(lateGame(), 1e33),
   shadow_tok_45: () => idle(lateGame(), 1e45),
@@ -351,7 +351,7 @@ describe('тени, пришедшие из ранней ветки', () => {
     expect(check('sh_hardcore')({ ...s, generation: 1, maxGeneration: 1 })).toBe(false);
   });
   it('sh_777: прирост Престижа с цифрами 777, и выдаётся только теньми', () => {
-    const gain = { ...newGame(T0), runTokens: Math.pow(778, 3) * prestigeDivisor(0) - 1 };
+    const gain = { ...newGame(T0), runTokens: Math.pow(778, 3) * prestigeDivisor(0) * (1 - 1e-9) };
     expect(check('sh_777')(gain)).toBe(true);
     expect(newlyEarnedShadows(gain)).toContain('sh_777');
     // Обычная выдача про это условие молчит: тень не смешивается с обычной лестницей.
