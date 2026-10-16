@@ -288,13 +288,14 @@ export const Toasts: React.FC = () => {
         className="toast-stack"
         style={{
           position: 'fixed',
-          left: `${TOAST_MARGIN}px`,
+          // От безопасного края, а не от физического: вырез слева в альбомной ориентации.
+          left: `calc(${TOAST_MARGIN}px + var(--safe-left))`,
           // Ширина по левой колонке, а не во всю окно: тост, растянувшийся под магазин,
           // снова закрыл бы карточки, ради которых игрок его и читает. Число — из расчёта
           // колонок (см. `toastStackWidth`), а страховка держит стек в окне, даже если окно
           // успели сузить между измерением и кадром.
           width: `${band.width}px`,
-          maxWidth: `calc(100vw - ${TOAST_MARGIN * 2}px)`,
+          maxWidth: `calc(100vw - ${TOAST_MARGIN * 2}px - var(--safe-left) - var(--safe-right))`,
           top: band.top || undefined,
           // `bottom` обязан быть снят, когда `top` измерен: вместе они растянули бы стопку на весь
           // экран и накрыли бы шкалу. Без измерения (вкладка без колонки Клика) стопку держит

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { hintCardWidth, placeHint, type HintPlacement } from '../layout';
+import { readSafeInsets } from './safeInsets';
 
 /**
  * Подсказка при наведении: свой компонент вместо `title=`.
@@ -142,7 +143,7 @@ export const Hint: React.FC<HintProps> = ({
     const next = placeHint(
       { left: a.left, top: a.top, width: a.width, height: a.height },
       { width: pop.offsetWidth, height: pop.scrollHeight + chrome },
-      { width: window.innerWidth, height: window.innerHeight },
+      { width: window.innerWidth, height: window.innerHeight, insets: readSafeInsets() },
     );
     setPlace((prev) =>
       prev && prev.left === next.left && prev.top === next.top && prev.maxHeight === next.maxHeight && prev.side === next.side
@@ -183,7 +184,9 @@ export const Hint: React.FC<HintProps> = ({
     },
   };
 
-  const width = typeof window === 'undefined' ? undefined : hintCardWidth(window.innerWidth);
+  // Ширина карточки — от безопасной области: вырез по бокам в альбомной ориентации отнимает у неё место.
+  const inset = readSafeInsets();
+  const width = typeof window === 'undefined' ? undefined : hintCardWidth(window.innerWidth - inset.left - inset.right);
 
   return (
     <>

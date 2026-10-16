@@ -285,7 +285,8 @@ export function useModalExit(
 // Итог был не «у окна есть оболочка», а шесть почти одинаковых, но разных каркасов:
 // игрок переучивался расположению крестика при каждом переходе.
 const MODAL_MAX_WIDTH = 520;
-const MODAL_MAX_HEIGHT = '85vh';
+// Не `85vh`: от видимой области окна (`dvh`), и с запасным значением — это живёт в CSS корня.
+const MODAL_MAX_HEIGHT = 'var(--modal-max-h)';
 const MODAL_PAD = 'var(--space-4)';
 const MODAL_GAP = 'var(--space-3)';
 
@@ -402,6 +403,8 @@ export const ModalFrame: React.FC<ModalFrameProps> = ({
 
   return (
     <div
+      // Поле от края подложки — в классе: оно считается от безопасной области (вырез экрана).
+      className="modal-scrim"
       style={{
         position: 'fixed',
         inset: 0,
@@ -410,7 +413,6 @@ export const ModalFrame: React.FC<ModalFrameProps> = ({
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: MODAL_Z,
-        padding: 'var(--space-4)',
         animation: fade,
       }}
       onClick={dismissible ? requestClose : undefined}

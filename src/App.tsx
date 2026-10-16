@@ -29,13 +29,14 @@ import { startMusic, updateMusic } from './audio/music';
 import {
   clickColWidth,
   HEADER_H,
+  isLandscapePhone,
   NARROW_MAX,
   shopColWidth,
   STATUS_COL_GAP,
   STATUS_GAUGE_H,
   STATUS_PAD_Y,
   STATUS_ROW_H,
-  STATUS_STRIP_H,
+  statusStripH,
   STATUS_THERMAL_W,
   TAB_BAR_H,
   TAP_MIN,
@@ -51,6 +52,31 @@ import {
  */
 const musicIntensity = (income: number): number =>
   income <= 0 ? 0 : Math.min(1, Math.log10(1 + income) / 6);
+
+/**
+ * Что раскладке нужно знать об окне: ширина (порог колонок и базис), признак узкого экрана и
+ * телефон на боку. Порог и базис берутся из модуля раскладки, а не из отдельных чисел здесь.
+ *
+ * Первый кадр обязан быть верным, поэтому окно читается сразу, а не по умолчанию: с
+ * `single: true` по умолчанию на десктопе игра на долю секунды показывала одноколоночный режим и
+ * потом переключалась, то есть моргала при каждой загрузке.
+ *
+ * `narrow` — второй порог того же модуля (NARROW_MAX): ниже него шапка обязана уместиться в один
+ * ряд. Раньше этот вопрос решался медиазапросом в CSS, где ширину пришлось продублировать числом;
+ * теперь признак вычисляется здесь и уезжает в CSS атрибутом, поэтому ответ на «какая раскладка»
+ * у обоих один. Так же `landscape`: высоты, которой хватило бы на две строки полосы, у телефона
+ * на боку нет.
+ */
+function readViewport(): { width: number; single: boolean; narrow: boolean; landscape: boolean } {
+  const width = typeof window === 'undefined' ? 0 : window.innerWidth;
+  const height = typeof window === 'undefined' ? 0 : window.innerHeight;
+  return {
+    width,
+    single: width < THREE_COL_MIN,
+    narrow: width <= NARROW_MAX,
+    landscape: isLandscapePhone(width, height),
+  };
+}
 
 export const App: React.FC = () => {
   const tick = useGameStore((s) => s.tick);
@@ -68,37 +94,27 @@ export const App: React.FC = () => {
   const [isStatsOpen, setStatsOpen] = useState(false);
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   // Ширина окна нужна не для порога, а для базиса колонок: он считается из той же доли окна,
-  // что и раньше, иначе колонки стали бы постоянными. Порог и базис берутся из одного модуля.
-  //
-  // Первый кадр обязан быть верным, поэтому ширина читается сразу, а не по умолчанию: с
-  // `single: true` по умолчанию на десктопе игра на долю секунды показывала одноколоночный
-  // режим и потом переключалась, то есть моргала при каждой загрузке.
-  //
-  // `narrow` — второй порог того же модуля (NARROW_MAX): ниже него шапка обязана уместиться в
-  // один ряд. Раньше этот вопрос решался медиазапросом в CSS, где ширину пришлось продублировать
-  // числом; теперь признак вычисляется здесь и уезжает в CSS атрибутом, поэтому ответ на «какая
-  // раскладка» у обоих один.
-  const [viewport, setViewport] = useState(() => {
-    const width = typeof window === 'undefined' ? 0 : window.innerWidth;
-    return { width, single: width < THREE_COL_MIN, narrow: width <= NARROW_MAX };
-  });
+  // что и раньше, иначе колонки стали бы постоянными (см. readViewport).
+  const [viewport, setViewport] = useState(() => readViewport());
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Responsive check
   useEffect(() => {
+    // Окно меняется и от поворота телефона, и от адресной строки, которая то съедает высоту, то
+    // возвращает её, — поэтому читаются обе стороны, а состояние не пересоздаётся без перемен.
     const measure = () => {
-      const width = window.innerWidth;
-      // Та же проверка, что и раньше, но порог приходит из модуля раскладки: отдельное число
-      // здесь разошлось бы с минимумами колонок при первом же изменении сетки.
+      const next = readViewport();
       setViewport((prev) =>
-        prev.width === width
-          ? prev
-          : { width, single: width < THREE_COL_MIN, narrow: width <= NARROW_MAX },
+        prev.width === next.width && prev.landscape === next.landscape ? prev : next,
       );
     };
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    window.addEventListener('orientationchange', measure);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('orientationchange', measure);
+    };
   }, []);
 
   // Главный игровой цикл (tick loop 20 FPS)
@@ -184,7 +200,7 @@ export const App: React.FC = () => {
     '--tap-min': `${TAP_MIN}px`,
     '--header-h': `${HEADER_H}px`,
     '--tab-bar-h': `${TAB_BAR_H}px`,
-    '--status-strip-h': `${STATUS_STRIP_H}px`,
+    '--status-strip-h': `${statusStripH(viewport.landscape)}px`,
     '--status-row-h': `${STATUS_ROW_H}px`,
     '--status-gauge-h': `${STATUS_GAUGE_H}px`,
     '--status-pad-y': `${STATUS_PAD_Y}px`,
@@ -234,11 +250,11 @@ export const App: React.FC = () => {
       // Дрожь Сцены на жаре живёт в одном CSS и без атрибута до выключателя не дотянулась бы.
       data-shake={shake ? 'on' : 'off'}
       data-narrow={viewport.narrow ? 'true' : 'false'}
+      data-landscape={viewport.landscape ? 'true' : 'false'}
       data-thermal={thermalState}
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
         // Не 100vw: vw — это ширина области просмотра вместе с полосой прокрутки, а блоку
         // доступна ширина без неё. Разница уходила в обрезку за overflow-x: hidden у body —
         // правая кнопка нижней навигации и первая строка подвала становились недостижимы.
@@ -248,6 +264,9 @@ export const App: React.FC = () => {
         ...accent,
       }}
     >
+      {/* Зонд безопасных краёв для кода, который ставит что-то по координатам окна (safeInsets.ts). */}
+      <div className="safe-probe" aria-hidden="true" />
+
       <Header
         onOpenAchievements={openAchievements}
         onOpenStats={openStats}

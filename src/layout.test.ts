@@ -11,10 +11,21 @@ import {
   clickColWidth,
   COUNTER_CHARS,
   counterWidth,
+  HEADER_BUTTONS,
+  HEADER_GAP,
   HEADER_H,
+  HEADER_LEFT_MIN,
+  HEADER_PAD_X,
+  headerLeftRoom,
   hintCardWidth,
   HINT_CARD_W,
   HINT_MARGIN,
+  isLandscapePhone,
+  LANDSCAPE_MAX_H,
+  PIXEL_ADVANCE,
+  STATUS_INCOME_CHARS,
+  STATUS_STRIP_LANDSCAPE_H,
+  statusStripH,
   type HintBox,
   placeHint,
   MASCOT_CARD_EDGE,
@@ -23,6 +34,8 @@ import {
   mascotCardLeft,
   mascotCardWidth,
   NARROW_MAX,
+  NO_INSETS,
+  type SafeInsets,
   QUIP_BUBBLE_W,
   QUIP_TAIL_EDGE,
   quipBubbleLeft,
@@ -127,6 +140,38 @@ describe('layout', () => {
     expect(NARROW_MAX).toBeLessThan(THREE_COL_MIN);
   });
 
+  // Шапка телефона обязана быть одним рядом. Слова на кнопках в ряд не влезают, поэтому кнопки
+  // узкого режима по 44 px, а что останется — отдано логотипу и бейджу Поколения; число остатка
+  // считает модуль, а ширину самих знаков сверяет браузер.
+  it('leaves the phone header room for its logo and badge at 320, 360 and 390', () => {
+    for (const vw of [320, 360, 390, NARROW_MAX]) {
+      expect(headerLeftRoom(vw), `на ${vw} px левой группе не хватает места`).toBeGreaterThanOrEqual(HEADER_LEFT_MIN);
+    }
+    // Соседние окна растут монотонно: шире окно — не меньше места.
+    expect(headerLeftRoom(390)).toBeGreaterThan(headerLeftRoom(360));
+    expect(headerLeftRoom(360)).toBeGreaterThan(headerLeftRoom(320));
+    expect(HEADER_BUTTONS * TAP_MIN + HEADER_PAD_X * 2 + HEADER_GAP * HEADER_BUTTONS).toBe(320 - headerLeftRoom(320));
+  });
+
+  it('counts a phone held sideways as narrow, so its header and targets are made for a finger', () => {
+    // iPhone 14 на боку — 844 px, Pro Max — 932: по прежней границе в 600 они «широкие», но
+    // полная шапка в них либо обрезала бейдж Поколения, либо уходила во второй ряд, а кнопки
+    // были ниже пальца.
+    for (const vw of [667, 844, 932]) expect(NARROW_MAX).toBeGreaterThanOrEqual(vw);
+  });
+
+  it('tells a phone on its side from a portrait phone with a tall address bar and from a desktop', () => {
+    expect(isLandscapePhone(844, 390)).toBe(true);
+    expect(isLandscapePhone(568, 320)).toBe(true);
+    // Портрет: ниже 500 бывает у iPhone SE при открытой адресной строке, но он остаётся портретом.
+    expect(isLandscapePhone(320, 460)).toBe(false);
+    expect(isLandscapePhone(390, 844)).toBe(false);
+    // Не телефон: высокое окно и трёхколоночный десктоп.
+    expect(isLandscapePhone(900, LANDSCAPE_MAX_H + 1)).toBe(false);
+    expect(isLandscapePhone(1440, 400)).toBe(false);
+    expect(isLandscapePhone(THREE_COL_MIN - 1, 400)).toBe(true);
+  });
+
   // Стек тостов уже лечился от замороженного числа в нижнем отступе — ширина болела тем же:
   // число, посчитанное для одного конкретного окна, на 320 px уводило правый край карточки
   // за экран на 46 px. Ширина обязана приезжать из расчёта колонок и влезать в окно везде.
@@ -215,6 +260,25 @@ describe('layout', () => {
       for (let vw = 320; vw < THREE_COL_MIN; vw += 5) {
         const row = vw - CLICK_COL_PAD * 2;
         expect(counterWidth(STATUS_COUNTER_STEP) + STATUS_COL_GAP + STATUS_THERMAL_W, `на ${vw} px строка не вмещает`).toBeLessThanOrEqual(row);
+      }
+    });
+
+    it('is one row high when the phone lies on its side, and still a thin strip', () => {
+      expect(STATUS_STRIP_LANDSCAPE_H).toBe(STATUS_PAD_Y + STATUS_ROW_H + STATUS_GAP + STATUS_GAUGE_H + STATUS_FRAME);
+      expect(STATUS_STRIP_LANDSCAPE_H).toBeLessThan(STATUS_STRIP_H);
+      // 320 — самый низкий телефон на боку (iPhone SE первого поколения, 568 × 320).
+      expect(STATUS_STRIP_LANDSCAPE_H / 320).toBeLessThanOrEqual(0.125);
+      expect(statusStripH(true)).toBe(STATUS_STRIP_LANDSCAPE_H);
+      expect(statusStripH(false)).toBe(STATUS_STRIP_H);
+    });
+
+    it('fits Tokens, Income and the temperature in one row on every window a phone can lie in', () => {
+      // Самая длинная запись каждой клетки на пиксельной ступени 22 px, плюс два зазора и поля.
+      const income = STATUS_INCOME_CHARS * STATUS_COUNTER_STEP * PIXEL_ADVANCE;
+      const need = counterWidth(STATUS_COUNTER_STEP) + income + STATUS_THERMAL_W + STATUS_COL_GAP * 2 + CLICK_COL_PAD * 2;
+      for (const [vw, vh] of [[568, 320], [640, 360], [667, 375], [844, 390], [932, 430]]) {
+        expect(isLandscapePhone(vw, vh)).toBe(true);
+        expect(need, `на ${vw}x${vh} в одну строку не встаёт`).toBeLessThanOrEqual(vw);
       }
     });
 
@@ -490,6 +554,32 @@ describe('placeHint', () => {
     expect(p.maxHeight).toBeGreaterThan(0);
     expect(p.top).toBeGreaterThanOrEqual(HINT_MARGIN);
     expect(p.top + p.maxHeight).toBeLessThanOrEqual(vh - HINT_MARGIN);
+  });
+
+  it('стоит внутри безопасной области окна с вырезом, а не под ним', () => {
+    // Телефон в альбомной ориентации: вырез слева и скруглённый угол справа, внизу полоса жестов.
+    const insets: SafeInsets = { top: 0, right: 34, bottom: 21, left: 47 };
+    for (const [vw, vh] of [[844, 390], [667, 375], [390, 844], [320, 568]]) {
+      const inner = { width: vw - insets.left - insets.right, height: vh - insets.top - insets.bottom };
+      for (const top of [20, 120, 260]) {
+        const anchor: HintBox = { left: insets.left, top, width: inner.width, height: 100 };
+        const size = { width: hintCardWidth(inner.width), height: 360 };
+        const p = placeHint(anchor, size, { width: vw, height: vh, insets });
+        const height = Math.min(size.height, p.maxHeight);
+        expect(p.left, `${vw}x${vh}: левый край под вырезом`).toBeGreaterThanOrEqual(insets.left + HINT_MARGIN);
+        expect(p.left + size.width).toBeLessThanOrEqual(vw - insets.right - HINT_MARGIN);
+        expect(p.top).toBeGreaterThanOrEqual(insets.top + HINT_MARGIN);
+        expect(p.top + height).toBeLessThanOrEqual(vh - insets.bottom - HINT_MARGIN);
+      }
+    }
+  });
+
+  it('без вырезов считает окно целиком, как раньше', () => {
+    const anchor = rowAt(390, 200);
+    const size = card(390);
+    expect(placeHint(anchor, size, { width: 390, height: 844, insets: NO_INSETS })).toEqual(
+      placeHint(anchor, size, { width: 390, height: 844 }),
+    );
   });
 
   it('карточка помещается в окно шириной 320 px', () => {

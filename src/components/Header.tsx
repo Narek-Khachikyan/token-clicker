@@ -51,130 +51,90 @@ const HeaderView: React.FC<HeaderProps> = ({
   }, [burst?.nonce]);
 
   return (
-    <header
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: 'var(--space-2) var(--space-4)',
-        backgroundColor: 'var(--bg-panel)',
-        borderBottom: 'var(--frame-w) solid var(--border)',
-        flexWrap: 'wrap',
-        gap: 'var(--space-2)',
-        // minWidth: 0 обязателен обеим группам: флекс-элемент иначе не сожмётся ниже
-        // содержимого, и на узком экране бейдж Поколения распирал бы строку вместо того,
-        // чтобы уступить её соседу. Прокрутка полосы не участвует — шапка обязана помещаться
-        // в экран целиком, поэтому лишнее уходит в перенос строки, а не под обрез.
-        minWidth: 0,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0, flexWrap: 'wrap' }}>
-        {/* Логотип набран Departure Mono на ступени 22 px, как и остальные заголовки (ADR-0009):
-            «TOKEN CLICKER» — 13 знаков по 14 px, 182 px, и на 390 px он стоит в одну строку. */}
-        <h1
-          className="pixel-22"
-          style={{
-            color: 'var(--accent-color)',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          TOKEN CLICKER
-        </h1>
-        {/* Бейдж Поколения: key пересоздаёт узел на смене Поколения, появление — только
-            opacity через toast-fade, а пульс — классом tab-badge--pulse (scale при движении,
-            мигание при reducedMotion), перезапуск тем же перемонтированием.
+    // Полоса описана классами целиком (index.css): инлайн-отступ в компоненте победил бы правило
+    // узкого режима, и шапка на телефоне осталась бы с широким полем и вырезом экрана под ней.
+    <header className="header-bar">
+      <div className="header-left">
+        {/* Логотип набран Departure Mono на ступени 22 px, как и остальные заголовки (ADR-0009).
+            «TOKEN CLICKER» — 13 знаков по 14 px, 182 px: рядом с четырьмя кнопками по 44 px и
+            бейджем Поколения на 320 px он не помещается, поэтому на телефоне невидим. Из
+            дерева доступности он не уходит (`header-full`): h1 остаётся единственным заголовком
+            страницы с именем игры. */}
+        <h1 className="pixel-22 header-logo header-full">TOKEN CLICKER</h1>
+        {/* Бейджи Поколения и Compute. Ряд на широкой шапке, столбик на узкой: в 320 px рядом они
+            не встают. */}
+        <div className={`header-badges${compute > 0 ? ' header-badges--stack' : ''}`}>
+          {/* Бейдж Поколения: key пересоздаёт узел на смене Поколения, появление — только
+              opacity через toast-fade, а пульс — классом tab-badge--pulse (scale при движении,
+              мигание при reducedMotion), перезапуск тем же перемонтированием.
 
-            nowrap плюс многоточие: период Поколения — это данные, и его длина ничем не
-            ограничена, а шапка от него не должна зависеть. Без nowrap бейдж «Поколение 5:
-            Reasoning (конец 2024 — начало 2025)» занимал четыре строки и выдавливал
-            остальную шапку вниз; теперь он всегда одна строка, а не поместившийся хвост
-            обрезается многоточием — имя Поколения, ради которого бейдж и нужен, остаётся. */}
-        <span
-          key={generation}
-          style={{
-            backgroundColor: 'var(--tint-accent)',
-            border: 'var(--frame-w) solid var(--border-strong)',
-            color: 'var(--text-main)',
-            padding: 'var(--space-0) var(--space-2)',
-            animation: 'toast-fade 0.15s ease-out',
-            maxWidth: '100%',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <span className="tab-badge--pulse" style={{ display: 'inline-block' }}>
-            {/* Номер Поколения — пиксельным шрифтом, а название и период — Nunito мельче 22 px:
-                период — данные и длиной не ограничен, в пиксельный кегль он не вмещается. */}
-            <span className="pixel-22">Поколение {gen.id}</span>{' '}
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-              {gen.name} · {gen.period}
+              nowrap плюс многоточие: период Поколения — это данные, и его длина ничем не
+              ограничена, а шапка от него не должна зависеть. Без nowrap бейдж «Поколение 5:
+              Reasoning (конец 2024 — начало 2025)» занимал четыре строки и выдавливал
+              остальную шапку вниз; теперь он всегда одна строка, а не поместившийся хвост
+              обрезается многоточием — имя Поколения, ради которого бейдж и нужен, остаётся.
+              На телефоне виден только «Поколение N»: имя и период остались в дереве доступности. */}
+          <span key={generation} className="header-gen">
+            <span className="tab-badge--pulse" style={{ display: 'inline-block' }}>
+              {/* Номер Поколения — пиксельным шрифтом, а название и период — Nunito мельче 22 px:
+                  период — данные и длиной не ограничен, в пиксельный кегль он не вмещается. */}
+              <span className="pixel-22 header-gen__num">Поколение {gen.id}</span>
+              <span className="header-full" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+                {' '}
+                {gen.name} · {gen.period}
+              </span>
             </span>
           </span>
-        </span>
-        {compute > 0 && (
-          <span
-            className="pixel-22"
-            style={{
-              backgroundColor: 'var(--tint-gold)',
-              border: 'var(--frame-w) solid var(--gold)',
-              color: 'var(--gold)',
-              padding: 'var(--space-0) var(--space-2)',
-              // Появление при монтировании — только opacity через toast-fade: бейдж
-              // возникает один раз, пульс ему не нужен.
-              animation: 'toast-fade 0.15s ease-out',
-              whiteSpace: 'nowrap',
-            }}
-            title={`Бонус к доходу от Compute: +${compute}%`}
-          >
-            <Num>{formatNumber(compute, notation)}</Num> Compute
-          </span>
-        )}
+          {compute > 0 && (
+            <span
+              className="pixel-22 header-compute"
+              title={`Бонус к доходу от Compute: +${compute}%`}
+            >
+              <Num>{formatNumber(compute, notation)}</Num> Compute
+            </span>
+          )}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0 }}>
+      <div className="header-right">
         {/* Иконочные кнопки получают имя из aria-label: картинка помечена декоративной, и
             без подписи озвучка прочитала бы пустую кнопку. */}
         <button
-          className="pixel-btn"
+          className="pixel-btn header-btn"
           onClick={toggleMute}
           title={isMuted ? 'Включить звук' : 'Выключить звук'}
           aria-label={isMuted ? 'Включить звук' : 'Выключить звук'}
-          style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name={isMuted ? 'sound-off' : 'sound-on'} />
         </button>
 
         <button
           ref={badgeRef}
-          className="pixel-btn pixel-22 pixel-wide ach-badge"
+          className="pixel-btn pixel-22 header-btn header-btn--count ach-badge"
           onClick={onOpenAchievements}
           title="Достижения"
           // Без aria-label доступное имя кнопки — это «14 / 21», то есть два числа без
           // единого слова; озвучка читала бы их вслух и не называла, что открывается.
           aria-label={`Достижения: ${unlockedAchCount} из ${totalAchCount}`}
-          style={{ padding: 'var(--space-1) var(--space-3)', whiteSpace: 'nowrap' }}
         >
           <Icon name="trophy" />
-          <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
+          <span>
+            <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
+          </span>
         </button>
 
-        <button
-          className="pixel-btn pixel-22 pixel-wide"
-          onClick={onOpenStats}
-          title="Инфо"
-          style={{ padding: 'var(--space-1) var(--space-3)', whiteSpace: 'nowrap' }}
-        >
+        {/* Слово «Инфо» на телефоне уходит в невидимые: кнопка остаётся 44 px значком, а имя ей
+            даёт само слово в дереве доступности. */}
+        <button className="pixel-btn pixel-22 header-btn" onClick={onOpenStats} title="Инфо">
           <Icon name="info" />
-          Инфо
+          <span className="header-full">Инфо</span>
         </button>
 
         <button
-          className="pixel-btn"
+          className="pixel-btn header-btn"
           onClick={onOpenSettings}
           title="Настройки"
           aria-label="Настройки"
-          style={{ padding: 'var(--space-1) var(--space-3)', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name="settings" />
         </button>

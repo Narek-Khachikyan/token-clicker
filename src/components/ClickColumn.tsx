@@ -410,7 +410,7 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
   // Обёртка нужна стрелке подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы.
   const clickAction = (
-    <div style={{ position: 'relative', width: '100%' }}>
+    <div className="click-action">
       <ClickButton />
       <CoachArrow target="click-button" single={full} />
     </div>

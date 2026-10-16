@@ -74,6 +74,18 @@ components/    presentation: reads state, calls actions
   mode. The Click button and the Температура scale live in `.click-dock`, sticky at the bottom of
   the column — the thumb zone. Touch targets are 44 px (`--tap-min`); the one exception is the
   20 px «Справка AA» mark, whose hit area grows to 44 px through `.aa-toggle::after`.
+- **The shell fits a phone, not just a width.** At or below `NARROW_MAX` (960 px, so a phone on its
+  side counts) the header is one 52 px row — «Поколение N» with Compute under it, four 44 px
+  buttons; the long forms («TOKEN CLICKER», name and period, «Инфо») stay in the accessibility
+  tree as `.header-full`. Heights are `dvh` after a `vh` fallback and live in CSS, never inline.
+  `viewport-fit=cover` lets the page reach under the notch, so every band respects `--safe-*`
+  (`env(safe-area-inset-*)` on `.app-root`): the root keeps the sides, the header the top, the
+  footer the bottom, `.modal-scrim` and the toast stack their own margins; code that places
+  something by window coordinates (`Hint`) reads them through `safeInsets.ts`. A phone on its
+  side (`isLandscapePhone`, `data-landscape`) keeps the same order of the same buttons: the strip
+  is one row, the news ticker hides until a Слух arrives, only the Click button stays pinned and
+  the Температура scale scrolls above it. Inline `style` beats these rules, so `display` and
+  `position` of anything they touch live in the class.
 - **Content tables move in pairs:** a new Лаборатория edits the `LabId` union and `LABS` together;
   `data/glossary.ts` timings are asserted against the code constants, so change both.
 - **Type is two faces and three steps** (ADR-0009). Departure Mono — headings, tabs, buttons,
@@ -165,12 +177,16 @@ doesn't trigger CSS `:active`. Screenshots go to the PR, not into git.
   or 44 px with every character in the font's `cmap`, no node in a third face. A rule elsewhere
   in `index.css` can overwrite the size of a `pixel-*` node, and only the browser sees that.
 - Every layout band from `src/layout.ts`: three columns at or above `THREE_COL_MIN`, one tab at a
-  time below it, and the compressed header at or below `NARROW_MAX`, where the footer's AA
-  attribution must still show.
+  time below it, and the one-row header at or below `NARROW_MAX` (320, 360, 390, and a phone on
+  its side such as 844 × 390), where the footer's AA attribution must still show.
 - The states you touched: empty first run, no income yet, the offline report at its cap, Престиж
   confirmation, the content finale, an import error.
 - To reach a late state on a throwaway origin, export a run as a code from «Настройки» and import it
   there.
+- A notch is emulated, not guessed: `Emulation.setSafeAreaInsetsOverride` on a CDP session
+  (`context.new_cdp_session(page)`) with `is_mobile` and `has_touch`, in portrait (top and bottom)
+  and landscape (left and right). Nothing readable or tappable may fall in an inset; `dvh` itself
+  needs a real phone with a collapsing address bar.
 
 ## Performance
 
