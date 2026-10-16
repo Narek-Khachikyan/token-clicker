@@ -165,27 +165,29 @@ export const GoldenToken: React.FC = () => {
       style={{
         width: '100%',
         flexShrink: 0,
-        padding: '10px 12px 8px',
+        padding: 'var(--space-2) var(--space-3) var(--space-2)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
+        gap: 'var(--space-2)',
         // Рамка идёт от золота к белому калу тем же перегревом, что и ореол: карточка события
         // греется вместе со Сценой, иначе жар читался бы только на краю и по шкале.
-        border: `2px solid ${mixVar(accent, accentHot, heat)}`,
+        border: `var(--frame-w) solid ${mixVar(accent, accentHot, heat)}`,
         backgroundColor: 'var(--bg-card)',
         boxShadow: [
-          '0 4px 12px var(--tint-strong)',
-          // Ореол слабеет на холоде до полного нуля: постоянный ореол означал бы, что событие
-          // всегда «горит», и перегрев перестал бы быть новостью.
-          heat > 0.02
-            ? `0 0 ${Math.round(6 + heat * 16)}px ${Math.round(heat * 3)}px ${mixVar(accent, accentHot, heat, 0.45)}`
+          'var(--edge-panel)',
+          '0 var(--drop) 0 var(--bg-void)',
+          // Жар — жёсткое кольцо вокруг рамки (ADR-0008), а не размытый ореол: толщина целое
+          // число пикселей арта и растёт ступенями 0, 2, 4 px. Кольца нет на холоде: постоянное
+          // означало бы, что событие всегда «горит», и перегрев перестал бы быть новостью.
+          heat > 0.02 && Math.round(heat * 2) > 0
+            ? `0 0 0 ${Math.round(heat * 2) * 2}px ${mixVar(accent, accentHot, heat, 0.45)}`
             : '',
         ]
           .filter(Boolean)
           .join(', '),
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
         <div
           style={{
             position: 'relative',
@@ -282,9 +284,8 @@ export const GoldenToken: React.FC = () => {
           className={`pixel-btn ${caught || armed ? '' : 'pixel-btn-gold'}`}
           style={{
             flexShrink: 0,
-            padding: '8px 14px',
+            padding: 'var(--space-2) var(--space-3)',
             fontSize: '0.9rem',
-            borderRadius: 999,
             ...(armed ? { backgroundColor: 'var(--red-solid)', borderColor: 'var(--red)' } : undefined),
           }}
         >
@@ -301,7 +302,6 @@ export const GoldenToken: React.FC = () => {
         style={{
           height: '4px',
           backgroundColor: 'var(--bg-void)',
-          borderRadius: 999,
           overflow: 'hidden',
         }}
       >

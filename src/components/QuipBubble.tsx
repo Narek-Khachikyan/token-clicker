@@ -68,7 +68,7 @@ export const QuipBubble: React.FC<QuipBubbleProps> = ({ placement = "office" }) 
         left: "50%",
         transform: "translateX(-50%)",
         ...(isPrompt
-          ? { margin: "0 auto 12px auto" }
+          ? { margin: '0 auto var(--space-3) auto' }
           : empty
           ? { top: "30%" }
           : { bottom: "104px" }),
@@ -76,10 +76,10 @@ export const QuipBubble: React.FC<QuipBubbleProps> = ({ placement = "office" }) 
         pointerEvents: "none",
         maxWidth: isPrompt ? "min(360px, 94%)" : "min(320px, 86%)",
         width: isPrompt ? "max-content" : undefined,
-        padding: "10px 12px",
+        padding: 'var(--space-2) var(--space-3)',
         display: "flex",
         alignItems: "center",
-        gap: "10px",
+        gap: 'var(--space-2)',
         boxSizing: "border-box",
       }}
     >
@@ -135,7 +135,7 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
         // Тот же слой, что у окон в Modals.tsx: тосты лежат выше (100), оверлей Престижа
         // ниже (40), а Переписка с остальными окнами не пересекается.
         zIndex: 50,
-        padding: "16px",
+        padding: 'var(--space-4)',
         animation: "toast-fade 0.18s ease-out",
       }}
       onClick={onClose}
@@ -154,8 +154,8 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
           maxHeight: "85vh",
           display: "flex",
           flexDirection: "column",
-          padding: "20px",
-          gap: "14px",
+          padding: 'var(--space-4)',
+          gap: 'var(--space-3)',
           animation: "toast-fade 0.18s ease-out",
         }}
         onClick={(e) => e.stopPropagation()}
@@ -165,7 +165,7 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            gap: "10px",
+            gap: 'var(--space-2)',
             flexShrink: 0,
           }}
         >
@@ -175,7 +175,7 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
               display: "flex",
               flexWrap: "wrap",
               alignItems: "center",
-              gap: "8px",
+              gap: 'var(--space-2)',
               minWidth: 0,
               fontSize: "1.2rem",
               color: "var(--gold)",
@@ -191,7 +191,7 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
             onClick={onClose}
             aria-label="Закрыть"
             title="Закрыть"
-            style={{ padding: "4px 10px", flexShrink: 0 }}
+            style={{ padding: 'var(--space-1) var(--space-2)', flexShrink: 0 }}
           >
             <Icon name="close" />
           </button>
@@ -204,7 +204,7 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
             overflowY: "auto",
             display: "flex",
             flexDirection: "column",
-            gap: "8px",
+            gap: 'var(--space-2)',
           }}
         >
           {found.length === 0 ? (
@@ -218,10 +218,9 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "10px",
-                  padding: "8px 10px",
+                  gap: 'var(--space-2)',
+                  padding: 'var(--space-2)',
                   backgroundColor: "var(--bg-card)",
-                  borderRadius: "6px",
                 }}
               >
                 <MascotSprite lab={q.lab} size={28} />

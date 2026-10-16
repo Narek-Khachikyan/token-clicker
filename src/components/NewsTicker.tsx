@@ -140,11 +140,11 @@ export const NewsTicker: React.FC = () => {
       style={{
         display: 'flex',
         alignItems: 'center',
-        padding: '6px 14px',
+        padding: 'var(--space-1) var(--space-3)',
         backgroundColor: 'var(--bg-void)',
-        borderBottom: '1px solid var(--border)',
+        borderBottom: 'var(--frame-w) solid var(--border)',
         fontSize: '0.9rem',
-        gap: '8px',
+        gap: 'var(--space-2)',
         overflow: 'hidden',
         whiteSpace: 'nowrap',
       }}
@@ -195,7 +195,7 @@ export const NewsTicker: React.FC = () => {
                 aria-hidden={i > 0 ? true : undefined}
               >
                 {text}
-                <span className="news-ticker-sep" aria-hidden="true" style={{ margin: '0 14px' }}>
+                <span className="news-ticker-sep" aria-hidden="true" style={{ margin: '0 var(--space-3)' }}>
                   ◆
                 </span>
               </span>

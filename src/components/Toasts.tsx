@@ -111,15 +111,12 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
       onAnimationEnd={onAnimationEnd}
       className={`pixel-card toast-card${leaving ? ' toast-card--out' : ''}`}
       style={{
-        padding: '12px 14px',
+        padding: 'var(--space-3)',
         backgroundColor: 'var(--bg-card)',
-        border: '2px solid var(--gold)',
-        // Тень остаётся литералом и вдвое гуще карточной: тост висит поверх живой игры,
-        // а --tint-strong у .pixel-card рассчитан на фон, лежащий сразу под панелью.
-        boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
+        border: 'var(--frame-w) solid var(--gold)',
         display: 'flex',
         alignItems: 'center',
-        gap: '10px',
+        gap: 'var(--space-2)',
         cursor: 'pointer',
         // Карточка не шире стека: сам стек уже ограничен расчётом колонок
         // (см. `toastStackWidth`), а здесь предел — доля, а не пиксели, иначе на
@@ -151,7 +148,7 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
         className="pixel-btn"
         aria-label="Закрыть уведомление"
         title="Закрыть"
-        style={{ padding: '2px 6px', fontSize: '0.8rem', flexShrink: 0 }}
+        style={{ padding: 'var(--space-0) var(--space-1)', fontSize: '0.8rem', flexShrink: 0 }}
       >
         ✕
       </button>
@@ -310,7 +307,7 @@ export const Toasts: React.FC = () => {
             className="pixel-card"
             style={{
               alignSelf: 'flex-start',
-              padding: '6px 10px',
+              padding: 'var(--space-1) var(--space-2)',
               backgroundColor: 'var(--bg-card)',
               fontSize: '0.8rem',
               color: 'var(--text-muted)',

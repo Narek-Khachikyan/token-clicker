@@ -134,12 +134,11 @@ const DARK_STRIP = 'var(--bg-void)';
 
 const GLITCH_CHIP = {
   backgroundColor: DARK_STRIP,
-  border: '1px solid var(--border)',
-  borderRadius: '3px',
+  border: 'var(--frame-w) solid var(--border)',
   color: 'var(--text-main)',
   fontSize: '0.7rem',
   lineHeight: 1.4,
-  padding: '0 4px',
+  padding: '0 var(--space-1)',
 } as const;
 
 interface PoppedGlitchItem {
@@ -190,7 +189,7 @@ const OfficeGlitchSwarm: React.FC = () => {
         flexWrap: 'wrap',
         justifyContent: 'center',
         alignContent: 'flex-start',
-        gap: '10px 12px',
+        gap: 'var(--space-2) var(--space-3)',
         pointerEvents: 'none',
       }}
     >
@@ -208,7 +207,7 @@ const OfficeGlitchSwarm: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              gap: '3px',
+              gap: 'var(--space-0)',
               padding: 0,
               background: 'none',
               border: 'none',
@@ -250,7 +249,7 @@ const OfficeGlitchSwarm: React.FC = () => {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            gap: '3px',
+            gap: 'var(--space-0)',
             pointerEvents: 'none',
             animation: motionAllowed()
               ? 'tab-badge-pulse 0.32s cubic-bezier(0.2, 0.8, 0.3, 1.2) forwards'
@@ -264,9 +263,7 @@ const OfficeGlitchSwarm: React.FC = () => {
                 style={{
                   position: 'absolute',
                   inset: '-4px',
-                  borderRadius: '50%',
-                  border: '2px solid var(--accent-color)',
-                  boxShadow: '0 0 10px 2px var(--accent-glow)',
+                  border: 'var(--frame-w) solid var(--accent-color)',
                   animation: 'burst-fly 0.35s ease-out forwards',
                   pointerEvents: 'none',
                 }}
@@ -280,7 +277,7 @@ const OfficeGlitchSwarm: React.FC = () => {
             aria-label="Глюк лопнул"
             style={{
               ...GLITCH_CHIP,
-              padding: '1px 4px',
+              padding: 'var(--space-0) var(--space-1)',
               lineHeight: 0,
               borderColor: 'var(--green)',
               color: 'var(--green)',
@@ -338,7 +335,7 @@ const RosterRow: React.FC<{ labId: LabId; showShare: boolean }> = ({ labId, show
   const work = labWork({ generation, upgrades }, labId);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', flexWrap: 'wrap', rowGap: '2px' }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-1)', flexWrap: 'wrap', rowGap: 'var(--space-0)' }}>
       {/* Цвет Лаборатории живёт только здесь: на --bg-card он не задаёт контраст
           текста, а плашкой служит лишь ориентиром, у какой Маскот чья. */}
       <span
@@ -346,8 +343,7 @@ const RosterRow: React.FC<{ labId: LabId; showShare: boolean }> = ({ labId, show
           width: '10px',
           height: '10px',
           backgroundColor: lab.color,
-          border: '1px solid var(--border)',
-          borderRadius: '2px',
+          border: 'var(--frame-w) solid var(--border)',
           flexShrink: 0,
         }}
       />
@@ -514,8 +510,8 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         backgroundColor: 'var(--bg-primary)',
         height: '100%',
         overflowY: 'auto',
-        padding: '16px',
-        gap: '16px',
+        padding: 'var(--space-4)',
+        gap: 'var(--space-4)',
       }}
     >
       {/* Баннер Поколения и Флагмана. key пересоздаёт карточку на смене Поколения
@@ -526,24 +522,24 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         className="pixel-card"
         style={{
           flexShrink: 0,
-          padding: '16px',
-          borderLeft: `6px solid ${flagshipOwned ? 'var(--gold)' : 'var(--accent-color)'}`,
+          padding: 'var(--space-4)',
+          borderLeft: `calc(var(--frame-w) * 3) solid ${flagshipOwned ? 'var(--gold)' : 'var(--accent-color)'}`,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: '12px',
+          gap: 'var(--space-3)',
           animation: 'toast-fade 0.15s ease-out',
         }}
       >
         <div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+          <div style={{ fontSize: '0.85rem', color: 'var(--accent-color)' }}>
             ЦЕЛЬ ПОКОЛЕНИЯ
           </div>
-          <div style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: '2px' }}>
+          <div style={{ fontSize: '1.25rem', color: 'var(--text-main)', marginTop: 'var(--space-0)' }}>
             Флагман: <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
           </div>
-          <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: '4px' }}>
+          <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
             {flagshipOwned
               ? 'Флагман нанят! Престиж в следующее поколение разблокирован.'
               : 'Найми хотя бы 1 агента флагмана, чтобы открыть престиж.'}
@@ -554,7 +550,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           <button
             onClick={requestPrestige}
             className="pixel-btn pixel-btn-gold"
-            style={{ fontSize: '1rem', padding: '10px 16px' }}
+            style={{ fontSize: '1rem', padding: 'var(--space-2) var(--space-4)' }}
           >
             <Icon name="rocket" />
             Совершить Престиж
@@ -564,10 +560,9 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         {finale && (
           <div
             style={{
-              padding: '8px 14px',
+              padding: 'var(--space-2) var(--space-3)',
               backgroundColor: 'var(--tint-gold)',
-              border: '2px solid var(--gold)',
-              borderRadius: '6px',
+              border: 'var(--frame-w) solid var(--gold)',
               textAlign: 'center',
             }}
           >
@@ -589,13 +584,12 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           minHeight: '300px',
           position: 'relative',
           overflow: 'hidden',
-          borderRadius: '6px',
-          border: '2px solid var(--border)',
+          border: 'var(--frame-w) solid var(--border)',
           backgroundColor: 'var(--bg-void)',
-          // Свечение от жара кладётся на рамку, а не на картинку: горящий офис должен
-          // светиться по краю, и подсветка изнутри залила бы лица Маскотов.
-          boxShadow:
-            'inset 0 0 24px color-mix(in srgb, var(--accent-color) calc(var(--heat-glow, 0) * 100%), transparent)',
+          // Жар кладётся на рамку, а не на картинку: горящий офис обводится по краю, и заливка
+          // изнутри закрыла бы лица Маскотов. Кольцо жёсткое (ADR-0008): толщина --heat-ring
+          // кратна пикселю арта и растёт ступенями с состоянием Температуры.
+          boxShadow: 'inset 0 0 0 var(--heat-ring, 0px) var(--accent-color)',
         }}
       >
         {/* Кроссфейд: предыдущий кадр лежит нижним слоем, новый проявляется поверх
@@ -673,8 +667,8 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'baseline',
-              gap: '8px',
-              padding: '9px 12px',
+              gap: 'var(--space-2)',
+              padding: 'var(--space-2) var(--space-3)',
               background: 'linear-gradient(to bottom, var(--bg-scrim) 0%, var(--bg-scrim) 55%, transparent 100%)',
             }}
           >
@@ -713,15 +707,15 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             // 166 px, а затемнение при минимальной Сцене в 300 px накрывает только
             // нижние 114 px, и без зазора верхний счётчик сел бы встык со столом
             // нижнего ряда.
-            rowGap: '8px',
+            rowGap: 'var(--space-2)',
             alignItems: 'end',
-            padding: '0 8px 12px',
+            padding: '0 var(--space-2) var(--space-3)',
           }}
         >
           {activeLabs.map((labId) => (
             <div
               key={labId}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', minWidth: 0 }}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-1)', minWidth: 0 }}
             >
               {/* Место целиком: Маскот стоит за своим столом, и стол рисуется поверх
                   Маскота по щиколотку. Без перекрытия это были бы восемь фигур,
@@ -745,6 +739,8 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     width: SHADOW_W,
                     height: SHADOW_H,
                     marginLeft: -SHADOW_W / 2,
+                    // Эллипс на полу — рисунок Сцены, а не панель интерфейса: пол пиксель-арта
+                    // не бывает квадратным, и срезанная ступенями тень выглядела бы дырой.
                     borderRadius: '50%',
                     backgroundColor: CONTACT_SHADOW,
                     zIndex: 0,
@@ -829,7 +825,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '16px',
+              padding: 'var(--space-4)',
               pointerEvents: 'none',
             }}
           >
@@ -837,11 +833,10 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             <div
               style={{
                 backgroundColor: 'var(--bg-panel)',
-                border: '2px solid var(--border)',
-                borderRadius: '6px',
-                padding: '18px 24px',
+                border: 'var(--frame-w) solid var(--border)',
+                padding: 'var(--space-4) var(--space-5)',
                 textAlign: 'center',
-                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.45)',
+                boxShadow: '0 var(--drop) 0 var(--bg-void)',
               }}
             >
               {/* Пиксельный питающий индикатор активности Сцены */}
@@ -849,12 +844,11 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  marginBottom: '10px',
-                  padding: '3px 8px',
+                  gap: 'var(--space-2)',
+                  marginBottom: 'var(--space-2)',
+                  padding: 'var(--space-0) var(--space-2)',
                   backgroundColor: 'var(--bg-void)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '3px',
+                  border: 'var(--frame-w) solid var(--border)',
                 }}
               >
                 <span
@@ -864,8 +858,6 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     width: '8px',
                     height: '8px',
                     backgroundColor: 'var(--green)',
-                    borderRadius: '2px',
-                    boxShadow: '0 0 6px var(--green)',
                   }}
                 />
                 <span
@@ -886,7 +878,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               {/* Куда идти — по раскладке, а не всегда «вправо». `full` и есть признак
                   одноколоночного режима, где магазин не колонка справа, а вкладка внизу:
                   подсказка «справа» на телефоне указывала в пустоту. */}
-              <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+              <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
                 Найми первого ИИ-агента в магазине{full ? '' : ' справа'}!
               </div>
             </div>
@@ -905,17 +897,16 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         style={{
           flexShrink: 0,
           backgroundColor: 'var(--bg-card)',
-          border: '2px solid var(--border)',
-          borderRadius: '6px',
-          padding: '10px 12px',
+          border: 'var(--frame-w) solid var(--border)',
+          padding: 'var(--space-2) var(--space-3)',
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
+          gap: 'var(--space-2)',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <span style={{ fontSize: '0.85rem', color: 'var(--accent-color)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)' }}>
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               {activeLabs.length}{' '}
               {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий', notation)} в офисе
@@ -924,7 +915,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             <button
               className="pixel-btn"
               onClick={() => setQuipLogOpen(true)}
-              style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+              style={{ fontSize: '0.8rem', padding: 'var(--space-1) var(--space-2)' }}
             >
               Переписка ({quipsSeenCount})
             </button>
@@ -936,7 +927,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             Пока никто не нанят — Сцена ждёт первого агента.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1) var(--space-4)' }}>
             {activeLabs.map((labId) => (
               <RosterRow key={labId} labId={labId} showShare={activeLabs.length > 1} />
             ))}

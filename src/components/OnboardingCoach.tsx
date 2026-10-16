@@ -26,10 +26,10 @@ export const OnboardingCoach: React.FC = () => {
       aria-live="polite"
       style={{
         width: '100%',
-        padding: '10px 12px',
+        padding: 'var(--space-2) var(--space-3)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '2px',
+        gap: 'var(--space-0)',
         borderColor: 'var(--accent-color)',
         animation: 'toast-fade 0.2s ease-out',
       }}

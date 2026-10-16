@@ -87,14 +87,16 @@ export const SceneGlitchBand: React.FC = () => {
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '8px',
-        padding: '6px 12px',
+        gap: 'var(--space-2)',
+        padding: 'var(--space-1) var(--space-3)',
         backgroundColor: 'var(--bg-void)',
-        borderTop: '1px solid var(--border)',
+        borderTop: 'var(--frame-w) solid var(--border)',
         fontSize: '0.8rem',
+        // Жар по нижней кромке полосы — жёсткая линия в пиксель арта, а не размытое свечение
+        // (ADR-0008): тот же перегрев, но без размытия на панели.
         boxShadow:
           heat > 0.02
-            ? `inset 0 -8px 12px -8px ${mixVar('var(--accent-color)', 'var(--thermal-hot)', heat, 0.5)}`
+            ? `inset 0 calc(var(--frame-w) * -1) 0 0 ${mixVar('var(--accent-color)', 'var(--thermal-hot)', heat, 0.5)}`
             : undefined,
       }}
     >

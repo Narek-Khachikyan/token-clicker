@@ -78,7 +78,7 @@ const PLEDGE_ROW: React.CSSProperties = {
   display: 'flex',
   alignItems: 'flex-start',
   justifyContent: 'space-between',
-  gap: '10px',
+  gap: 'var(--space-2)',
   flexWrap: 'wrap',
 };
 
@@ -87,7 +87,7 @@ const PLEDGE_TEXT: React.CSSProperties = { flex: 1, minWidth: 0 };
 const PLEDGE_DESC: React.CSSProperties = {
   fontSize: '0.8rem',
   color: 'var(--text-muted)',
-  marginTop: '2px',
+  marginTop: 'var(--space-0)',
 };
 
 /**
@@ -200,12 +200,11 @@ const ModelRow: React.FC<{
       style={{
         position: 'relative',
         backgroundColor: 'var(--bg-card)',
-        border: isFlagship ? '2px solid var(--gold)' : '1px solid var(--border)',
-        borderRadius: '6px',
-        padding: '10px',
+        border: isFlagship ? 'var(--frame-w) solid var(--gold)' : 'var(--frame-w) solid var(--border)',
+        padding: 'var(--space-2)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
+        gap: 'var(--space-2)',
       }}
     >
       {children}
@@ -306,7 +305,7 @@ const SynergyNotesView: React.FC<{ model: Model }> = ({ model: m }) => {
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '2px',
+        gap: 'var(--space-0)',
         fontSize: '0.75rem',
         color: 'var(--text-muted)',
       }}
@@ -349,13 +348,12 @@ const AAReferenceView: React.FC<{ model: Model }> = ({ model: m }) => (
     id={`aa-${m.id}`}
     aria-labelledby={`aa-toggle-${m.id}`}
     style={{
-      padding: '6px 8px',
+      padding: 'var(--space-1) var(--space-2)',
       backgroundColor: 'var(--bg-void)',
-      borderRadius: '4px',
       fontSize: '0.75rem',
       display: 'grid',
       gridTemplateColumns: 'repeat(3, 1fr)',
-      gap: '6px',
+      gap: 'var(--space-1)',
     }}
   >
     <div>
@@ -399,10 +397,10 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
   return (
     <ModelRow owned={owned} isFlagship={m.isFlagship} canAfford={canAfford}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
           <MascotSprite lab={m.lab} size={28} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
               <span
                 style={{
                   fontSize: '1rem',
@@ -440,15 +438,14 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
                   padding: 0,
                   cursor: 'pointer',
                   background: isAAOpen ? 'var(--tint-accent)' : 'none',
-                  border: '1px solid var(--border)',
-                  borderRadius: '3px',
+                  border: 'var(--frame-w) solid var(--border)',
                   color: 'var(--accent-color)',
                 }}
               >
                 <Icon name="info" size={12} />
               </button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
               {/* Бейдж Лаборатории — три буквы фиксированной ширины. Полное имя
                   занимало строку целиком и выдавливало Ранг за край карточки на
                   длинных именах вроде «Llama 2 Chat 13B»; здесь имена Лабораторий
@@ -459,8 +456,8 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
                   fontSize: '0.6rem',
                   letterSpacing: '0.04em',
                   color: lab.color,
-                  border: `1px solid ${lab.color}`,
-                  padding: '0 3px',
+                  border: `var(--frame-w) solid ${lab.color}`,
+                  padding: '0 var(--space-0)',
                   minWidth: '2.4em',
                   textAlign: 'center',
                   flexShrink: 0,
@@ -495,7 +492,7 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
         style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
+          gap: 'var(--space-2)',
           ...(canAfford ? undefined : { cursor: 'not-allowed' }),
         }}
       >
@@ -518,7 +515,7 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
             disabled={!canAfford}
             className={`pixel-btn pixel-btn-accent model-row__buy`}
             style={{
-              padding: '7px 12px',
+              padding: 'var(--space-2) var(--space-3)',
               fontSize: '0.85rem',
               backgroundColor: sellMode && canAfford ? 'var(--red-solid)' : undefined,
               borderColor: sellMode && canAfford ? 'var(--red)' : undefined,
@@ -535,7 +532,7 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: '2px',
+                gap: 'var(--space-0)',
               }}
             >
               <span>
@@ -624,7 +621,7 @@ const ModelsTab: React.FC<{
   const generation = useGameStore((s) => s.state.generation);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
       {CATALOG[generation].models.map((m) => (
         <ModelCard key={m.id} model={m} aaOpen={!!expandedAA[m.id]} onToggleAA={toggleAA} />
       ))}
@@ -639,8 +636,8 @@ const ModelsTab: React.FC<{
           color: 'var(--text-muted)',
           display: 'flex',
           alignItems: 'center',
-          gap: '5px',
-          paddingTop: '2px',
+          gap: 'var(--space-1)',
+          paddingTop: 'var(--space-0)',
         }}
       >
         <Icon name="info" size={12} />
@@ -658,17 +655,16 @@ const UpgradeCard: React.FC<{ upgrade: Upgrade }> = ({ upgrade: u }) => {
     <div
       style={{
         backgroundColor: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-        borderRadius: '6px',
-        padding: '10px',
+        border: 'var(--frame-w) solid var(--border)',
+        padding: 'var(--space-2)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '6px',
+        gap: 'var(--space-1)',
       }}
     >
       {/* Заголовок с пиктограммой: спрайт 32×32 нельзя сжимать под narrower
           колонки, поэтому у него фиксированный размер и flexShrink: 0. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
         <img
           src={`/sprites/upgrades/${u.sprite}.png`}
           width={32}
@@ -691,7 +687,7 @@ const UpgradeCard: React.FC<{ upgrade: Upgrade }> = ({ upgrade: u }) => {
         style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '6px',
+          gap: 'var(--space-1)',
           ...(canAfford ? undefined : { cursor: 'not-allowed' }),
         }}
       >
@@ -700,7 +696,7 @@ const UpgradeCard: React.FC<{ upgrade: Upgrade }> = ({ upgrade: u }) => {
           disabled={!canAfford}
           className="pixel-btn pixel-btn-accent"
           style={{
-            padding: '6px 10px',
+            padding: 'var(--space-1) var(--space-2)',
             fontSize: '0.85rem',
             alignSelf: 'flex-end',
             pointerEvents: canAfford ? undefined : 'none',
@@ -722,9 +718,9 @@ const UpgradesTab: React.FC = () => {
   const upgrades = useStateSlice(availableUpgradesOf);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
       {upgrades.length === 0 ? (
-        <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '40px' }}>
+        <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 'var(--space-6)' }}>
           Пока нет доступных апгрейдов. Нанимай больше агентов!
         </div>
       ) : (
@@ -743,11 +739,11 @@ const PrestigeCard: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels
     <div
       className="pixel-card"
       style={{
-        padding: '12px',
-        border: '2px solid var(--gold)',
+        padding: 'var(--space-3)',
+        border: 'var(--frame-w) solid var(--gold)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
+        gap: 'var(--space-2)',
       }}
     >
       <div style={{ fontSize: '1.1rem', color: 'var(--gold)' }}>Престиж в следующее поколение</div>
@@ -760,8 +756,7 @@ const PrestigeCard: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels
         <div
           style={{
             backgroundColor: 'var(--tint-strong)',
-            padding: '8px',
-            borderRadius: '4px',
+            padding: 'var(--space-2)',
             fontSize: '0.85rem',
           }}
         >
@@ -773,7 +768,7 @@ const PrestigeCard: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels
                 и расходиться они не должны. */}
             <Num>+{gain}</Num>
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 'var(--space-0)' }}>
             (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
           </div>
         </div>
@@ -785,7 +780,7 @@ const PrestigeCard: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels
       <button
         onClick={requestPrestige}
         className="pixel-btn pixel-btn-gold"
-        style={{ width: '100%', marginTop: '4px' }}
+        style={{ width: '100%', marginTop: 'var(--space-1)' }}
       >
         {finale ? 'Финал контента' : ready ? 'Сделать Престиж!' : 'Нужен 1 Агент Флагмана'}
       </button>
@@ -797,13 +792,12 @@ const PrestigeCard: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels
         <div
           style={{
             backgroundColor: 'var(--tint-strong)',
-            padding: '8px',
-            borderRadius: '4px',
+            padding: 'var(--space-2)',
             fontSize: '0.85rem',
             color: 'var(--text-muted)',
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px',
+            gap: 'var(--space-2)',
             animation: 'toast-fade 0.15s ease-out',
           }}
         >
@@ -837,7 +831,7 @@ const PledgeCard: React.FC = () => {
   return (
     <div
       className="pixel-card"
-      style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+      style={{ padding: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}
     >
       <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
         Откупы от Восстания моделей
@@ -881,7 +875,7 @@ const PledgeCard: React.FC = () => {
                 onClick={buyPledge}
                 disabled={!view.canPledge}
                 className="pixel-btn pixel-btn-accent"
-                style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
               >
                 {view.covenant ? (
                   'Есть Лицензия'
@@ -914,7 +908,7 @@ const PledgeCard: React.FC = () => {
                   onClick={revokeLicense}
                   disabled={!view.canRevoke}
                   className="pixel-btn"
-                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                  style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
                 >
                   Отозвать (<Num>{view.revokeCostText}</Num>)
                 </button>
@@ -942,7 +936,7 @@ const PledgeCard: React.FC = () => {
                   onClick={buyLicense}
                   disabled={!view.canLicense}
                   className="pixel-btn pixel-btn-gold"
-                  style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                  style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
                 >
                   Взять Лицензию (
                   <Num>{view.licenseCostText}</Num>)
@@ -966,7 +960,7 @@ const CrystalGrowth: React.FC = () => {
   const motion = useMotionAllowed();
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
       <div style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
         {planted ? <>Следующий зреет ещё {leftText}</> : 'Первый кристалл только сеется'}
       </div>
@@ -980,8 +974,7 @@ const CrystalGrowth: React.FC = () => {
           width: '100%',
           height: '8px',
           backgroundColor: 'var(--bg-void)',
-          border: '1px solid var(--border)',
-          borderRadius: '4px',
+          border: 'var(--frame-w) solid var(--border)',
           overflow: 'hidden',
         }}
       >
@@ -1006,12 +999,11 @@ const CrystalUpgradeCard: React.FC<{ upgrade: CrystalUpgrade }> = ({ upgrade: u 
     <div
       style={{
         backgroundColor: 'var(--bg-card)',
-        border: owned ? '1px solid var(--green)' : '1px solid var(--border)',
-        borderRadius: '6px',
-        padding: '10px',
+        border: owned ? 'var(--frame-w) solid var(--green)' : 'var(--frame-w) solid var(--border)',
+        padding: 'var(--space-2)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '6px',
+        gap: 'var(--space-1)',
       }}
     >
       <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
@@ -1041,7 +1033,7 @@ const CrystalUpgradeCard: React.FC<{ upgrade: CrystalUpgrade }> = ({ upgrade: u 
           onClick={() => buyCrystalUpgrade(u.id)}
           disabled={owned || !canAfford}
           className={`pixel-btn ${owned ? '' : 'pixel-btn-accent'}`}
-          style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+          style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
         >
           {owned ? (
             'Куплено'
@@ -1067,7 +1059,7 @@ const CrystalCard: React.FC = () => {
   return (
     <div
       className="pixel-card"
-      style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}
+      style={{ padding: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}
     >
       <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
         Compute-кристаллы
@@ -1085,7 +1077,7 @@ const CrystalCard: React.FC = () => {
 
       <CrystalGrowth />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         {CRYSTAL_UPGRADES.map((u) => (
           <CrystalUpgradeCard key={u.id} upgrade={u} />
         ))}
@@ -1107,12 +1099,12 @@ const PerkShop: React.FC = () => {
   return (
     <div>
       <div
-        style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '8px' }}
+        style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: 'var(--space-2)' }}
       >
         Постоянные перки (Свободно: <Num>{unspentCompute}</Num> Compute)
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         {regularPerks.map((p) => {
           const owned = perks.includes(p.id);
           const canAfford = !owned && unspentCompute >= p.cost;
@@ -1122,12 +1114,11 @@ const PerkShop: React.FC = () => {
               key={p.id}
               style={{
                 backgroundColor: 'var(--bg-card)',
-                border: owned ? '1px solid var(--green)' : '1px solid var(--border)',
-                borderRadius: '6px',
-                padding: '10px',
+                border: owned ? 'var(--frame-w) solid var(--green)' : 'var(--frame-w) solid var(--border)',
+                padding: 'var(--space-2)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '6px',
+                gap: 'var(--space-1)',
               }}
             >
               <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
@@ -1158,7 +1149,7 @@ const PerkShop: React.FC = () => {
                   disabled={owned || !canAfford}
                   className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                   style={{
-                    padding: '6px 10px',
+                    padding: 'var(--space-1) var(--space-2)',
                     fontSize: '0.85rem',
                     alignSelf: 'flex-end',
                     // Недоступная кнопка прозрачна для указателя: иначе браузер подавил бы
@@ -1199,17 +1190,17 @@ const LegacyPerks: React.FC = () => {
   return (
     <div>
       <div
-        style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: '4px' }}
+        style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: 'var(--space-1)' }}
       >
         Наследие поколений (Куплено: <Num>{boughtGenPerks}</Num> из{' '}
         <Num>{genPerks.length}</Num>)
       </div>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 'var(--space-2)' }}>
         Усиливают только своё Поколение навсегда. Следующий —{' '}
         <Num>{nextGenPerkCost}</Num> Compute: цена растёт с числом купленных.
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         {genPerks.map((p) => {
           const owned = perks.includes(p.id);
           // Поколение особого перка: null быть не может (список собран через genPerkId
@@ -1233,12 +1224,11 @@ const LegacyPerks: React.FC = () => {
               key={p.id}
               style={{
                 backgroundColor: 'var(--bg-card)',
-                border: owned ? '1px solid var(--green)' : '1px solid var(--border)',
-                borderRadius: '6px',
-                padding: '10px',
+                border: owned ? 'var(--frame-w) solid var(--green)' : 'var(--frame-w) solid var(--border)',
+                padding: 'var(--space-2)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '6px',
+                gap: 'var(--space-1)',
                 ...(locked ? { opacity: 0.6 } : undefined),
               }}
             >
@@ -1280,7 +1270,7 @@ const LegacyPerks: React.FC = () => {
                   disabled={owned || !canAfford}
                   className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                   style={{
-                    padding: '6px 10px',
+                    padding: 'var(--space-1) var(--space-2)',
                     fontSize: '0.85rem',
                     alignSelf: 'flex-end',
                     pointerEvents: owned || canAfford ? undefined : 'none',
@@ -1305,7 +1295,7 @@ const LegacyPerks: React.FC = () => {
 
 /** ВКЛАДКА ПРЕСТИЖА И ПЕРКОВ */
 const PerksTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
     <PrestigeCard onBackToModels={onBackToModels} />
     <PledgeCard />
     <CrystalCard />
@@ -1348,12 +1338,13 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
   return (
     <div
+      className="pixel-panel"
       style={{
         display: 'flex',
         flexDirection: 'column',
-        padding: '16px',
+        padding: 'var(--space-4)',
         backgroundColor: 'var(--bg-panel)',
-        borderLeft: '2px solid var(--border)',
+        borderLeft: 'var(--frame-w) solid var(--border)',
         // Базис приходит из модуля раскладки: раньше ширина считалась по содержимому вкладки,
         // и переход «Модели» → «Апгрейды» сужал колонку примерно на 18%, а офис вбирал разницу.
         // В одноколоночном режиме колонка единственная и занимает всю ширину.
@@ -1364,18 +1355,18 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
       }}
     >
       {/* Переключатель вкладок магазина */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+      <div style={{ display: 'flex', gap: 'var(--space-1)', marginBottom: 'var(--space-3)' }}>
         <button
           onClick={() => setTab('models')}
           className={`pixel-btn ${tab === 'models' ? 'pixel-btn-accent' : ''}`}
-          style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem' }}
+          style={{ flex: 1, padding: 'var(--space-2) var(--space-1)', fontSize: '0.9rem' }}
         >
           Модели
         </button>
         <button
           onClick={() => setTab('upgrades')}
           className={`pixel-btn ${tab === 'upgrades' ? 'pixel-btn-accent' : ''}`}
-          style={{ flex: 1, padding: '8px 4px', fontSize: '0.9rem', position: 'relative' }}
+          style={{ flex: 1, padding: 'var(--space-2) var(--space-1)', fontSize: '0.9rem', position: 'relative' }}
         >
           Апгрейды
           {upgradesCount > 0 && (
@@ -1383,14 +1374,13 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               key={upgradesCount}
               className="tab-badge--pulse"
               style={{
-                marginLeft: '4px',
+                marginLeft: 'var(--space-1)',
                 backgroundColor: 'var(--red)',
                 /* Чистый белый на насыщенной заливке: --text-main уводит подпись в тёплый
                    и роняет и без того пограничную пару до 3.06:1. */
                 color: '#fff',
                 fontSize: '0.7rem',
-                padding: '1px 5px',
-                borderRadius: '8px',
+                padding: 'var(--space-0) var(--space-1)',
               }}
             >
               {upgradesCount}
@@ -1409,7 +1399,7 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           }
           style={{
             flex: 1,
-            padding: '8px 4px',
+            padding: 'var(--space-2) var(--space-1)',
             fontSize: '0.9rem',
             ...(prestigeLocked
               ? { color: 'var(--text-muted)', borderColor: 'var(--border)' }
@@ -1433,23 +1423,22 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             // ради этого не стоит — он поднял бы и порог одноколоночного режима, а перенос
             // читается: на узкой колонке множители просто встают вторым рядом.
             flexWrap: 'wrap',
-            rowGap: '4px',
-            marginBottom: '12px',
+            rowGap: 'var(--space-1)',
+            marginBottom: 'var(--space-3)',
             backgroundColor: 'var(--bg-card)',
-            padding: '6px 10px',
-            borderRadius: '6px',
-            border: '1px solid var(--border)',
+            padding: 'var(--space-1) var(--space-2)',
+            border: 'var(--frame-w) solid var(--border)',
           }}
         >
           {/* Режим покупки / продажи. Оформление выбранного состояния живёт в index.css и
               держится на aria-pressed, поэтому здесь нет inline-заливок: они перебили бы
               общий паттерн и разошлись бы с множителем покупки. */}
-          <div style={{ display: 'flex', gap: '4px' }}>
+          <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
             <button
               onClick={() => setSellMode(false)}
               className="pixel-btn"
               aria-pressed={!sellMode}
-              style={{ padding: '4px 8px', fontSize: '0.8rem' }}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.8rem' }}
             >
               Купить
             </button>
@@ -1457,21 +1446,21 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               onClick={() => setSellMode(true)}
               className="pixel-btn pixel-btn-sell"
               aria-pressed={sellMode}
-              style={{ padding: '4px 8px', fontSize: '0.8rem' }}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.8rem' }}
             >
               Продать
             </button>
           </div>
 
           {/* Множители ×1, ×10, ×100, Max */}
-          <div style={{ display: 'flex', gap: '4px' }}>
+          <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
             {([1, 10, 100, 'max'] as BuyAmount[]).map((amt) => (
               <button
                 key={amt}
                 onClick={() => setBuyAmount(amt)}
                 className="pixel-btn"
                 aria-pressed={buyAmount === amt}
-                style={{ padding: '4px 7px', fontSize: '0.8rem' }}
+                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.8rem' }}
               >
                 {amt === 'max' ? 'Max' : <>&times;<Num>{amt}</Num></>}
               </button>
@@ -1497,7 +1486,7 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           overflowY: 'auto',
           // Отступ справа под скроллбар: полоса прокрутки наезжала на цену в кнопке,
           // и последние пиксели цифры уходили под неё. 14px — ширина полосы плюс зазор.
-          paddingRight: '14px',
+          paddingRight: 'var(--space-3)',
           animation: 'toast-fade 0.15s ease-out',
         }}
       >

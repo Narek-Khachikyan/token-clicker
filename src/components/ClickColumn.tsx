@@ -130,7 +130,7 @@ const TokenCounter: React.FC = () => {
           textShadow: '0 0 12px var(--accent-glow)',
         }}
       />
-      <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+      <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: 'var(--space-0)' }}>
         Токенов
       </div>
     </>
@@ -146,7 +146,7 @@ const IncomeLine: React.FC = () => {
         style={{
           fontSize: '1.1rem',
           color: 'var(--green)',
-          marginTop: '8px',
+          marginTop: 'var(--space-2)',
           fontWeight: 600,
         }}
       >
@@ -155,7 +155,7 @@ const IncomeLine: React.FC = () => {
       {/* Подсказка при нулевом Доходе: игрок без Агентов иначе видит голый «+0/сек»
           без следующего шага. Только текст, без анимаций. */}
       {zero && (
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
           Нанятый Агент приносит Доход сам — загляни в магазин
         </div>
       )}
@@ -214,11 +214,10 @@ const ClickButton: React.FC = () => {
       className="pixel-btn pixel-btn-accent pulse-glow click-btn"
       style={{
         width: '100%',
-        padding: '24px 16px',
+        padding: 'var(--space-5) var(--space-4)',
         fontSize: '1.25rem',
-        borderRadius: '8px',
         flexDirection: 'column',
-        gap: '8px',
+        gap: 'var(--space-2)',
         '--click-power': power,
       } as React.CSSProperties}
     >
@@ -247,7 +246,7 @@ const PurchaseProgress: React.FC = () => {
   const motion = useMotionAllowed();
 
   return (
-    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
       <div
         role="progressbar"
         aria-label="Прогресс до следующей покупки"
@@ -258,8 +257,7 @@ const PurchaseProgress: React.FC = () => {
           width: '100%',
           height: '8px',
           backgroundColor: 'var(--bg-card)',
-          border: '1px solid var(--border)',
-          borderRadius: '4px',
+          border: 'var(--frame-w) solid var(--border)',
           overflow: 'hidden',
         }}
       >
@@ -302,8 +300,8 @@ const ChatLog: React.FC = () => {
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
-        gap: '10px',
-        marginTop: '6px',
+        gap: 'var(--space-2)',
+        marginTop: 'var(--space-1)',
         flex: 1,
       }}
     >
@@ -318,10 +316,10 @@ const ChatLog: React.FC = () => {
         style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '10px',
+          gap: 'var(--space-2)',
           overflowY: 'auto',
           maxHeight: '340px',
-          paddingRight: '4px',
+          paddingRight: 'var(--space-1)',
         }}
       >
         {/* Только свежая обменная реплика: старые уже стоят на месте, и анимация на них
@@ -332,7 +330,7 @@ const ChatLog: React.FC = () => {
             style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: '4px',
+              gap: 'var(--space-1)',
               fontSize: '0.85rem',
             }}
           >
@@ -343,8 +341,7 @@ const ChatLog: React.FC = () => {
                 alignSelf: 'flex-end',
                 backgroundColor: 'var(--accent-solid-hover)',
                 color: 'var(--text-main)',
-                padding: '6px 10px',
-                borderRadius: '12px 12px 2px 12px',
+                padding: 'var(--space-1) var(--space-2)',
                 maxWidth: '85%',
                 wordBreak: 'break-word',
               }}
@@ -359,9 +356,8 @@ const ChatLog: React.FC = () => {
                 alignSelf: 'flex-start',
                 backgroundColor: 'var(--bg-card)',
                 color: 'var(--text-main)',
-                padding: '6px 10px',
-                borderRadius: '12px 12px 12px 2px',
-                border: '1px solid var(--border)',
+                padding: 'var(--space-1) var(--space-2)',
+                border: 'var(--frame-w) solid var(--border)',
                 maxWidth: '90%',
                 whiteSpace: 'pre-line',
                 wordBreak: 'break-word',
@@ -386,19 +382,20 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
   return (
     <div
+      className="pixel-panel"
       style={{
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        padding: '20px 16px',
+        padding: 'var(--space-4)',
         backgroundColor: 'var(--bg-panel)',
-        borderRight: '2px solid var(--border)',
+        borderRight: 'var(--frame-w) solid var(--border)',
         // Базис приходит из модуля раскладки, а не из содержимого колонки: раньше ширина была
         // min/max по содержимому, и переключение вкладки магазина дёргало всю сетку.
         // В одноколоночном режиме колонка единственная и занимает всю ширину.
         flex: full ? '1 1 auto' : '0 0 var(--col-click)',
         minWidth: 0,
-        gap: '18px',
+        gap: 'var(--space-4)',
         height: '100%',
         overflowY: 'auto',
       }}
@@ -428,7 +425,7 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
       {hasEvent && <GoldenToken />}
 
       {/* Веха и шкала Температуры */}
-      <div style={{ width: '100%', marginTop: '2px' }}>
+      <div style={{ width: '100%', marginTop: 'var(--space-0)' }}>
         <MilestoneStrip />
       </div>
       <ThermalDial />

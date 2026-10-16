@@ -121,16 +121,29 @@
   --text-2xl: 2.2rem; /* 35.2 px — счётчик Токенов */
   --text-3xl: 3rem; /* 48 px — крупные числа в итогах */
 
-  /* ── Шкала пробелов ───────────────────────────────────────────────────────────
-     Шесть ступеней на базе 4 px: 4 / 8 / 12 / 16 / 24 / 32. Первые четыре идут через
+  /* ── Пиксельная геометрия и лестница пробелов (ADR-0008) ───────────────────────
+     Один пиксель арта — 2 CSS px, и каждая величина интерфейса кратна ему: рамка, ступень
+     угла, нижняя тень кнопки и все ступени пробелов. Поэтому у лестницы семь ступеней, а не
+     шесть, и нулевая — сам пиксель. 2 / 4 / 8 / 12 / 16 / 24 / 32: первые пять идут через
      4 px, поэтому отступы внутри карточки складываются в общий ритм; последние две
-     перескакивают через 20 px, потому что прыжок нужен там, где начинается новая
-     секция, а не там, где растёт отступ внутри строки.
+     перескакивают через 20 px, потому что прыжок нужен там, где начинается новая секция, а
+     не там, где растёт отступ внутри строки.
 
-     На ступень шкалы переводятся gap, padding и margin. Границы, скругления, тени и
-     геометрия спрайтов остаются литералами: 2 px у рамки и 4 px у жёсткой нижней тени
-     пиксельной кнопки — это сам пиксельный стиль, а не интервал, и связать их с
-     пробелом значило бы связать две разные вещи одним числом. */
+     На ступень лестницы переводятся gap, padding и margin в CSS и в инлайновых стилях
+     компонентов. Литерал в пикселях рядом с именем ступени — ошибка: значение, у которого
+     есть имя, берётся по имени. Геометрия спрайтов и размеры иконок остаются числами.
+
+     `--frame-w` и `--notch` — это один пиксель арта, названный по роли: рамка и ступенчатый
+     угол кнопки и вкладки. `--drop` — жёсткая нижняя тень кнопки, два пикселя арта; у
+     нажатой кнопки она оседает до одного (`--drop-pressed`). Размытых теней у кнопок,
+     вкладок, карточек и панелей нет: тень — это сдвинутый на пиксели прямоугольник. */
+  --px: 2px;
+  --frame-w: var(--px);
+  --notch: var(--px);
+  --drop: calc(var(--px) * 2);
+  --drop-pressed: var(--px);
+
+  --space-0: 0.125rem; /* 2 px — один пиксель арта, зазор между пиксельными делениями */
   --space-1: 0.25rem; /* 4 px — зазор внутри строки */
   --space-2: 0.5rem; /* 8 px — зазор между элементами списка */
   --space-3: 0.75rem; /* 12 px — внутренний отступ блока */
@@ -171,7 +184,13 @@
    Подложка --tint-accent берёт 8% акцента, а не 15%: её единственный носитель — бейдж
    Поколения в шапке, где подпись нарисована тем же акцентом. На 15% три акцента из восьми
    (#a174ff, #7483ff, #ff4f8b) не дотягивали до 4.5:1 на собственной подложке (4.12–4.37),
-   то есть чем светлее Поколение, тем хуже читается его номер. 8% даёт минимум 4.57:1. */
+   то есть чем светлее Поколение, тем хуже читается его номер. 8% даёт минимум 4.57:1.
+
+   Рамка панели --accent-frame — тридцать процентов акцента в нейтральной рамке --border
+   (ADR-0008): панель читается принадлежащей Поколению, но не кричит им, и база остаётся
+   базой. Это не текст и не граница, по которой нужно читать значение, поэтому пары
+   контраста у неё нет; полный акцент идёт полосой по верху панели и текстом шапок
+   разделов (его удерживает тест на четырёх тёмных ступенях базы). */
 .app-root {
   --accent-hover: #ff975d;
   --tint-accent: rgba(255, 122, 47, 0.08);
@@ -179,6 +198,7 @@
   --accent-solid: #7a3b17;
   --accent-solid-hover: #663113;
   --accent-shadow: #4d250e;
+  --accent-frame: #7d5034;
 }
 
 @supports (color: color-mix(in srgb, red, blue)) {
@@ -189,6 +209,7 @@
     --accent-solid: color-mix(in srgb, var(--accent-color) 48%, #000000);
     --accent-solid-hover: color-mix(in srgb, var(--accent-color) 40%, #000000);
     --accent-shadow: color-mix(in srgb, var(--accent-color) 30%, #000000);
+    --accent-frame: color-mix(in srgb, var(--accent-color) 30%, var(--border));
   }
 }
 
@@ -231,16 +252,21 @@ body {
 .app-root[data-thermal='calm'] {
   --heat-glow: 0;
   --heat-tremor: 0px;
+  /* Жар по краю Сцены — жёсткое кольцо внутри рамки (ADR-0008), а не размытое свечение:
+     толщина кратна пикселю арта и растёт ступенями вместе с состоянием. */
+  --heat-ring: 0px;
 }
 
 .app-root[data-thermal='hot'] {
   --heat-glow: 0.35;
   --heat-tremor: 0.4px;
+  --heat-ring: var(--px);
 }
 
 .app-root[data-thermal='stunned'] {
   --heat-glow: 0.6;
   --heat-tremor: 1.1px;
+  --heat-ring: calc(var(--px) * 2);
   filter: saturate(0.55) brightness(0.86);
 }
 
@@ -370,10 +396,14 @@ body {
   }
 }
 
+/* Двойной класс: .pixel-card стоит в файле ниже и своим `border` сбрасывал золото, так что
+   золотая рамка Престижа не появлялась ни разу. Золотой панели полоса акцента не нужна. */
+.prestige-card.pixel-card {
+  border-color: var(--gold);
+}
+
 .prestige-card {
   animation: toast-fade 0.45s ease-out 0.18s backwards;
-  border-color: var(--gold);
-  box-shadow: 0 0 24px 4px var(--tint-strong);
 }
 
 /* Восходящие искры Compute: создаются только при разрешённом движении (см. PrestigeOverlay),
@@ -384,7 +414,6 @@ body {
   width: 8px;
   height: 8px;
   background-color: var(--gold);
-  box-shadow: 0 0 8px 2px var(--gold);
   pointer-events: none;
 }
 
@@ -591,17 +620,14 @@ body {
    тянул заливку позади настоящей доли. Отклика на достигнутую цель у полосы нет — вспышка разблокировки уже
    есть у самой строки (.model-row--unlock), а вторая на то же событие была бы дублем. */
 .model-goal {
-  /* Обрезку и скругление держит контейнер, а не дорожка: заливка рисуется прямоугольником,
-     и без обрезки её углы вылезали бы из скруглённых углов дорожки. */
-  border-radius: 3px;
   overflow: hidden;
 }
 
 
 .model-goal__track {
   display: flex;
-  gap: 2px;
-  height: 4px;
+  gap: var(--space-0);
+  height: var(--space-1);
 }
 
 .model-goal__tick {
@@ -676,10 +702,11 @@ body {
 .ach-badge::after {
   content: '';
   position: absolute;
-  inset: -3px;
-  border-radius: inherit;
+  inset: 0;
   pointer-events: none;
-  box-shadow: 0 0 12px 5px var(--gold);
+  /* Вспышка — жёсткое золотое кольцо внутри кнопки (ADR-0008): clip-path режет внешнее
+     свечение, а размытие нарушало бы язык пикселя. */
+  box-shadow: inset 0 0 0 calc(var(--frame-w) * 2) var(--gold);
   opacity: 0;
 }
 
@@ -796,6 +823,28 @@ body {
   animation-delay: -0.94s;
 }
 
+/* Ступенчатый угол (ADR-0008) у всех кнопок: срез в один пиксель арта по четырём углам.
+   Многоугольник включает нижнюю тень на глубину --btn-drop, поэтому тень срезана тем же
+   углом. Кнопки без тени (лента, слух) объявляют --btn-drop: 0px. */
+.pixel-btn,
+.news-ticker__btn,
+.news-rumor {
+  clip-path: polygon(
+    var(--notch) 0,
+    calc(100% - var(--notch)) 0,
+    calc(100% - var(--notch)) var(--notch),
+    100% var(--notch),
+    100% calc(100% + var(--btn-drop) - var(--notch)),
+    calc(100% - var(--notch)) calc(100% + var(--btn-drop) - var(--notch)),
+    calc(100% - var(--notch)) calc(100% + var(--btn-drop)),
+    var(--notch) calc(100% + var(--btn-drop)),
+    var(--notch) calc(100% + var(--btn-drop) - var(--notch)),
+    0 calc(100% + var(--btn-drop) - var(--notch)),
+    0 var(--notch),
+    var(--notch) var(--notch)
+  );
+}
+
 /* Pixel buttons */
 .pixel-btn {
   /* Кнопка набирается Nunito целиком (ADR-0003): в пиксельном шрифте живут только числа, а
@@ -806,8 +855,19 @@ body {
   letter-spacing: 0.5px;
   background: var(--bg-card);
   color: var(--text-main);
-  border: 2px solid var(--border);
-  box-shadow: 0 4px 0 var(--bg-void);
+  border: var(--frame-w) solid var(--border);
+  /* Пиксельная кнопка (ADR-0008): рамка 2 px, ступенчатый угол 2 px и жёсткая нижняя тень без
+     размытия. Тень — цвет --btn-shadow на глубину --btn-drop; варианты кнопок меняют только
+     цвет, нажатие и неактивность — только глубину. Угол срезан clip-path, а не скруглён, и
+     контур среза включает тень: многоугольник уходит вниз на ту же глубину, поэтому тень
+     срезана тем же ступенчатым углом, а не торчит квадратом из-под кнопки.
+
+     clip-path режет всё, что выходит за рамку: внешний контур фокуса, внешний ореол,
+     значок в углу. Поэтому фокус рисуется внутри кнопки (ниже), а ореолы кнопок —
+     внутренним кольцом. */
+  --btn-shadow: var(--bg-void);
+  --btn-drop: var(--drop);
+  box-shadow: 0 var(--btn-drop) 0 var(--btn-shadow);
   /* Горизонтальный отступ на ступень ниже вертикального: подпись кнопки — это слово плюс
      цена, и на 12 px в узкую сторону она влезает там, где 14 px уже выпирали. */
   padding: var(--space-2) var(--space-3);
@@ -825,8 +885,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  border-radius: 4px;
+  gap: var(--space-1);
 }
 
 .pixel-btn:hover:not(:disabled) {
@@ -849,8 +908,16 @@ body {
    контур у себя, если ему это понадобится. Кольцевой обводкой, а не заливкой: она не съедает ни
    пикселя содержимого и не смещает соседей. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
-  outline: 2px solid var(--accent-color);
+  outline: var(--frame-w) solid var(--accent-color);
   outline-offset: 2px;
+}
+
+/* Кнопку режет clip-path (ADR-0008), и внешний контур фокуса вместе с ней: контур уходит
+   внутрь, на два пикселя глубже рамки, и остаётся виден на любом варианте заливки. */
+.pixel-btn:focus-visible,
+.news-ticker__btn:focus-visible,
+.news-rumor:focus-visible {
+  outline-offset: calc(var(--frame-w) * -2);
 }
 
 /* Отклик на нажатие без движения живёт в разделе «Движение» в конце файла: там он стоит
@@ -870,8 +937,9 @@ body {
    нажимаемой. */
 .pixel-btn:disabled {
   background: var(--bg-void);
-  border: 2px dashed var(--border-strong);
+  border: var(--frame-w) dashed var(--border-strong);
   color: var(--text-muted);
+  --btn-drop: 0px;
   box-shadow: none;
   cursor: not-allowed;
 }
@@ -896,7 +964,7 @@ body {
 .pixel-btn-accent {
   background: var(--accent-solid);
   border-color: var(--accent-color);
-  box-shadow: 0 4px 0 var(--accent-shadow);
+  --btn-shadow: var(--accent-shadow);
 }
 
 /* Наведение и здесь уводит заливку в тень (40% чёрного), и рамку — в осветлённый акцент:
@@ -910,7 +978,7 @@ body {
   background: var(--gold-solid);
   border-color: var(--gold);
   color: var(--text-main);
-  box-shadow: 0 4px 0 var(--gold-shadow);
+  --btn-shadow: var(--gold-shadow);
 }
 
 /* Наведение уводит заливку в тень, а не осветляет её: пол 4.5:1 для --text-main не проходит
@@ -922,14 +990,45 @@ body {
   border-color: var(--gold);
 }
 
+/* Панель (ADR-0008): прямоугольник без скруглений, рамка 2 px цвета Поколения вполсилы
+   (--accent-frame) и полоса полного акцента по верху — вдвое толще рамки. Смена Поколения
+   перекрашивает рамку и полосу, база под ними остаётся прежней.
+
+   Тень жёсткая и сдвинута вниз на глубину кнопки: тот же язык, что у кнопок, и ни одного
+   размытого пикселя. Подсветка верхней грани идёт первым слоем и остаётся inset — она
+   читается как свет сверху и держит верхнюю кромку от слипания с рамкой. На верхней строке
+   панели --text-main держит 12.17:1, --text-muted 5.32:1.
+
+   Инлайновое `border` у компонента (золото Тоста, тон окна) перекрывает рамку целиком,
+   вместе с полосой: золотая панель золотая вся, а акцент ей не нужен. */
 .pixel-card {
   background: var(--bg-panel);
-  border: 2px solid var(--border);
-  border-radius: 6px;
-  /* Подсветка верхней грани идёт первым слоем и остаётся inset — тень отрывает карточку от
-     фона, а подсветка читается как свет сверху и держит верхнюю кромку от слипания с рамкой.
-     На верхней строке панели --text-main держит 12.17:1, --text-muted 5.32:1. */
-  box-shadow: var(--edge-panel), 0 4px 12px var(--tint-strong);
+  border: var(--frame-w) solid var(--accent-frame);
+  border-top: calc(var(--frame-w) * 2) solid var(--accent-color);
+  box-shadow: var(--edge-panel), 0 var(--drop) 0 var(--bg-void);
+}
+
+/* Колонка-панель (ADR-0008): та же полоса акцента по верху, что у карточки, но без рамки по
+   периметру — колонки стоят вплотную к краям окна, а их границы уже есть. */
+.pixel-panel {
+  border-top: calc(var(--frame-w) * 2) solid var(--accent-color);
+}
+
+/* Вставка внутри панели: ячейка статистики, строка списка, полоса прогресса. Прямоугольник
+   на ступень темнее панели с рамкой 2 px; цвет рамки компонент переопределяет по смыслу
+   (золото для редкого, красный для опасного). */
+.pixel-well {
+  background-color: var(--bg-card);
+  border: var(--frame-w) solid var(--border);
+}
+
+/* Шапка раздела (ADR-0008): акцент Поколения на заголовке и на линии под ним. Акцентный
+   текст держит 4.5:1 на четырёх тёмных ступенях базы, но не на --bg-raised (самый тёмный из
+   восьми акцентов даёт там 3.93:1), поэтому шапка не лежит на поднятой поверхности. */
+.section-head {
+  color: var(--accent-color);
+  border-bottom: var(--frame-w) solid var(--accent-frame);
+  padding-bottom: var(--space-1);
 }
 
 /* Float animation for +X tokens */
@@ -1031,7 +1130,6 @@ body {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: inherit;
   pointer-events: none;
   background-color: var(--gold);
   opacity: 0;
@@ -1140,9 +1238,10 @@ body {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  /* Радиус повторяет кнопку: без него ореол обвёл бы её прямоугольником. */
-  border-radius: inherit;
-  box-shadow: 0 0 10px 4px var(--accent-glow);
+  /* Ореол — жёсткое кольцо внутри кнопки (ADR-0008), а не размытое свечение снаружи: кнопку
+     режет clip-path, и всё, что лежит за её рамкой, не видно, а размытие нарушало бы язык
+     пикселя. Пульс держит прозрачность кольца. */
+  box-shadow: inset 0 0 0 var(--frame-w) var(--accent-glow);
   animation: pulse-fade 2s infinite ease-in-out;
 }
 
@@ -1158,63 +1257,33 @@ body {
     transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* Ореол pulse-glow на кнопке Клика динамически масштабирует радиус от --click-power */
+/* Кольцо pulse-glow на кнопке Клика: ширина та же, что у любого пиксельного кольца, а сила
+   --click-power (0..1) ведёт его прозрачность в pulse-fade-power. Ширина не растёт плавно:
+   дробная толщина размывала бы край кольца. */
 .click-btn.pulse-glow::after {
-  box-shadow: 0 0 calc(8px + var(--click-power, 0) * 14px) calc(2px + var(--click-power, 0) * 6px) var(--accent-glow);
-  transition: box-shadow 0.3s ease-out;
   animation: pulse-fade-power 2s infinite ease-in-out;
 }
 
-/* Ступени силы: на высоких ступенях появляется тонкая обводка и ореол силы */
-.click-btn[data-power-tier="1"] {
-  box-shadow: 0 4px 0 var(--accent-shadow);
-}
-
+/* Ступени силы: на высоких ступенях рамка внутри кнопки толще и меняет цвет. Все кольца
+   внутренние (inset): кнопку режет clip-path, и внешняя обводка не была бы видна. Нижняя
+   тень — обычная, из --btn-drop, поэтому нажатие оседает её само, и отдельных правил на
+   :active по ступеням больше нет. */
 .click-btn[data-power-tier="2"] {
   box-shadow:
-    0 4px 0 var(--accent-shadow),
-    0 0 0 1px var(--accent-color);
+    0 var(--btn-drop) 0 var(--btn-shadow),
+    inset 0 0 0 calc(var(--frame-w) * 2) var(--accent-color);
 }
 
 .click-btn[data-power-tier="3"] {
   box-shadow:
-    0 4px 0 var(--accent-shadow),
-    0 0 0 1.5px var(--accent-hover),
-    0 0 12px 2px var(--accent-glow);
+    0 var(--btn-drop) 0 var(--btn-shadow),
+    inset 0 0 0 calc(var(--frame-w) * 2) var(--accent-hover);
 }
 
 .click-btn[data-power-tier="4"] {
   box-shadow:
-    0 4px 0 var(--accent-shadow),
-    0 0 0 2px var(--gold),
-    0 0 18px 4px var(--accent-glow),
-    0 0 6px 1px var(--gold);
-}
-
-/* При нажатии: нижняя тень оседает (hit-stop), обводка и ореол силы сохраняются */
-.click-btn:active:not(:disabled)[data-power-tier="1"] {
-  box-shadow: 0 1px 0 var(--accent-shadow);
-}
-
-.click-btn:active:not(:disabled)[data-power-tier="2"] {
-  box-shadow:
-    0 1px 0 var(--accent-shadow),
-    0 0 0 1px var(--accent-color);
-}
-
-.click-btn:active:not(:disabled)[data-power-tier="3"] {
-  box-shadow:
-    0 1px 0 var(--accent-shadow),
-    0 0 0 1.5px var(--accent-hover),
-    0 0 12px 2px var(--accent-glow);
-}
-
-.click-btn:active:not(:disabled)[data-power-tier="4"] {
-  box-shadow:
-    0 1px 0 var(--accent-shadow),
-    0 0 0 2px var(--gold),
-    0 0 18px 4px var(--accent-glow),
-    0 0 6px 1px var(--gold);
+    0 var(--btn-drop) 0 var(--btn-shadow),
+    inset 0 0 0 calc(var(--frame-w) * 2) var(--gold);
 }
 
 /* ── Микро-отклик чисел (Num) ──────────────────────────────────────────────────
@@ -1303,10 +1372,10 @@ body {
      основного действия. Высота задана явно, поэтому отступ не может её ужать. */
   min-width: var(--tap-min);
   min-height: var(--tap-min);
-  padding: 2px;
+  padding: var(--space-0);
   background: none;
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  border: var(--frame-w) solid var(--border);
+  --btn-drop: 0px;
   color: var(--text-muted);
   cursor: pointer;
   transition: color 0.08s ease-in-out, border-color 0.08s ease-in-out;
@@ -1344,7 +1413,6 @@ body {
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--accent-color);
@@ -1510,7 +1578,9 @@ body {
    сменой цвета, поэтому одинаково работает на всех вариантах кнопки. */
 .pixel-btn:active:not(:disabled) {
   background-image: linear-gradient(var(--tint-press), var(--tint-press));
-  box-shadow: 0 1px 0 var(--bg-void);
+  /* Тень оседает до одного пикселя арта, оставаясь цветом своего варианта кнопки; срез угла
+     пересчитывается вместе с ней, потому что глубина — переменная. */
+  --btn-drop: var(--drop-pressed);
 }
 
 /* Полное движение: система разрешает, игрок не выключал. */
@@ -1932,10 +2002,10 @@ body {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  border: 1px solid var(--green);
-  border-radius: 3px;
+  gap: var(--space-1);
+  padding: var(--space-0) var(--space-2);
+  border: var(--frame-w) solid var(--green);
+  --btn-drop: 0px;
   background-color: var(--tint-green);
   color: var(--green-text);
   font: inherit;
@@ -2046,7 +2116,7 @@ body {
 .tab-bar {
   display: flex;
   background-color: var(--bg-panel);
-  border-top: 2px solid var(--border);
+  border-top: var(--frame-w) solid var(--border);
   padding: var(--space-1);
   gap: var(--space-1);
   /* border-box обязателен: иначе верхняя граница добавилась бы к высоте из layout.ts и полоса
@@ -2076,7 +2146,7 @@ body {
   padding: var(--space-2) var(--space-4);
   gap: var(--space-2);
   background-color: var(--bg-void);
-  border-top: 1px solid var(--border);
+  border-top: var(--frame-w) solid var(--border);
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
@@ -2187,13 +2257,15 @@ body {
   position: absolute;
   left: 50%;
   bottom: -8px;
-  width: 12px;
-  height: 12px;
-  margin-left: -6px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
   background-color: inherit;
-  border-right: 2px solid var(--border);
-  border-bottom: 2px solid var(--border);
-  transform: rotate(45deg);
+  /* Хвостик — квадратная ступенька без поворота (ADR-0008): верх открыт, чтобы нижняя рамка
+     пузыря не перечёркивала его, а три остальные стороны продолжают рамку. */
+  border-left: var(--frame-w) solid var(--border);
+  border-right: var(--frame-w) solid var(--border);
+  border-bottom: var(--frame-w) solid var(--border);
 }
 
 @media (prefers-reduced-motion: no-preference) {
