@@ -6,6 +6,7 @@ import { CHALLENGES, CHALLENGE_REWARD_PCT, type ChallengeDef } from '../economy/
 import { COMPUTE_BONUS } from '../economy/engine';
 import { PRESTIGE_KEEPS, PRESTIGE_RESETS, type PrestigeEffect } from '../economy/prestigeForecast';
 import { Num } from './Num';
+import { onTabRowKeyDown } from './tabRow';
 
 /**
  * Вкладка «Престиж» делится на три подраздела, чтобы пять систем не лежали одной лентой.
@@ -26,13 +27,17 @@ export const PrestigeSectionNav: React.FC = () => {
     <div
       role="tablist"
       aria-label="Разделы вкладки «Престиж»"
+      onKeyDown={onTabRowKeyDown}
       style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)', marginBottom: 'var(--space-3)' }}
     >
       {SECTIONS.map((s) => (
         <button
           key={s.id}
           role="tab"
+          id={`prestige-tab-${s.id}`}
           aria-selected={section === s.id}
+          aria-controls="prestige-panel"
+          tabIndex={section === s.id ? 0 : -1}
           onClick={() => setSection(s.id)}
           className={`pixel-btn pixel-22 ${section === s.id ? 'pixel-btn-accent' : ''}`}
           style={{ flex: '1 1 auto', padding: 'var(--space-1) var(--space-2)' }}

@@ -226,3 +226,35 @@ describe('index.css', () => {
     });
   });
 });
+
+/**
+ * В игре нет текста мельче 12 px (ADR-0009). Инлайновые размеры проверяет обход computed style в
+ * браузере, а эта граница держит таблицу стилей: ступень шкалы и каждый `font-size` с литералом.
+ */
+describe('minimum text size in index.css', () => {
+  const rem = (v: string): number | null => {
+    const m = /^([0-9.]+)(rem|px)$/.exec(v.trim());
+    return m ? (m[2] === 'rem' ? Number(m[1]) * 16 : Number(m[1])) : null;
+  };
+  const scale = new Map<string, number>();
+  for (const m of css.matchAll(/(--(?:text|pixel)-[a-z0-9]+):\s*([0-9.]+(?:rem|px))/g)) scale.set(m[1], rem(m[2]) ?? 0);
+
+  it('keeps every step of the type scale at 12 px or more', () => {
+    expect(scale.size).toBeGreaterThanOrEqual(5);
+    for (const [name, px] of scale) expect(px, name).toBeGreaterThanOrEqual(12);
+  });
+
+  it('resolves every font-size declaration to 12 px or more', () => {
+    let seen = 0;
+    for (const m of css.matchAll(/font-size:\s*([^;]+);/g)) {
+      const v = m[1].trim();
+      const variable = /^var\((--[a-z0-9-]+)\)$/.exec(v);
+      const px = variable ? scale.get(variable[1]) : rem(v);
+      // Наследуемые значения (`inherit`, `100%`) размера не задают.
+      if (px === undefined || px === null) continue;
+      seen++;
+      expect(px, m[0]).toBeGreaterThanOrEqual(12);
+    }
+    expect(seen).toBeGreaterThan(5);
+  });
+});

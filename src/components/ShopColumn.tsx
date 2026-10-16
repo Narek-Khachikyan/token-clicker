@@ -36,6 +36,7 @@ import { FullNumber } from './FullNumber';
 import { ModelHintCard } from './ModelHintCard';
 import { Icon } from './Icon';
 import { CoachArrow } from './CoachArrow';
+import { onTabRowKeyDown } from './tabRow';
 import { ChallengeCard, PrestigeForecastCard, PrestigeSectionNav } from './PrestigeTab';
 import { playDenySound } from '../audio/sound';
 import { buyAmountFor } from '../hotkeys';
@@ -465,7 +466,7 @@ const ModelCard: React.FC<{
               <span
                 title={lab.name}
                 style={{
-                  fontSize: '0.6rem',
+                  fontSize: 'var(--text-xs)',
                   letterSpacing: '0.04em',
                   color: lab.color,
                   border: `var(--frame-w) solid ${lab.color}`,
@@ -477,7 +478,7 @@ const ModelCard: React.FC<{
               >
                 {LAB_BADGE[m.lab]}
               </span>
-              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
                 Ранг {m.rank + 1}
               </span>
             </div>
@@ -592,7 +593,7 @@ const ModelCard: React.FC<{
                 )}
               </span>
               {view.missingText !== '' && (
-                <span className="body-font" style={{ fontSize: '0.7rem', opacity: 0.85 }}>
+                <span className="body-font" style={{ fontSize: 'var(--text-xs)', opacity: 0.85 }}>
                   не хватает{' '}
                   <FullNumber value={figure((f) => f.missing)}>
                     <Num>{view.missingText}</Num>
@@ -600,7 +601,7 @@ const ModelCard: React.FC<{
                 </span>
               )}
               {sellMode && count > 0 && (
-                <span className="body-font" style={{ fontSize: '0.7rem', opacity: 0.85 }}>
+                <span className="body-font" style={{ fontSize: 'var(--text-xs)', opacity: 0.85 }}>
                   вернёт{' '}
                   <FullNumber value={figure((f) => f.refund)}>
                     <Num>{view.refundText}</Num>
@@ -691,7 +692,7 @@ const ModelsTab: React.FC<{
           и в подписи кнопки каждой карточки оно тоже есть. */}
       <div
         style={{
-          fontSize: '0.7rem',
+          fontSize: 'var(--text-xs)',
           color: 'var(--text-muted)',
           display: 'flex',
           alignItems: 'center',
@@ -1315,7 +1316,12 @@ const PerksTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels }) 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       <PrestigeSectionNav />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+      <div
+        id="prestige-panel"
+        role="tabpanel"
+        aria-labelledby={`prestige-tab-${section}`}
+        style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}
+      >
         {section === 'prestige' && (
           <>
             <PrestigeForecastCard onBackToModels={onBackToModels} />
@@ -1395,8 +1401,18 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           три слова с плашкой Апгрейдов занимают 376 px (замерено), и колонка в 430 px их вмещает
           (SHOP_COL_MIN), а там, где колонка уже, последняя вкладка встаёт во второй ряд, а не
           уходит за край. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)', marginBottom: 'var(--space-3)' }}>
+      <div
+        role="tablist"
+        aria-label="Магазин"
+        onKeyDown={onTabRowKeyDown}
+        style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)', marginBottom: 'var(--space-3)' }}
+      >
         <button
+          role="tab"
+          id="shop-tab-models"
+          aria-selected={shownTab === 'models'}
+          aria-controls="shop-panel"
+          tabIndex={shownTab === 'models' ? 0 : -1}
           onClick={() => setTab('models')}
           className={`pixel-btn pixel-22 ${shownTab === 'models' ? 'pixel-btn-accent' : ''}`}
           style={{ flex: '1 1 auto', padding: 'var(--space-2) var(--space-1)' }}
@@ -1405,8 +1421,13 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         </button>
         {upgradesTab && (
           // Слот держит стрелку подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы.
-          <div style={{ flex: '1 1 auto', position: 'relative', display: 'flex' }}>
+          <div role="presentation" style={{ flex: '1 1 auto', position: 'relative', display: 'flex' }}>
             <button
+              role="tab"
+              id="shop-tab-upgrades"
+              aria-selected={shownTab === 'upgrades'}
+              aria-controls="shop-panel"
+              tabIndex={shownTab === 'upgrades' ? 0 : -1}
               onClick={() => setTab('upgrades')}
               className={`pixel-btn pixel-22 ${shownTab === 'upgrades' ? 'pixel-btn-accent' : ''}`}
               style={{ flex: 1, padding: 'var(--space-2) var(--space-1)', position: 'relative' }}
@@ -1422,7 +1443,7 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     /* Чистый белый на насыщенной заливке: --text-main уводит подпись в тёплый
                        и роняет и без того пограничную пару до 3.06:1. */
                     color: '#fff',
-                    fontSize: '0.7rem',
+                    fontSize: 'var(--text-xs)',
                     padding: 'var(--space-0) var(--space-1)',
                   }}
                 >
@@ -1435,6 +1456,11 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         )}
         {prestigeTab && (
           <button
+            role="tab"
+            id="shop-tab-perks"
+            aria-selected={shownTab === 'perks'}
+            aria-controls="shop-panel"
+            tabIndex={shownTab === 'perks' ? 0 : -1}
             onClick={() => setTab('perks')}
             className={`pixel-btn pixel-22 ${shownTab === 'perks' ? 'pixel-btn-accent' : ''}`}
             title={
@@ -1528,6 +1554,9 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           только через opacity toast-fade, состояние tab не трогаем. */}
       <div
         key={shownTab}
+        id="shop-panel"
+        role="tabpanel"
+        aria-labelledby={`shop-tab-${shownTab}`}
         style={{
           flex: 1,
           overflowY: 'auto',
