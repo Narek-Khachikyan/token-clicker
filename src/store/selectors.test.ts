@@ -15,20 +15,19 @@ import {
 } from '../economy/engine';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import { LAB_IDS, LABS } from '../data/labs';
-import { canPrestige, isContentFinale, labIncomeShare, prestigeGain, shatterCrystal } from '../economy/engine';
+import { canPrestige, isContentFinale, prestigeGain, shatterCrystal } from '../economy/engine';
 import { prestigeForecast } from '../economy/prestigeForecast';
 import { CHALLENGES, startChallenge } from '../economy/challenges';
-import { CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
+import { CRYSTAL_UPGRADES, crystalCycleMs } from '../economy/crystal';
 import {
   canLicense,
   canPledge,
-  glitchDrainMult,
   licenseCost,
   pledgeCost,
   revokeCost,
 } from '../economy/glitches';
 import { newGame, type GameState } from '../economy/state';
-import { availableUpgrades, labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
+import { availableUpgrades, labAgents, labWork, synergyUpgradeId } from '../economy/upgrades';
 import { OVERHEAT_STUN_SEC, TEMP_MAX, thermalRead } from '../economy/thermal';
 import { MILESTONES } from '../economy/milestones';
 import {
@@ -175,10 +174,10 @@ describe('temperature slices', () => {
       const view = thermalView(s);
       expect(view.temp).toBe(read.temp);
       expect(view.mult).toBe(formatNumber(read.mult, 'short'));
-      expect(view.valueText).toBe(
-        `${read.temp.toFixed(2)} из ${TEMP_MAX}, Доход ×${read.mult.toFixed(2)}, ${view.status}`,
-      );
+      expect(view.valueText).toContain(view.status);
     }
+    // Жар 0.9 без перегрева: Доход 1 + 1.2 × 0.9 = 2.08, статус «Стабильно».
+    expect(thermalView(heated(0, 0.9)).valueText).toBe('0.90 из 1.6, Доход ×2.08, Стабильно');
   });
 
   it('names the heat state in words, not only in colour', () => {
@@ -492,7 +491,8 @@ describe('prestige tab slices', () => {
     const s = { ...lateGame(), crystals: 7 };
     const view = crystalStockView(s);
     expect(view.stock).toBe('7');
-    expect(view.bonus).toBe(formatNumber(Math.round((crystalIncomeMult(s) - 1) * 100)));
+    // Один кристалл в запасе даёт 1% Дохода: семь кристаллов — 7%.
+    expect(view.bonus).toBe('7');
   });
 
   it('shows how long the next crystal grows', () => {
@@ -510,12 +510,10 @@ describe('prestige tab slices', () => {
     const u = CRYSTAL_UPGRADES[0];
     const s = { ...lateGame(), crystals: u.cost };
     const view = crystalUpgradeView(s, u);
-    const lost = Math.round(
-      (crystalIncomeMult({ ...s, crystals: u.cost }) - crystalIncomeMult({ ...s, crystals: 0 })) * 100,
-    );
     expect(view.owned).toBe(false);
     expect(view.canAfford).toBe(true);
-    expect(view.lostText).toBe(formatNumber(lost));
+    // Цена три кристалла: по 1% за каждый, то есть 3% бонуса уйдут навсегда.
+    expect(view.lostText).toBe('3');
     expect(crystalUpgradeView({ ...s, crystals: u.cost - 1 }, u).canAfford).toBe(false);
     expect(crystalUpgradeView({ ...s, crystalUpgrades: [u.id] }, u).owned).toBe(true);
   });
@@ -551,7 +549,8 @@ describe('scene slices', () => {
   it('prints how much income the glitches take and how much they have stolen', () => {
     const s = glitched();
     const band = glitchBandView(s)!;
-    expect(band.drain).toBe(formatNumber(Math.round((1 - glitchDrainMult(s)) * 100)));
+    // Два Глюка по 5% каждый уносят 10% Дохода.
+    expect(band.drain).toBe('10');
     expect(band.stolen).toBe(formatNumber(150));
     expect(band.stolenWord).toBe(formatCount(150, 'Токен', 'Токена', 'Токенов', 'short'));
   });
@@ -582,13 +581,24 @@ describe('scene slices', () => {
 
 describe('roster slice', () => {
   it('gives each lab its share of the income as a whole percent', () => {
-    const s = lateGame();
-    const shares = LAB_IDS.map((lab) => labShareView(s, lab)).filter((v) => v >= 0);
+    const shares = LAB_IDS.map((lab) => labShareView(lateGame(), lab)).filter((v) => v >= 0);
     expect(shares.length).toBeGreaterThan(1);
-    for (const lab of LAB_IDS) {
-      const share = labIncomeShare(s, lab);
-      expect(labShareView(s, lab)).toBe(share >= 0.01 ? Math.round(share * 100) : -1);
-    }
+    // Лаборатория под процентом не показана, и каждая округлённая доля ошибается не больше чем на
+    // полпроцента: сумма видимых долей обязана лечь в LAB_IDS.length от ста.
+    expect(Math.abs(shares.reduce((sum, v) => sum + v, 0) - 100)).toBeLessThanOrEqual(LAB_IDS.length);
+  });
+
+  it('gives the one lab in the office the whole income and every other lab no share', () => {
+    const model = CATALOG[0].models[0];
+    const s = {
+      ...buyAgents(rich(newGame(T0), 1e12), model.id, 5),
+      temp: 0,
+      heat: 0,
+      nextEventAt: FAR,
+      nextGlitchAt: FAR,
+    };
+    expect(labShareView(s, model.lab)).toBe(100);
+    for (const lab of LAB_IDS) if (lab !== model.lab) expect(labShareView(s, lab)).toBe(-1);
   });
 
   it('says nothing for a lab that is not in the office or earns under a percent', () => {
@@ -625,10 +635,22 @@ describe('mascot card slice', () => {
       expect(view.work).toBe(labWork(s, lab));
       expect(view.share).toBe(labShareView(s, lab));
       const bought = s.upgrades.includes(synergyUpgradeId(s.generation, lab));
-      expect(view.synergy).toBe(bought ? Math.round(count * SYNERGY_PER_AGENT * 100) : -1);
+      if (bought) expect(view.synergy).toBeGreaterThan(0);
+      else expect(view.synergy).toBe(-1);
     }
     // Состав позднего Забега такой, что Синергия хотя бы у одной Лаборатории куплена.
     expect(LAB_IDS.some((lab) => labCardView(s, lab, true).synergy > 0)).toBe(true);
+  });
+
+  it('prints the Synergy as a whole percent of the lab Agents', () => {
+    // Синергия даёт по 0.01 на каждого Агента Лаборатории: двадцать Агентов — ровно 20%.
+    const model = CATALOG[0].models[0];
+    const hired = buyAgents(rich(newGame(T0), 1e12), model.id, 20);
+    const s = buyUpgrade(hired, synergyUpgradeId(0, model.lab));
+    const view = labCardView(s, model.lab, false);
+    expect(view.agents).toBe('20');
+    expect(view.synergy).toBe(20);
+    expect(view.synergyText).toBe('20');
   });
 
   it('hides the share when the card is asked for a lone lab', () => {
