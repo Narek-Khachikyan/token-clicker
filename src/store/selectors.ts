@@ -1,5 +1,5 @@
 import type { Model } from '../economy/catalog';
-import type { LabId } from '../data/labs';
+import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import {
   bulkCost,
   clickValue,
@@ -26,11 +26,19 @@ import {
   pledgeCost,
   revokeCost,
 } from '../economy/glitches';
+import { THERMAL_HOT_HEAT, THERMAL_STATE_LABEL, thermalState, type ThermalStateId } from '../data/thermalCopy';
 import { prestigeForecast } from '../economy/prestigeForecast';
 import { milestoneHint, milestoneReward, nextMilestone, type Milestone } from '../economy/milestones';
 import type { GameState, Glitch } from '../economy/state';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
-import { availableUpgrades, type Upgrade } from '../economy/upgrades';
+import {
+  availableUpgrades,
+  labAgents,
+  labWork,
+  SYNERGY_PER_AGENT,
+  synergyUpgradeId,
+  type Upgrade,
+} from '../economy/upgrades';
 import type { BuyAmount } from './useGameStore';
 
 /**
@@ -188,7 +196,7 @@ export type ThermalTone = 'stunned' | 'hot' | 'calm';
 /** Тон корня и шкалы: оглушение важнее жара, жар важнее покоя. */
 export function thermalTone(s: GameState): ThermalTone {
   const read = thermalRead(s);
-  return read.stunned ? 'stunned' : read.heat > 0.5 ? 'hot' : 'calm';
+  return read.stunned ? 'stunned' : read.heat > THERMAL_HOT_HEAT ? 'hot' : 'calm';
 }
 
 export interface ThermalView {
@@ -196,6 +204,10 @@ export interface ThermalView {
   temp: number;
   stunned: boolean;
   tone: ThermalTone;
+  /** Состояние шкалы: холод, норма, жар, перегрев. Значок и слово у шкалы идут от него. */
+  state: ThermalStateId;
+  /** Слово состояния для подписи: «Холод», «Норма», «Жар», «Перегрев». */
+  stateLabel: string;
   /** Слово состояния: цвет один не различают, поэтому оно всегда стоит рядом со шкалой. */
   status: string;
   /** Ширина полосы перегрева в процентах с шагом 0.5: у полосы переход в 0.25 с, и полпроцента
@@ -219,6 +231,7 @@ export interface ThermalView {
 export function thermalView(s: GameState): ThermalView {
   const read = thermalRead(s);
   const heatPct = read.heat * 100;
+  const state = thermalState(read.temp, read.heat, read.stunned);
   const status = read.stunned
     ? 'Перегрев: Доход падает'
     : read.heat > 0.75
@@ -229,20 +242,23 @@ export function thermalView(s: GameState): ThermalView {
   return {
     temp: read.temp,
     stunned: read.stunned,
-    tone: read.stunned ? 'stunned' : read.heat > 0.5 ? 'hot' : 'calm',
+    tone: read.stunned ? 'stunned' : read.heat > THERMAL_HOT_HEAT ? 'hot' : 'calm',
+    state,
+    stateLabel: THERMAL_STATE_LABEL[state],
     status,
     heatBar: Math.round(heatPct * 2) / 2,
     heatNow: Math.round(heatPct),
     heatHigh: read.heat > 0.75,
     mult: formatNumber(read.mult, s.settings.notation),
     valueText: `${read.temp.toFixed(2)} из ${TEMP_MAX}, Доход ×${read.mult.toFixed(2)}, ${status}`,
-    risk:
-      read.heat > 0.6
+    risk: read.stunned
+      ? 'Доход падает'
+      : read.heat > 0.6
         ? `перегрев ${Math.round(heatPct)}%`
         : read.halluRate > 0
           ? `галлюцинации ${Math.round(read.halluRate * 60)}/мин`
           : 'риска нет',
-    riskHot: read.heat > 0.6,
+    riskHot: read.stunned || read.heat > 0.6,
   };
 }
 
@@ -634,4 +650,56 @@ const SHARE_MIN = 0.01;
 export function labShareView(s: GameState, lab: LabId): number {
   const share = labIncomeShare(s, lab, incomeOf(s));
   return share >= SHARE_MIN ? Math.round(share * 100) : -1;
+}
+
+/**
+ * Что карточка Маскота говорит о его Лаборатории: Агенты, работа, доля в Доходе и Синергия.
+ * Плоский срез из примитивов — тик карточку не перерисовывает.
+ *
+ * `synergy` — процент, который Синергия даёт всем Моделям Лаборатории, или -1, пока она не
+ * куплена или Испытание «Забег без Синергий» её гасит: карточка не обещает бонуса, которого
+ * движок не начислит.
+ */
+export interface LabCardView {
+  /** Агенты Лаборатории готовой записью («1,5 К»). */
+  agents: string;
+  /** Слово при числе Агентов: «Агент», «Агента», «Агентов». */
+  agentsWord: string;
+  /** Название работы Лаборатории по её высшему Апгрейду; пусто, пока Апгрейдов нет. */
+  work: string;
+  /** Доля в Доходе целым процентом; -1, когда её не показывают. */
+  share: number;
+  /** Бонус Синергии целым процентом; -1, когда её нет. */
+  synergy: number;
+  /** Бонус Синергии готовой записью. */
+  synergyText: string;
+}
+
+export function labCardView(s: GameState, lab: LabId, showShare: boolean): LabCardView {
+  const notation = s.settings.notation;
+  const count = labAgents(s, lab);
+  const synergyOn =
+    s.activeChallenge !== 'no-synergy' && s.upgrades.includes(synergyUpgradeId(s.generation, lab));
+  const synergy = synergyOn ? Math.round(count * SYNERGY_PER_AGENT * 100) : -1;
+  return {
+    agents: formatNumber(count, notation),
+    agentsWord: formatCount(count, 'Агент', 'Агента', 'Агентов', notation),
+    work: labWork(s, lab),
+    share: showShare ? labShareView(s, lab) : -1,
+    synergy,
+    synergyText: synergy >= 0 ? formatNumber(synergy, notation) : '',
+  };
+}
+
+/**
+ * Подписи мест Маскотов для чтеца с экрана, по одной на Лабораторию в порядке `LAB_IDS`:
+ * «Anthropic: 15 Агентов, Синергия +15%». Карточка над Маскотом для чтеца скрыта, потому что
+ * говорит то же самое, и числа в обеих записях идут из одного `labCardView`.
+ */
+export function labBoothLabels(s: GameState): string[] {
+  return LAB_IDS.map((lab) => {
+    const view = labCardView(s, lab, false);
+    const synergy = view.synergy >= 0 ? `, Синергия +${view.synergyText}%` : '';
+    return `${LABS[lab].name}: ${view.agents} ${view.agentsWord}${synergy}`;
+  });
 }

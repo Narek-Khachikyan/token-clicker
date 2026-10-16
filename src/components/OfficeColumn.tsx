@@ -1,10 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, useStateSlice } from '../store/useGameStore';
-import { glitchesOf, labShareView } from '../store/selectors';
+import { glitchesOf, labBoothLabels, labCardView } from '../store/selectors';
 import { CATALOG } from '../economy/catalog';
 import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale } from '../economy/engine';
-import { labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
+import { labAgents } from '../economy/upgrades';
 import { formatCount, formatNumber } from '../economy/format';
 import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
@@ -14,7 +14,14 @@ import { QuipBubble, QuipLogModal } from './QuipBubble';
 import { SceneDrone, SceneGlitchBand } from './SceneEvents';
 import { GLITCH_CLICKS } from '../economy/glitches';
 import { GlitchPopSprite, GlitchSprite } from './EventSprites';
-import { OFFICE_COL_MIN } from '../layout';
+import {
+  MASCOT_CARD_GAP,
+  mascotCardBottom,
+  mascotCardLeft,
+  mascotCardWidth,
+  OFFICE_COL_MIN,
+  SCENE_MIN_H,
+} from '../layout';
 import { sceneFilter, sceneFloorGradient, sceneGrade, sceneHeatLayers } from '../render/sceneGrade';
 
 // Сцен четыре, по два Поколения на каждую (ADR-0002), поэтому индекс Сцены —
@@ -29,7 +36,7 @@ const SCENE_SRC = Array.from({ length: SCENE_COUNT }, (_, i) => `/scenes/scene-$
 const BADGE_OUTLINE = '1px 0 0 #000, -1px 0 0 #000, 0 1px 0 #000, 0 -1px 0 #000, 0 2px 3px #000';
 
 // Контактная тень под рабочим местом. Живёт здесь, а не в WorkstationSprite: тень —
-// свойство стоящего в комнате, а не спрайта, и в ростере, где стол не рисуется, пола нет вовсе.
+// свойство стоящего в комнате, а не спрайта.
 //
 // Плоский эллипс, а не filter: drop-shadow() обводит силуэт по альфе и оставляет ореол
 // вокруг всех внутренних пробелов блочного спрайта. 0.38 выбрано как середина рабочего
@@ -314,84 +321,102 @@ const sceneImgStyle = (filter: string): React.CSSProperties => ({
   filter,
 });
 
+/** Где стоит карточка Маскота на Сцене: точка в пикселях Сцены, посчитанная из места Маскота. */
+interface CardAnchor {
+  labId: LabId;
+  left: number;
+  width: number;
+  bottom: number;
+  /** Высота Сцены, px: карточка не должна вылезти за её верх. */
+  sceneH: number;
+}
+
 /**
- * Одна строка ростера: имя Лаборатории, её Агенты, работа, доля в Доходе и Синергия. Подписана на
- * Агентов и Апгрейды (они меняются покупкой) и на долю в Доходе целым процентом, поэтому тик
- * строку не перерисовывает.
+ * Карточка Лаборатории над Маскотом при наведении или фокусе: Агенты, работа, доля в Доходе и
+ * Синергия. Заменила блок «Состав Лабораторий» под Сценой: те же числа, но не отдельная полоса,
+ * съедавшая высоту, а подсказка там, куда игрок и так смотрит. Подложка у карточки своя и
+ * непрозрачная (ADR-0002), и то же самое — для чтеца с экрана — сказано в подписи кнопки Маскота,
+ * поэтому сама карточка от него скрыта и не читается дважды. Подписана на срез, а не на состояние:
+ * тик её не перерисовывает.
  */
-const RosterRow: React.FC<{ labId: LabId; showShare: boolean }> = ({ labId, showShare }) => {
-  const generation = useGameStore((s) => s.state.generation);
-  const agents = useGameStore((s) => s.state.agents);
-  const upgrades = useGameStore((s) => s.state.upgrades);
-  const notation = useGameStore((s) => s.state.settings.notation);
-  // Доля читается только когда её покажут: на одной Лаборатории она всегда 100%, а считается
-  // полным проходом по Моделям.
-  const share = useStateSlice((s) => (showShare ? labShareView(s, labId) : -1));
-
-  const lab = LABS[labId];
-  const count = labAgents({ generation, agents }, labId);
-  const synergyPct = Math.round(count * SYNERGY_PER_AGENT * 100);
-  const synergyOn = upgrades.includes(synergyUpgradeId(generation, labId));
-  const work = labWork({ generation, upgrades }, labId);
-
+const MascotCard: React.FC<{ anchor: CardAnchor; showShare: boolean }> = ({ anchor, showShare }) => {
+  const view = useStateSlice((s) => labCardView(s, anchor.labId, showShare));
+  const lab = LABS[anchor.labId];
+  // Высота карточки известна только после вёрстки, а от неё зависит, хватит ли над местом
+  // Маскота высоты Сцены: поэтому нижний край уточняется до первой отрисовки, и кадра с
+  // карточкой над рамкой игрок не видит.
+  const nodeRef = useRef<HTMLDivElement>(null);
+  const [bottom, setBottom] = useState(anchor.bottom);
+  useLayoutEffect(() => {
+    const node = nodeRef.current;
+    setBottom(node ? mascotCardBottom(anchor.bottom, node.offsetHeight, anchor.sceneH) : anchor.bottom);
+  }, [anchor, view.work, view.share, view.synergy]);
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-1)', flexWrap: 'wrap', rowGap: 'var(--space-0)' }}>
-      {/* Цвет Лаборатории живёт только здесь: на --bg-card он не задаёт контраст
-          текста, а плашкой служит лишь ориентиром, у какой Маскот чья. */}
-      <span
-        style={{
-          width: '10px',
-          height: '10px',
-          backgroundColor: lab.color,
-          border: 'var(--frame-w) solid var(--border)',
-          flexShrink: 0,
-        }}
-      />
-      <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{lab.name}</span>
-      {/* Имя Маскота не повторяется: он стоит в ленте прямо над ростером, и его
-          счётчик подписан под ним. Счётчик Агентов здесь остаётся: на Сцене он
-          мелкий и читается только вплотную, а в ростере это основное число строки,
-          и без него карточка в свежем сохранении держит одно имя. */}
-      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-        ×<Num>{formatNumber(count, notation)}</Num>{' '}
-        {formatCount(count, 'Агент', 'Агента', 'Агентов', notation)}
-      </span>
-      {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой. */}
-      {work !== '' && (
-        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-          {work}
-        </span>
-      )}
-      {/* Доля в Доходе — величина сравнительная, и читается она только когда
-          различает: с одной Лабораторией она всегда 100%, а ниже процента
-          неотличима от нуля. На восьми Лабораториях такая мелочь занимала бы
-          пять строк из восьми и читалась как «у всех всё одинаково». */}
-      {share >= 0 && (
-        <span className="num" style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
-          {share}%
-        </span>
-      )}
-      {synergyOn && (
+    <div
+      ref={nodeRef}
+      className="mascot-card pixel-card"
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        left: anchor.left,
+        bottom,
+        width: anchor.width,
+        boxSizing: 'border-box',
+        zIndex: 5,
+        // Подсказка не ловит указатель: иначе она вставала бы между курсором и Маскотом, и
+        // наведение мигало бы, а Глюки и Золотой Токен под ней перестали бы ловиться.
+        pointerEvents: 'none',
+        padding: 'var(--space-2) var(--space-3)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-1)',
+        animation: 'toast-fade 0.12s ease-out',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+        {/* Цвет Лаборатории живёт только здесь: на --bg-panel он не задаёт контраст текста,
+            а плашкой служит лишь ориентиром, чья это карточка. */}
         <span
-          title={`Синергия: +${formatNumber(synergyPct, notation)}% к доходу всех моделей ${lab.name}`}
-          style={{ fontSize: '0.75rem', color: 'var(--gold)' }}
-        >
-          +<Num>{formatNumber(synergyPct, notation)}</Num>%
-        </span>
+          style={{
+            width: '10px',
+            height: '10px',
+            backgroundColor: lab.color,
+            border: 'var(--frame-w) solid var(--border)',
+            flexShrink: 0,
+          }}
+        />
+        <span className="pixel-22" style={{ color: 'var(--text-main)' }}>{lab.name}</span>
+      </div>
+      <div style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+        ×<Num>{view.agents}</Num> {view.agentsWord}
+        {/* Название работы приходит из MODEL_TIERS, а не пишется здесь строкой. */}
+        {view.work !== '' && <span style={{ color: 'var(--text-muted)' }}> · {view.work}</span>}
+      </div>
+      {/* Доля в Доходе — величина сравнительная, и читается она только когда различает: с
+          одной Лабораторией она всегда 100%, а ниже процента неотличима от нуля. */}
+      {view.share >= 0 && (
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          Доля в Доходе: <Num>{view.share}</Num>%
+        </div>
+      )}
+      {view.synergy >= 0 && (
+        <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
+          Синергия: +<Num>{view.synergyText}</Num>% к Доходу всех Моделей {lab.name}
+        </div>
       )}
     </div>
   );
 };
 
 /**
- * Колонка Офиса: баннер цели, Сцена и ростер. Подписана на то, что меняется покупкой и Престижем
+ * Колонка Офиса: одна Сцена на всю колонку. Цель Поколения, кнопка Престижа и «Переписка» стоят
+ * на её HUD-полосе, а Лаборатория, число её Агентов и Синергия — в карточке над Маскотом. Подписана на то, что меняется покупкой и Престижем
  * (Поколение, Агенты, Апгрейды), а не на состояние: тик колонку не перерисовывает, а всё, что на
  * Сцене живёт тиком — Глюки, Дрон, покачивание Маскотов, — подписано на свои срезы само.
  */
 const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const generation = useGameStore((s) => s.state.generation);
   const agents = useGameStore((s) => s.state.agents);
-  const upgrades = useGameStore((s) => s.state.upgrades);
   const notation = useGameStore((s) => s.state.settings.notation);
   const quipsSeenCount = useGameStore((s) => s.state.quipsSeen.length);
   // Выключатель частиц из «Настроек»: пыль в воздухе Сцены — один из них.
@@ -493,7 +518,50 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
     }
   }, [agents]);
 
-  const synergyLabs = activeLabs.filter((l) => upgrades.includes(synergyUpgradeId(generation, l)));
+  // Карточка Маскота: одна на всю Сцену, а не по одной на место. Точка считается в пикселях
+  // Сцены при наведении, а не хранится в разметке: ширина Сцены зависит от окна, и карточка
+  // над крайним Маскотом обязана остаться внутри (mascotCardLeft).
+  const sceneRef = useRef<HTMLDivElement>(null);
+  const [card, setCard] = useState<CardAnchor | null>(null);
+
+  const showCard = (labId: LabId, booth: HTMLElement) => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const sr = scene.getBoundingClientRect();
+    const br = booth.getBoundingClientRect();
+    // clientLeft/Top — рамка Сцены: абсолютные дети отсчитываются от внутреннего края.
+    const centerX = br.left + br.width / 2 - sr.left - scene.clientLeft;
+    const boothTop = br.top - sr.top - scene.clientTop;
+    setCard({
+      labId,
+      width: mascotCardWidth(scene.clientWidth),
+      left: mascotCardLeft(centerX, scene.clientWidth),
+      bottom: scene.clientHeight - boothTop + MASCOT_CARD_GAP,
+      sceneH: scene.clientHeight,
+    });
+  };
+  const hideCard = (labId: LabId) => setCard((cur) => (cur?.labId === labId ? null : cur));
+
+  // На сенсорном экране указатель «уходит» сразу после касания, а фокус кнопка может и не
+  // взять, поэтому карточка, открытая касанием, закрывается касанием мимо любого Маскота.
+  const cardOpen = card !== null;
+  useEffect(() => {
+    if (!cardOpen) return;
+    const away = (e: PointerEvent) => {
+      if (e.target instanceof Element && e.target.closest('.scene__booth')) return;
+      setCard(null);
+    };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [cardOpen]);
+
+  // Подписи мест Маскотов для чтеца: те же числа, что в карточке (см. labBoothLabels).
+  const boothLabels = useStateSlice(labBoothLabels);
+
+  // Подпись цели: одна строка и для экрана, и для title — полное имя Флагмана и условие Престижа.
+  const goalHint = flagshipOwned
+    ? 'Флагман нанят — Престиж открыт'
+    : 'Найми хотя бы 1 Агента Флагмана, чтобы открыть Престиж';
 
   return (
     <div
@@ -512,74 +580,15 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         gap: 'var(--space-4)',
       }}
     >
-      {/* Баннер Поколения и Флагмана. key пересоздаёт карточку на смене Поколения
-          или финала, поэтому появление через существующий toast-fade (только opacity,
-          без движения) проигрывается один раз на смену текста. */}
-      <div
-        key={`${generation}-${finale ? 'finale' : 'goal'}`}
-        className="pixel-card"
-        style={{
-          flexShrink: 0,
-          padding: 'var(--space-4)',
-          borderLeft: `calc(var(--frame-w) * 3) solid ${flagshipOwned ? 'var(--gold)' : 'var(--accent-color)'}`,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 'var(--space-3)',
-          animation: 'toast-fade 0.15s ease-out',
-        }}
-      >
-        <div>
-          <div style={{ fontSize: '0.85rem', color: 'var(--accent-color)' }}>
-            ЦЕЛЬ ПОКОЛЕНИЯ
-          </div>
-          <div className="pixel-22" style={{ color: 'var(--text-main)', marginTop: 'var(--space-0)' }}>
-            Флагман: <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
-          </div>
-          <div style={{ fontSize: '0.85rem', color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
-            {flagshipOwned
-              ? 'Флагман нанят! Престиж в следующее поколение разблокирован.'
-              : 'Найми хотя бы 1 агента флагмана, чтобы открыть престиж.'}
-          </div>
-        </div>
-
-        {prestigeReady && !finale && (
-          <button
-            onClick={requestPrestige}
-            className="pixel-btn pixel-btn-gold pixel-22"
-            style={{ padding: 'var(--space-2) var(--space-4)' }}
-          >
-            <Icon name="rocket" />
-            Совершить Престиж
-          </button>
-        )}
-
-        {finale && (
-          <div
-            style={{
-              padding: 'var(--space-2) var(--space-3)',
-              backgroundColor: 'var(--tint-gold)',
-              border: 'var(--frame-w) solid var(--gold)',
-              textAlign: 'center',
-            }}
-          >
-            <div className="pixel-22" style={{ color: 'var(--gold)' }}>Финал контента MVP!</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
-              Ты на острие ИИ! Жди новые реальные модели в будущих апдейтах.
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Сцена: Пиксельный офис, в котором стоят Маскоты купленных Лабораторий. Классы нужны,
           чтобы адресовать части Сцены из проверок; оформление живёт в style, как во всём
           остальном интерфейсе. */}
       <div
+        ref={sceneRef}
         className="scene scene-plate"
         style={{
           flex: 1,
-          minHeight: '300px',
+          minHeight: SCENE_MIN_H,
           position: 'relative',
           overflow: 'hidden',
           border: 'var(--frame-w) solid var(--border)',
@@ -663,18 +672,113 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             className="scene__hud"
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'baseline',
-              gap: 'var(--space-2)',
+              flexDirection: 'column',
+              gap: 'var(--space-1)',
               padding: 'var(--space-2) var(--space-3)',
-              background: 'linear-gradient(to bottom, var(--bg-scrim) 0%, var(--bg-scrim) 55%, transparent 100%)',
+              // Сплошное затемнение, а не градиент в прозрачность: на HUD теперь стоят три
+              // строки, и нижняя при градиенте лежала бы на почти открытой картинке (ADR-0002).
+              background: 'var(--bg-scrim)',
+              borderBottom: 'var(--frame-w) solid var(--border)',
             }}
           >
-            <span className="pixel-22" style={{ color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
-            <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
-              <Num>{formatNumber(totalAgents, notation)}</Num>{' '}
-              {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов', notation)}
-            </span>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                flexWrap: 'wrap',
+                gap: 'var(--space-1) var(--space-2)',
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 'var(--space-0) var(--space-2)' }}>
+                <span className="pixel-22" style={{ color: 'var(--text-main)' }}>ОФИС АГЕНТОВ</span>
+                <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+                  <Num>{formatNumber(totalAgents, notation)}</Num>{' '}
+                  {formatCount(totalAgents, 'Агент', 'Агента', 'Агентов', notation)}
+                </span>
+              </span>
+              {/* Коллекция реплик: счётчик — длина quipsSeen, окно — локальное. Кнопка живёт на
+                  HUD, потому что полосы «Состав» больше нет, а собрать услышанное по-прежнему
+                  нужно где-то под рукой. Рамка и заливка кнопки — её собственная подложка. */}
+              <button
+                className="pixel-btn"
+                onClick={() => setQuipLogOpen(true)}
+                style={{ padding: 'var(--space-0) var(--space-2)', whiteSpace: 'nowrap' }}
+              >
+                Переписка ({quipsSeenCount})
+              </button>
+            </div>
+
+            {/* Цель Поколения. key пересоздаёт строку на смене Поколения или финала, поэтому
+                появление через существующий toast-fade (только opacity, без движения)
+                проигрывается один раз на смену текста. */}
+            <div
+              key={`${generation}-${finale ? 'finale' : 'goal'}`}
+              className="scene__goal"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 'var(--space-1) var(--space-3)',
+                animation: 'toast-fade 0.15s ease-out',
+              }}
+            >
+              {finale ? (
+                <div style={{ flex: '1 1 12rem', minWidth: 0 }}>
+                  <div className="pixel-22" style={{ color: 'var(--gold)' }}>Финал контента MVP!</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
+                    Ты на острие ИИ! Жди новые реальные модели в будущих апдейтах.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ flex: '1 1 20rem', minWidth: 0 }} title={goalHint}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', minWidth: 0 }}>
+                    <span
+                      className="pixel-22"
+                      style={{ color: flagshipOwned ? 'var(--gold)' : 'var(--accent-color)', flexShrink: 0 }}
+                    >
+                      ЦЕЛЬ
+                    </span>
+                    {/* Имя обрезается многоточием, а не переносится: на телефоне цель стоит одной
+                        строкой, а полное имя лежит в title и в подписи ниже. */}
+                    <span
+                      style={{
+                        fontSize: '1rem',
+                        color: 'var(--text-main)',
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Флагман <span style={{ color: 'var(--gold)' }}>{flagship.name}</span> ({LABS[flagship.lab].name})
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '0.8rem',
+                      color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {goalHint}
+                  </div>
+                </div>
+              )}
+
+              {prestigeReady && !finale && (
+                <button
+                  onClick={requestPrestige}
+                  className="pixel-btn pixel-btn-gold pixel-22"
+                  style={{ padding: 'var(--space-1) var(--space-3)' }}
+                >
+                  <Icon name="rocket" />
+                  Совершить Престиж
+                </button>
+              )}
+            </div>
           </div>
           {/* Полоса кражи Дохода появляется вместе с первым Глюком и держит обратную связь
               на самой Сцене: без неё игрок узнавал бы об утечке только из модалки. */}
@@ -687,7 +791,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         <QuipBubble />
 
         {/* Маскоты стоят на общей линии у нижнего края Сцены, а подписи Лабораторий живут
-            в ростере под ней — на ровной поверхности, где контраст не зависит от Сцены. */}
+            в карточке над Маскотом — на её собственной подложке, где контраст не зависит от Сцены. */}
         <div
           className="scene__mascots"
           style={{
@@ -711,9 +815,36 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           }}
         >
           {activeLabs.map((labId) => (
-            <div
+            // Место Маскота — кнопка: наведение мышью, фокус с клавиатуры и касание открывают
+            // одну и ту же карточку (MascotCard). Подпись читает то же, что видно в карточке, а
+            // сама карточка от чтеца скрыта. Escape её закрывает (WCAG 1.4.13).
+            <button
               key={labId}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-1)', minWidth: 0 }}
+              type="button"
+              className="scene__booth"
+              aria-label={boothLabels[LAB_IDS.indexOf(labId)]}
+              onPointerEnter={(e) => showCard(labId, e.currentTarget)}
+              onPointerLeave={() => hideCard(labId)}
+              onFocus={(e) => showCard(labId, e.currentTarget)}
+              onBlur={() => hideCard(labId)}
+              onClick={(e) => showCard(labId, e.currentTarget)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') hideCard(labId);
+              }}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 'var(--space-1)',
+                minWidth: 0,
+                width: '100%',
+                padding: 0,
+                background: 'none',
+                border: 'none',
+                font: 'inherit',
+                color: 'inherit',
+                cursor: 'default',
+              }}
             >
               {/* Место целиком: Маскот стоит за своим столом, и стол рисуется поверх
                   Маскота по щиколотку. Без перекрытия это были бы восемь фигур,
@@ -777,13 +908,17 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 />
               </div>
               <span
+                aria-hidden="true"
                 style={{ fontSize: '0.8rem', color: 'var(--text-main)', textShadow: BADGE_OUTLINE }}
               >
                 ×<Num>{formatNumber(labAgents(roster, labId), notation)}</Num>
               </span>
-            </div>
+            </button>
           ))}
         </div>
+
+        {/* Карточка Маскота: над местом, на которое навели, поверх пузыря реплики. */}
+        {card && <MascotCard anchor={card} showShare={activeLabs.length > 1} />}
 
         {/* Глюки сидят на Сцене: каждый показывает, сколько кликов до разрыва, и лопается
             от третьего. Полоса с долей кражи — выше, в обёртке HUD. */}
@@ -885,65 +1020,6 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         {/* Дрон летит последним слоем: он пересекает и пол, и ленту Маскотов, поэтому должен
             рисоваться поверх обоих. Слой не перехватывает указатель — см. .scene__drone. */}
         <SceneDrone />
-      </div>
-
-      {/* Ростер: имена Лабораторий, их Маскоты, счётчики Агентов и Синергия — на ровной
-          поверхности --bg-card, где приглушённый текст держит 5.5:1. */}
-      <div
-        className="roster"
-        style={{
-          flexShrink: 0,
-          backgroundColor: 'var(--bg-card)',
-          border: 'var(--frame-w) solid var(--border)',
-          padding: 'var(--space-2) var(--space-3)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-2)',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 'var(--space-1) var(--space-2)',
-          }}
-        >
-          <span className="pixel-22" style={{ color: 'var(--accent-color)' }}>СОСТАВ ЛАБОРАТОРИЙ</span>
-          <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 'var(--space-1) var(--space-2)' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-              {activeLabs.length}{' '}
-              {formatCount(activeLabs.length, 'Лаборатория', 'Лаборатории', 'Лабораторий', notation)} в офисе
-            </span>
-            {/* Кнопка коллекции реплик: счётчик — длина quipsSeen, окно — локальное. */}
-            <button
-              className="pixel-btn pixel-22"
-              onClick={() => setQuipLogOpen(true)}
-              style={{ padding: 'var(--space-1) var(--space-2)', whiteSpace: 'nowrap' }}
-            >
-              Переписка ({quipsSeenCount})
-            </button>
-          </span>
-        </div>
-
-        {activeLabs.length === 0 ? (
-          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Пока никто не нанят — Сцена ждёт первого агента.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1) var(--space-4)' }}>
-            {activeLabs.map((labId) => (
-              <RosterRow key={labId} labId={labId} showShare={activeLabs.length > 1} />
-            ))}
-          </div>
-        )}
-
-        {synergyLabs.length > 0 && (
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-            Синергия: каждый агент Лаборатории добавляет доход всем её моделям (апгрейд «Общий датасет»).
-          </div>
-        )}
       </div>
 
       <QuipLogModal isOpen={quipLogOpen} onClose={() => setQuipLogOpen(false)} />

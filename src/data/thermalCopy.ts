@@ -161,3 +161,34 @@ export const thermalZoneId = (temp: number): ThermalZoneId =>
 
 /** Зона как объект, готовый к отрисовке. */
 export const thermalZone = (temp: number): ThermalZone => ZONES[thermalZoneId(temp)];
+/**
+ * Состояние шкалы одним словом: холод, норма, жар, перегрев.
+ *
+ * Цвет шкалы различает не каждый игрок, а слово и значок — каждый, поэтому состояние названо
+ * здесь и читается рядом с шкалой всегда. Пороги живут тут же, а не в компоненте: подпись, тон
+ * корня и озвучка берут один ответ на вопрос «где игрок сейчас».
+ */
+export type ThermalStateId = 'cold' | 'normal' | 'hot' | 'overheat';
+
+/** Температура ниже этой — холод. Не ровно ноль: ручку, дотянутую мышью до левого края, не
+ *  отличить от нуля глазом, а подпись «Норма» над пустой шкалой врала бы. */
+export const THERMAL_COLD_BELOW = 0.1;
+
+/** Перегрев выше этой доли — жар, даже если температура ещё в рабочей зоне: игрок уже копит
+ *  то, что придётся сбросить. Тот же порог красит корень в тон жара. */
+export const THERMAL_HOT_HEAT = 0.5;
+
+export const THERMAL_STATE_LABEL: Record<ThermalStateId, string> = {
+  cold: 'Холод',
+  normal: 'Норма',
+  hot: 'Жар',
+  overheat: 'Перегрев',
+};
+
+/** Оглушение после сброса важнее всего; затем жар (перегруз или накопленный перегрев); затем холод. */
+export function thermalState(temp: number, heat: number, stunned: boolean): ThermalStateId {
+  if (stunned) return 'overheat';
+  if (temp > OVERLOAD_FROM || heat > THERMAL_HOT_HEAT) return 'hot';
+  if (temp < THERMAL_COLD_BELOW) return 'cold';
+  return 'normal';
+}
