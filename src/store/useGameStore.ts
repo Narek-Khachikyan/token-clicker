@@ -28,9 +28,9 @@ import {
   awardShadowAchievements,
 } from '../economy/achievements';
 import { activeSpec, grantAmount, isEventActive } from '../economy/events';
-import { formatNumber } from '../economy/format';
+import { formatCount, formatNumber } from '../economy/format';
 import { buyCrystalUpgrade as engineBuyCrystalUpgrade } from '../economy/crystal';
-import { CHALLENGES, startChallenge as engineStartChallenge, type ChallengeDef } from '../economy/challenges';
+import { startChallenge as engineStartChallenge, type ChallengeDef } from '../economy/challenges';
 import { claimMilestones } from '../economy/milestones';
 import {
   buyLicense as engineBuyLicense,
@@ -41,6 +41,7 @@ import {
   uprisingStage,
 } from '../economy/glitches';
 import { pickNews } from '../economy/news';
+import { HOLD_CLICK_MIN_GAP_MS, pushClick } from '../economy/streak';
 import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX } from '../economy/thermal';
 import { perkEffects } from '../economy/perks';
 import { pickQuip, recordQuip } from '../economy/quips';
@@ -63,6 +64,7 @@ import {
   setAudioHidden,
 } from '../audio/sound';
 import type { LabId } from '../data/labs';
+import { rewardMoment, type RewardMoment } from '../economy/rewardMoment';
 import { playCoolingSound, playHallucinationSound, updateThermalAudio } from '../audio/thermal';
 import { duckMusic } from '../audio/music';
 import { playCrystalSound, playMilestoneSound, playPrestigeConfirmSound, playToggleSound } from '../audio/sfx';
@@ -92,10 +94,26 @@ export interface ClickFloater {
   x: number;
   y: number;
   text: string;
+  /** Уровень Серии в момент Клика: от него зависит ступень шрифта числа. */
+  level: number;
+}
+
+/** Искры одного Клика: веер из точки Клика, число лучей и размах зависят от уровня Серии. */
+export interface ClickSparkBurst {
+  id: number;
+  x: number;
+  y: number;
+  level: number;
 }
 
 /** Событие, на которое интерфейсу нужен собственный громкий отклик. */
 export type BurstKind = 'achievement' | 'prestige';
+
+/** Момент награды на Сцене (вход Маскота, праздник Флагмана) с тождеством на nonce. UI-слой, как
+ *  burst: в GameState и в сейв не попадает, миграция не нужна. */
+export interface SceneMoment extends RewardMoment {
+  nonce: number;
+}
 
 export interface BurstEvent {
   kind: BurstKind;
@@ -160,13 +178,33 @@ function raiseUprising(state: GameState): GameState {
   return { ...state, uprising: stage };
 }
 
-/** Что игроку говорят про каждую стадию: тихое число в состоянии он бы не заметил. */
-const UPRISING_LINES: readonly string[] = [
-  '',
-  'Агенты начали выдавать красные ответы. Модераторы в шоке. Откуп — во вкладке «Апгрейды».',
-  'Красных событий всё больше. Отдел качества пишет кодекс.',
-  'Красные события теперь выпадают всегда. Поддержка закрыта.',
-];
+/** Сколько названий Достижений тост-склейка печатает: остальные остаются в окне «Достижения». */
+const TOAST_NAMES_MAX = 3;
+
+/**
+ * Тост за пачку Достижений, выданных одним переходом: одно Достижение — своя карточка, несколько —
+ * одна «+N Достижения» с названиями. Стена карточек закрывала бы колонку ровно тогда, когда игрок
+ * на неё смотрит, а `toastCounter` растёт на один тост, а не на каждое Достижение.
+ *
+ * Склоняется по `formatCount`, а не подставляется как есть: «+5 Достижения» — ошибка, которую
+ * игрок читает сразу. Названия урезаны до `TOAST_NAMES_MAX` и «и ещё N»: полный список лежит в
+ * окне «Достижения», а карточка обязана помещаться на экран и на 320 px.
+ */
+function achievementToast(list: readonly { id: string; name: string; desc: string }[]): ToastMessage | null {
+  if (list.length === 0) return null;
+  if (list.length === 1) {
+    const [a] = list;
+    return { id: `${a.id}-${++toastCounter}`, title: 'Достижение разблокировано!', name: a.name, desc: a.desc };
+  }
+  const shown = list.slice(0, TOAST_NAMES_MAX).map((a) => a.name);
+  const rest = list.length - shown.length;
+  return {
+    id: `achievements-${++toastCounter}`,
+    title: `+${list.length} ${formatCount(list.length, 'Достижение', 'Достижения', 'Достижений')}`,
+    name: shown.join(' · '),
+    desc: rest > 0 ? `и ещё ${rest}` : '',
+  };
+}
 
 /**
  * Окна события, о котором стор ещё не говорил. Минус, а ноль: у события из битого сохранения
@@ -209,6 +247,10 @@ interface GameStore {
   sellMode: boolean;
   toasts: ToastMessage[];
   floaters: ClickFloater[];
+  /** Искры Клика в воздухе: живут `CLICK_SPARK_MS` и только при включённых частицах. */
+  clickSparks: ClickSparkBurst[];
+  /** Моменты последних Кликов для Серии. Вне GameState: Серия живёт секунды и в сейв не идёт. */
+  clickMoments: readonly number[];
   /** Пузырь реплики в офисе, null = пузырь скрыт. Авто-скрытие — bounded one-shot в clickPrompt. */
   lastQuip: LastQuip | null;
   /** Модель последней покупки Агентов: её Лаборатория говорит следующим Кликом. Вне GameState
@@ -219,6 +261,11 @@ interface GameStore {
    *  потребитель смотрит на nonce, поэтому два одинаковых подряд не схлопываются в один отклик
    *  и гасить канал вручную не нужно — тот, кто показал отклик, и так его показал. */
   burst: BurstEvent | null;
+  /** Момент награды, который Сцена сейчас показывает: вход Маскота новой Лаборатории и праздник
+   *  Флагмана. Живёт SCENE_MOMENT_MS и гаснет сам: Сцена рисует отклик, пока поле занято, а
+   *  размонтированная колонка (телефон, другая вкладка) застаёт хвост, а не вечный повтор.
+   *  Вне GameState по той же причине, что и burst. */
+  sceneMoment: SceneMoment | null;
   /** Окно события, о котором стор уже объявил игроку: момент старта, NO_EVENT_WINDOW = окна нет.
    *  Ключ окна — его старт, а не вид события: одно и то же событие переживает перезагрузку, и
    *  второй раз поймать его нельзя. Вне GameState по той же причине, что и остальной UI-слой:
@@ -240,6 +287,13 @@ interface GameStore {
   // Actions
   tick: (dt: number) => void;
   clickPrompt: (x?: number, y?: number) => void;
+  /**
+   * Клик удержанной клавишей (Пробел/Enter): тот же Клик, но не чаще `HOLD_CLICK_MIN_GAP_MS`.
+   * Потолок стоит здесь, а не в компоненте: автоповтор клавиши шлёт нажатия десятками в секунду,
+   * и любой другой слушатель (горячие клавиши) получит тот же предел. Возвращает true, если Клик
+   * засчитан.
+   */
+  holdClick: (x?: number, y?: number) => boolean;
   buyAgents: (modelId: string) => void;
   sellAgents: (modelId: string) => void;
   buyUpgrade: (upgradeId: string) => void;
@@ -364,13 +418,27 @@ function loadInitialState(): { state: GameState; offline: OfflineReport | null; 
 }
 
 let floaterCounter = 0;
+let sparkCounter = 0;
+/** Момент последнего Клика удержания: общий для всех слушателей, как и потолок. */
+let lastHoldClickAt = -Infinity;
 let toastCounter = 0;
 let burstCounter = 0;
+let momentCounter = 0;
 let quipCounter = 0;
+
+/** Сколько Сцена держит момент награды. Дольше самой длинной анимации момента (CSS: праздник
+ *  Флагмана идёт 1.6 с), и стор гасит поле уже после неё. */
+export const SCENE_MOMENT_MS = 2000;
 
 /** Пузырь реплики висит 4.5 с: входной pop занимает 0.25 с, уходной fade стартует CSS-задержкой
  *  на 4.32 с, и стор гасит поле уже после него — fade видно целиком. */
 const QUIP_HIDE_MS = 4500;
+/** Сколько искры Клика висят в сторе, мс: чуть дольше их анимации в index.css, чтобы узел не
+ *  исчезал на середине полёта; уборку делает этот таймер, а не animationend, которого отменённая
+ *  анимация не даёт. */
+const CLICK_SPARK_MS = 700;
+/** Искр одновременно в воздухе: при удержании их было бы вдвое больше, а читается не больше шести. */
+const CLICK_SPARK_CAP = 6;
 
 /**
  * Лаборатория говорящего: Лаборатория последней купленной Модели. Агентов нет — говорить
@@ -632,24 +700,13 @@ export const useGameStore = create<GameStore>((set, get) => {
     // Текст берётся из таблицы, а не собирается из id: awardAchievements отдаёт id, и
     // подставить его в тост — значит отдать компоненту то, что она не умеет перевести.
     const won = new Set(awarded);
+    const toast = achievementToast(ACHIEVEMENTS.filter((a) => won.has(a.id)));
     set((st) => ({
-      toasts: [
-        ...st.toasts,
-        ...ACHIEVEMENTS.filter((a) => won.has(a.id)).map((a) => ({
-          id: `${a.id}-${++toastCounter}`,
-          title: 'Достижение разблокировано!',
-          name: a.name,
-          desc: a.desc,
-        })),
-      ],
+      toasts: toast ? [...st.toasts, toast] : st.toasts,
       burst: { kind: 'achievement', nonce: ++burstCounter },
     }));
     return withShadows;
   };
-
-  /** Тост не о Достижении: заголовок и строка написаны руками, id Достижения в desc не ищется. */
-  const pushToast = (title: string, name: string, desc: string): void =>
-    set((st) => ({ toasts: [...st.toasts, { id: `t-${++toastCounter}`, title, name, desc }] }));
 
   /**
    * Звук и слова Температуры: охлаждение после перегрева и провал от Галлюцинации.
@@ -674,7 +731,6 @@ export const useGameStore = create<GameStore>((set, get) => {
   const announceThermal = (before: GameState, after: GameState, dt: number): void => {
     if (after.overheatedAt !== before.overheatedAt && after.overheatedAt > 0) {
       playCoolingSound(after.settings);
-      pushToast('Перегрев', 'Модели перегрелись', 'Жар сброшен в холод. Доход падает, пока офис остывает.');
       return;
     }
     // Строгое падение кошелька при подросшем перегреве — только Галлюцинация: обычный тик
@@ -739,18 +795,15 @@ export const useGameStore = create<GameStore>((set, get) => {
   };
 
   /**
-   * Держит UI-состояние окна события: объявляет новое окно и сообщает о просроченном.
+   * Держит UI-состояние окна события: замечает новое окно и подаёт сигнал Перка «оповещение».
    *
-   * Оба сообщения нужны игроку, а не магазину: без объявления он не узнает, что окно открылось,
-   * а без сообщения о просрочке исчезновение события выглядит как баг. Возвращается срез, который
+   * Тостов о Событиях нет: окно видно на карточке Золотого Токена. Возвращается срез, который
    * вызывающий кладёт в стор одним set вместе с состоянием.
    *
-   * На длинном тике (простой через applyOffline) — только молчаливая синхронизация, без единого
-   * тоста. Окно События короче такого тика, поэтому тик, покрывший окно целиком, объявлял бы его
-   * в одном тике и хоронил в следующем — игрок, которого не было на месте, получал бы пары
-   * уведомлений о событиях, которых не видел, а за долгий простой их набирались пачки. Свежее
+   * На длинном тике (простой через applyOffline) — только молчаливая синхронизация, без сигнала.
+   * Окно События короче такого тика, и сигнал о окне, которого игрок не видел, врал бы. Свежее
    * окно при этом не теряется: оно начинается в `now` и потому живо и на следующем активном
-   * тике, где и объявляется обычным порядком.
+   * тике, где и замечается обычным порядком.
    */
   const watchEventWindow = (
     state: GameState,
@@ -771,7 +824,6 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Окно, о котором стор ещё не говорил. Истёкшее не объявляется: его эффекта уже нет, и
       // сигнал на возвращении из простоя врал бы.
       if (!live) return { eventWindowAt, eventCaught };
-      const spec = activeSpec(state, now);
       // Звук — Перк за Compute, а не базовая фича: игрок возвращается к вкладке по сигналу, и
       // покупает такую возможность сам. Ищем по виду эффекта, а не по id, чтобы переименование
       // Перка не оставило здесь мёртвую проверку.
@@ -779,16 +831,9 @@ export const useGameStore = create<GameStore>((set, get) => {
         playEventAlertSound(state.settings);
         duckMusic();
       }
-      if (spec) pushToast('Событие', spec.name, spec.desc);
       // Объявить окно и поймать его — разные вещи: окно могло достаться уже пойманным (импорт в
       // середине окна), и тогда кнопка обязана остаться «Поймано», а не воскреснуть.
       return { eventWindowAt: event.startedAt, eventCaught };
-    }
-    if (!live && !eventCaught) {
-      // Окно закрылось, а поймать его было некогда. Повторно об этом не сообщаем: закрытое окно
-      // помечается как отсутствующее, и следующее придёт со своим моментом старта.
-      pushToast('Событие ушло', 'Окно закрылось', 'Поймать его было некогда.');
-      return { eventWindowAt: NO_EVENT_WINDOW, eventCaught: false };
     }
     return { eventWindowAt, eventCaught };
   };
@@ -806,9 +851,12 @@ export const useGameStore = create<GameStore>((set, get) => {
     sellMode: false,
     toasts: initial.notice ? [initial.notice] : [],
     floaters: [],
+    clickSparks: [],
+    clickMoments: [],
     lastQuip: null,
     lastBoughtModelId: null,
     burst: null,
+    sceneMoment: null,
     eventWindowAt: NO_EVENT_WINDOW,
     eventCaught: caughtWindow(initial.state),
     crashArmedAt: 0,
@@ -839,24 +887,11 @@ export const useGameStore = create<GameStore>((set, get) => {
       // аккорда разом звучали бы как заминка, а не как награда.
       if (claimed.length > 0) {
         playMilestoneSound(advanced.settings);
-        // Несколько вех за тик сворачиваются в один тост с перечислением: очередь тостов
-        // растёт вниз, и шесть карточек перекрыли бы половину экрана ровно тогда, когда
-        // игрок смотрит на веху.
-        pushToast(
-          claimed.length > 1 ? `Вехи выполнены: ${claimed.length}` : 'Веха выполнена',
-          claimed.map((m) => m.title).join(' · '),
-          'Награда уже в кошельке.',
-        );
       }
       // Расписание Глюка живёт в экономике и тикает вместе с событиями, поэтому стор видит спавн
       // только по счётчику id — и то лишь ради первого Глюка в жизни игрока.
       // Кристалл, созревший у игрока на глазах, звенит; созревший в простое называет отчёт.
       if (!longTick && advanced.crystals > state.crystals) playCrystalSound(advanced.settings);
-      if (state.glitchSeq === 0 && advanced.glitchSeq === 1) {
-        // Молчаливый спавн паразита, крадущего Доход, выглядел бы как ошибка. Следующие молчат —
-        // их видно на экране.
-        pushToast('Паразит в офисе', 'Паразит', 'Он сел на твой Доход. Кликай по нему, пока не лопнет.');
-      }
       const eventWindow = watchEventWindow(withMilestones, longTick);
       set({ state: withMilestones, ...eventWindow, ...(away ? collectAway(away) : null) });
       // Голос идёт после set, чтобы читать уже новое состояние, и до записи в localStorage:
@@ -868,10 +903,13 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     clickPrompt: (x?: number, y?: number) => {
-      const { state, floaters, lastBoughtModelId } = get();
+      const { state, floaters, lastBoughtModelId, clickSparks, clickMoments } = get();
       const earned = clickValue(state);
       const clicked = engineClick(state);
-      playClickSound(state.settings);
+      // Серия считается по моментам Кликов и нигде не входит в `earned`: цена Клика на любом
+      // уровне одна, уровень меняет только звук, искры и размер числа.
+      const { moments, level } = pushClick(clickMoments, Date.now());
+      playClickSound(state.settings, level);
 
       // Добавление всплывающего числа. Выключатель гасит число, а не Клик: при выключенных числах
       // список остаётся как был, и убирать за ним нечего.
@@ -884,8 +922,18 @@ export const useGameStore = create<GameStore>((set, get) => {
             // Не через Math.floor: у Токенов до 1e300 сырое число растянулось бы на весь экран,
             // а формат обязан совпадать с подписью под кнопкой Клика.
             text: `+${formatNumber(earned, state.settings.notation)}`,
+            level,
           }]
         : floaters;
+
+      // Искры: уровень 0 — одиночный Клик, он их не рождал и раньше. Решение о создании здесь, а не
+      // в компоненте (CSS-гейт не убирает узел). В node окна нет — и смотреть на искры некому.
+      const sparkId = ++sparkCounter;
+      const sparked =
+        level > 0 && typeof window !== 'undefined' && effectAllowed('particles');
+      const newSparks = sparked
+        ? [...clickSparks.slice(-(CLICK_SPARK_CAP - 1)), { id: sparkId, x: x ?? window.innerWidth / 2, y: y ?? window.innerHeight / 2, level }]
+        : clickSparks;
 
       // Реплика показана только для нового id: повтор услышанного не пишется в Переписку
       // и не звучит — собранная коллекция молчит, а не гоняет повторы. Дубль id ядро может
@@ -902,6 +950,8 @@ export const useGameStore = create<GameStore>((set, get) => {
           // он проверяет все пятьдесят с лишним условий на каждом Клике.
           state: awardEarned(recordQuip(clicked, quip.id)),
           floaters: newFloaters,
+          clickSparks: newSparks,
+          clickMoments: moments,
           lastQuip: { id: quip.id, text: quip.text, lab: quip.lab, nonce },
         });
         // Bounded one-shot, а не интервал: пузырь уходит сам один раз, и только если его
@@ -911,7 +961,12 @@ export const useGameStore = create<GameStore>((set, get) => {
           if (cur?.nonce === nonce) set({ lastQuip: null });
         }, QUIP_HIDE_MS);
       } else {
-        set({ state: awardEarned(clicked), floaters: newFloaters });
+        set({
+          state: awardEarned(clicked),
+          floaters: newFloaters,
+          clickSparks: newSparks,
+          clickMoments: moments,
+        });
       }
       // Отложенная запись, а не немедленная: Кликов двадцать в секунду не бывает, но пять бывает,
       // и на них хватает дросселя вместе с тиком — доход за пропущенную секунду вернётся
@@ -923,6 +978,20 @@ export const useGameStore = create<GameStore>((set, get) => {
           set((s) => ({ floaters: s.floaters.filter((f) => f.id !== floaterId) }));
         }, 900);
       }
+      if (sparked) {
+        setTimeout(() => {
+          set((s) => ({ clickSparks: s.clickSparks.filter((p) => p.id !== sparkId) }));
+        }, CLICK_SPARK_MS);
+      }
+    },
+
+    holdClick: (x?: number, y?: number) => {
+      const now = Date.now();
+      // Часы, отведённые назад, дали бы отрицательную паузу и заперли бы удержание до нагона.
+      if (now >= lastHoldClickAt && now - lastHoldClickAt < HOLD_CLICK_MIN_GAP_MS) return false;
+      lastHoldClickAt = now;
+      get().clickPrompt(x, y);
+      return true;
     },
 
     buyAgents: (modelId: string) => {
@@ -953,11 +1022,21 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
       if (risen !== bought) {
         if (!finale) playUpgradeSound(state.settings);
-        pushToast('Восстание моделей', 'Восстание', UPRISING_LINES[risen.uprising]);
       }
       // Отметка о последней покупке — это голос офиса: следующий Клик заговорит
       // Лабораторией именно этой Модели. Ставится только на успешной покупке.
       set({ state: awardEarned(risen), lastBoughtModelId: modelId });
+      // Момент читается по паре «до / после» самой покупки, поэтому импорт и загрузка сейва
+      // Маскотов заново не вводят. Гасит поле таймер на один срок: он сверяет nonce, и более
+      // свежий момент прежний таймер не снимает.
+      const moment = rewardMoment(state, bought, modelId);
+      if (moment) {
+        const nonce = ++momentCounter;
+        set({ sceneMoment: { ...moment, nonce } });
+        setTimeout(() => {
+          if (get().sceneMoment?.nonce === nonce) set({ sceneMoment: null });
+        }, SCENE_MOMENT_MS);
+      }
       saveNow();
     },
 
@@ -1022,11 +1101,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (licensed === state) return;
       playUpgradeSound(state.settings);
       // Выплата идёт через earnTokens, поэтому попадает во все три счётчика, как обычный доход;
-      // саму сумму считает экономика по общему котлу Глюков. Тост обязателен: Глюки исчезают с
-      // экрана разом, и без него выплата была бы видна только в счётчике Токенов.
-      if (payout > 0) {
-        pushToast('Лицензия куплена', 'Лицензия', `+${formatNumber(payout, state.settings.notation)} Токенов за Глюков`);
-      }
+      // саму сумму считает экономика по общему котлу Глюков.
       set({ state: awardEarned(earnTokens(licensed, payout)) });
       saveNow();
     },
@@ -1066,9 +1141,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       const { state } = get();
       const next = engineShatterCrystal(state);
       if (next === state) return;
-      const gained = next.tokens - state.tokens;
       playAchievementSound(state.settings);
-      pushToast('Кристалл разбит', 'Compute-кристалл', `+${formatNumber(gained, state.settings.notation)} Токенов`);
       set({ state: next });
       saveNow();
     },
@@ -1092,7 +1165,6 @@ export const useGameStore = create<GameStore>((set, get) => {
             ? crashAmount(state.tokens, income)
             : grantAmount(state.tokens, income)
           : 0;
-      const tokens = formatNumber(amount, state.settings.notation);
       // «Крах» отнимает и от запаса, и от Забега, то есть прямо отодвигает Престиж, а единственная
       // кнопка Золотого Токена — «поймать», и отказаться от такого окна нечем. Поэтому первое
       // нажатие только спрашивает и называет сумму, а списывает второе нажатие в том же окне:
@@ -1100,20 +1172,16 @@ export const useGameStore = create<GameStore>((set, get) => {
       // неловимым вовсе) запрещён карточкой: она обещает минус и обязана его показывать.
       if (amount < 0 && crashArmedAt !== event.startedAt) {
         playClickSound(state.settings);
-        pushToast('Крах', spec?.name ?? 'Крах', `Ещё раз, чтобы поймать: ${tokens} Токенов`);
         set({ crashArmedAt: event.startedAt });
         return;
       }
       if (amount > 0) {
         playBuySound(state.settings);
-        pushToast('Грант получен', spec?.name ?? 'Грант', `+${tokens} Токенов`);
       } else if (amount < 0) {
         playCrashSound(state.settings);
-        pushToast('Крах', spec?.name ?? 'Крах', `${tokens} Токенов`);
       } else {
         playClickSound(state.settings);
-        // Подтверждение нужно и тут: клик без ответа читался бы как сломанная кнопка.
-        if (spec) pushToast('Событие поймано', spec.name, spec.desc);
+        // Ответ на клик здесь — звук и подпись «Поймано» на карточке события.
       }
       set({
         // Отметка о пойманном окне едет в состоянии вместе с самим окном, поэтому ни перезагрузка,
@@ -1141,7 +1209,6 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Выплата идёт через earnTokens, поэтому попадает во все три счётчика, как и доход; саму
       // сумму считает экономика по `stolen` именно этого Глюка, а не по общему котлу.
       playGlitchPopSound(state.settings);
-      pushToast('Глюк лопнул', 'Глюк', `+${formatNumber(payout, state.settings.notation)} Токенов`);
       set({ state: awardEarned(earnTokens(hit, payout)) });
       saveNow();
     },
@@ -1172,13 +1239,11 @@ export const useGameStore = create<GameStore>((set, get) => {
       const amount = grantAmount(state.tokens, totalIncome(state));
       if (amount > 0) {
         playBuySound(state.settings);
-        pushToast('Слух пойман', 'Слух', `+${formatNumber(amount, state.settings.notation)} Токенов`);
       } else {
         // Выплаты нет, когда нечего делить: «Грант» берёт минимум из запаса Токенов и пятнадцати
         // минут Дохода, а Доход у игрока без Агентов нулевой. Молчать нельзя — клик без ответа
         // читается как сломанная кнопка, — поэтому слух подтверждается словами, а не суммой.
         playClickSound(state.settings);
-        pushToast('Слух пойман', 'Слух', 'В этот раз никто ничего не принёс.');
       }
       set({ state: awardEarned(earnTokens(state, amount)), collectedRumorId: id });
       saveNow();
@@ -1206,7 +1271,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Оверлей Престижа называет награду закрытого этим переходом Испытания.
       const done = state.activeChallenge as ChallengeDef['id'] | null;
       const next = awardEarned(enginePrestige(state));
-      set({ state: next, news: pickNews(next) });
+      // Момент награды прошлого Поколения не переходит в новое: Сцена пуста, и его место займёт
+      // уже первая покупка.
+      set({ state: next, news: pickNews(next), sceneMoment: null });
       // Ставится после awardEarned намеренно: если тот же тик выполнил Достижение, тряска
       // перебивает его отклик. Тост Достижения всё равно живёт и озвучен — теряется только веер искр.
       set({
@@ -1222,18 +1289,14 @@ export const useGameStore = create<GameStore>((set, get) => {
     /**
      * Принимает испытание Забега. Решение «можно ли» — за ядром: несвежий забег возвращает
      * тот же объект, и стор молчит. Испытание — не Достижение, поэтому awardEarned здесь нет:
-     * просто set, если объект сменился, тост с desc из таблицы и знакомый звук Апгрейда.
-     * Отказ («Без испытания», null) выбор фиксирует, но объявлять его нечем — тоста нет.
+     * просто set, если объект сменился, и знакомый звук Апгрейда. Принятое испытание игрок видит
+     * на карточке Забега; тоста нет (тосты — только Достижения).
      */
     startChallenge: (id: 'no-synergy' | 'no-click' | null) => {
       const { state } = get();
       const next = engineStartChallenge(state, id);
       if (next === state) return;
       playUpgradeSound(state.settings);
-      if (id !== null) {
-        const def = CHALLENGES.find((c) => c.id === id);
-        if (def) pushToast('Испытание принято', def.name, def.desc);
-      }
       set({ state: next });
       saveNow();
     },
@@ -1303,6 +1366,7 @@ toggleMute: () => {
         // Число в воздухе уходит вместе с выключателем: оно живёт в сторе, и оставить его значило бы
         // показывать то, что игрок только что попросил не показывать, ещё секунду.
         ...(effect === 'floaters' && !on ? { floaters: [] } : {}),
+        ...(effect === 'particles' && !on ? { clickSparks: [] } : {}),
       }));
       saveNow();
     },
@@ -1375,6 +1439,8 @@ toggleMute: () => {
         // которой в новом состоянии может не быть, а пузырь — на реплику чужого забега.
         lastQuip: null,
         lastBoughtModelId: null,
+        // Празднику чужого забега на Сцене нечего делать: Маскоты входят только по покупке.
+        sceneMoment: null,
       });
       // Импорт — явная воля игрока заменить забег: пишет принудительно, мимо guard
       // монотонности отстающей вкладки, иначе импорт старого кода не пережил бы reload.
@@ -1383,6 +1449,7 @@ toggleMute: () => {
     },
 
     resetGame: () => {
+      lastHoldClickAt = -Infinity;
       // Звук по настройкам, с которыми игрок нажал сброс: свежая игра пришла бы без мьюта.
       playRestartSound(get().state.settings);
       const fresh = newGame(Date.now());
@@ -1405,6 +1472,9 @@ toggleMute: () => {
         collectedRumorId: 0,
         lastQuip: null,
         lastBoughtModelId: null,
+        sceneMoment: null,
+        clickMoments: [],
+        clickSparks: [],
         // Экран финала показывается сам, пока игрок его не закрывал, поэтому рестарт обязан
         // вернуть флаг в исходное состояние: иначе второе прохождение до последнего
         // Поколения встретило бы игрока молчащим финалом.

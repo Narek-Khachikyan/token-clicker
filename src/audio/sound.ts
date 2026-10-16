@@ -342,22 +342,36 @@ function playNoise(n: Noise): void {
   src.stop(n.start + n.dur);
 }
 
-/** Клик: короткий взлёт 320→740 Гц. Громкость — по антитрещотке, паузе до предыдущего клика. */
-export function playClickSound(settings: SoundSettings): void {
+/**
+ * Подъём высоты Клика по уровню Серии, в полутонах: мажорная пентатоника от основной ноты.
+ * Не равномерные ступени, а ноты лада, поэтому быстрая Серия звучит как мелодия вверх, а не как
+ * сирена. Индекс — уровень Серии; значение за краем таблицы берётся с её края.
+ */
+const CLICK_SEMITONES = [0, 2, 4, 7, 9];
+
+/** Во сколько раз Клик уровня `level` выше Клика вне Серии. */
+export function clickPitchRatio(level: number): number {
+  const i = Math.min(CLICK_SEMITONES.length - 1, Math.max(0, Math.floor(Number.isFinite(level) ? level : 0)));
+  return 2 ** (CLICK_SEMITONES[i] / 12);
+}
+
+/** Клик: короткий взлёт 320→740 Гц, выше с уровнем Серии. Громкость — по антитрещотке, паузе до предыдущего клика. */
+export function playClickSound(settings: SoundSettings, level = 0): void {
   const bus = effectBus(settings);
   if (!bus) return;
   const now = Date.now();
-  const level = clickVolumeForStreak(now - lastClickAt);
+  const vol = clickVolumeForStreak(now - lastClickAt);
   lastClickAt = now;
+  const pitch = clickPitchRatio(level);
 
   playVoice({
     ctx: bus.ctx,
     out: bus.sfx,
     wave: 'square',
-    freq: [[0, 320], [0.05, 740]],
+    freq: [[0, 320 * pitch], [0.05, 740 * pitch]],
     start: bus.ctx.currentTime,
     dur: 0.05,
-    level,
+    level: vol,
   });
 }
 
