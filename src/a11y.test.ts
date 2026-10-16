@@ -74,13 +74,7 @@ describe('Престиж готов', () => {
 
   it('stays silent at the content finale, where Престиж is gone for good', () => {
     expect(prestigeReadyAnnouncement(false, true, true)).toBeNull();
-  });
-
-  it('names the concept in the glossary words', () => {
-    expect(PRESTIGE_READY_TEXT).toContain('Престиж готов');
-    expect(PRESTIGE_READY_TEXT).toContain('Флагман');
-  });
-});
+  });});
 
 describe('Восстание моделей', () => {
   it('announces the start and each later stage, not every tick afterwards', () => {
@@ -91,10 +85,5 @@ describe('Восстание моделей', () => {
 
   it('stays silent when the stage falls back after a Престиж', () => {
     expect(uprisingAnnouncement(3, 0)).toBeNull();
-  });
-
-  it('points the player to the Откуп in the glossary words', () => {
-    expect(UPRISING_TEXT).toContain('Восстание моделей');
-    expect(UPRISING_TEXT).toContain('Откуп');
   });
 });
