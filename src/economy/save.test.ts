@@ -106,6 +106,12 @@ describe('save effect switches and channel volumes', () => {
     });
   });
 
+  it('reads a missing reduced motion in a current save as off', () => {
+    // Чужой или урезанный файл текущей версии идёт мимо миграций: дефолт обязан держать и разбор.
+    const { reducedMotion: _dropped, ...rest } = newGame(T0).settings;
+    expect(migrate({ ...newGame(T0), settings: rest }, T0).settings.reducedMotion).toBe(false);
+  });
+
   it('starts a new game with every effect on and both channels full', () => {
     expect(newGame(T0).settings).toEqual({
       notation: 'short',
