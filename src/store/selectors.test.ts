@@ -150,10 +150,13 @@ describe('click column slices', () => {
   });
 
   it('leaves every click column slice alone while nothing happens in a late run', () => {
-    const states = idle(lateGame(), 200);
+    // Бонус Compute упирается в потолок (ADR-0010), и Доход позднего Забега перестал быть таким,
+    // чтобы полоса до найма стояла на месте от одних лишь тиков: за 10 с она заметно двигается.
+    // Поэтому мерим тик на полной полосе, а не на той, что честно ползёт.
+    const states = idle({ ...lateGame(), tokens: 1e40 }, 200);
     expect(changes(states, incomeView)).toBe(0);
     expect(changes(states, clickButtonView)).toBe(0);
-    expect(changes(states, purchaseProgressView)).toBeLessThanOrEqual(1);
+    expect(changes(states, purchaseProgressView)).toBe(0);
   });
 
   it('does not repaint the progress bar for a sub-pixel move', () => {

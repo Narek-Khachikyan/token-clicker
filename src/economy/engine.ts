@@ -95,6 +95,21 @@ function hasUpgrade(state: GameState, id: string): boolean {
 export const PRICE_GROWTH = 1.15;
 export const SELL_REFUND = 0.25;
 export const COMPUTE_BONUS = 0.01;
+/**
+ * Мягкий потолок бонуса Compute (ADR-0010): до колена бонус идёт по прямой, +1% за единицу,
+ * а выше ложится на кривую, которая подходит к `COMPUTE_BONUS_MAX` и не достигает его.
+ *
+ * Колено в бонусе, а не в Compute: 1,0 = +100% = 100 свободного Compute. Копилка до колена
+ * считается ровно как раньше, потолок трогает только тех, кто много накопил.
+ *
+ * Замер `tools/sim.ts --campaign` (жадная политика, 5 Кликов/с): старое правило проходит кампанию
+ * за 46 минут, свободный Compute без потолка за 84, колено 1 и потолок 4 — за 89, потолок 2 — за 97,
+ * потолок 1,0001 (плоский +100%) — за 116. Форма потолка двигает кампанию на минуты, а не на часы:
+ * темп до ~10 часов набирают другие слои плана, не эта кривая. Потолок 4 оставлен ради решения
+ * «копить или тратить»: до ~300 свободного Compute Перк заметно стоит Дохода, выше цена тает.
+ */
+export const COMPUTE_BONUS_KNEE = 1;
+export const COMPUTE_BONUS_MAX = 4;
 export const BASE_OFFLINE_HOURS = 8;
 
 /** Пауза длиннее этого порога считается оффлайном (вкладка в фоне или сон). */
@@ -175,6 +190,51 @@ export function progressToNextAgent(state: GameState, model: Model): number {
 
 // ---------- Доход ----------
 
+/** Свободный Compute: начислено минус потрачено на Перки. Только он даёт бонус к Доходу. */
+export function freeCompute(state: GameState): number {
+  return Math.max(0, state.compute - state.computeSpent);
+}
+
+/**
+ * Бонус к Доходу от `free` свободного Compute (0,5 = +50%): по прямой до колена, выше — мягкий
+ * потолок, не выше `COMPUTE_BONUS_MAX` (ADR-0010). Неубывающая функция, непрерывная на колене
+ * вместе с производной, поэтому игрок не чувствует перелома, только затухание.
+ */
+export function computeBonus(free: number): number {
+  const linear = free * COMPUTE_BONUS;
+  if (linear <= COMPUTE_BONUS_KNEE) return Math.max(0, linear);
+  const room = COMPUTE_BONUS_MAX - COMPUTE_BONUS_KNEE;
+  return COMPUTE_BONUS_KNEE + room * (1 - Math.exp(-(linear - COMPUTE_BONUS_KNEE) / room));
+}
+
+/**
+ * Сколько бонуса к Доходу отнимет Перк ценой `cost`: разность бонуса до покупки и после
+ * (0,03 = −3 п.п.). Покупка уменьшает свободный Compute ровно на цену, поэтому цифра для
+ * подписи считается теми же функциями, что и Доход, а не отдельной формулой в компоненте.
+ */
+export function perkBonusLoss(state: GameState, cost: number): number {
+  return bonusLossOf(freeCompute(state), cost);
+}
+
+/** То же по числу свободного Compute: карточкам Перков не нужно собирать для этого состояние. */
+export function bonusLossOf(free: number, cost: number): number {
+  return computeBonus(free) - computeBonus(Math.max(0, free - cost));
+}
+
+/**
+ * Насколько новое правило отняло у бонуса Compute по сравнению со старым (бонус от всего
+ * начисленного, без потолка): `before` и `after` — доли, 0,8 = +80%. `null`, если не отняло.
+ *
+ * По одному этому видно, кому после обновления объяснять падение Дохода: тому, у кого Compute
+ * потрачен или копилка выше потолка. Признак «объяснение показано» из состояния не вывести, он
+ * живёт в сторе отдельно, а вот «есть что объяснять» выводится и поля в сейве не просит.
+ */
+export function computeBonusDrop(state: GameState): { before: number; after: number } | null {
+  const before = state.compute * COMPUTE_BONUS;
+  const after = computeBonus(freeCompute(state));
+  return before > after ? { before, after } : null;
+}
+
 /**
  * Постоянный множитель Дохода: Compute, запас кристаллов, налог за «Лицензию» и награда за
  * закрытые Испытания Забега.
@@ -188,7 +248,7 @@ export function progressToNextAgent(state: GameState, model: Model): number {
  * то есть платит активному тику и не платит оффлайн-доходу.
  */
 export function globalMult(state: GameState): number {
-  return (1 + state.compute * COMPUTE_BONUS) * crystalIncomeMult(state) * covenantIncomeMult(state) * challengeIncomeMult(state);
+  return (1 + computeBonus(freeCompute(state))) * crystalIncomeMult(state) * covenantIncomeMult(state) * challengeIncomeMult(state);
 }
 
 /**
@@ -335,7 +395,7 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
  */
 export function globalFactors(state: GameState): IncomeFactor[] {
   return [
-    { kind: 'compute', mult: 1 + state.compute * COMPUTE_BONUS },
+    { kind: 'compute', mult: 1 + computeBonus(freeCompute(state)) },
     { kind: 'crystals', mult: crystalIncomeMult(state) },
     { kind: 'covenant', mult: covenantIncomeMult(state) },
     { kind: 'challenge', mult: challengeIncomeMult(state) },

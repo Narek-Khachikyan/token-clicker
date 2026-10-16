@@ -118,7 +118,8 @@ export const PrestigeForecastCard: React.FC<{ onBackToModels: () => void }> = ({
               +<Num>{view.gain}</Num>
             </div>
             <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-              Каждая единица навсегда даёт +<Num>{Math.round(COMPUTE_BONUS * 100)}</Num>% к Доходу.
+              Свободная единица даёт +<Num>{Math.round(COMPUTE_BONUS * 100)}</Num>% к Доходу, а потраченная
+              на Перк уже ничего не прибавляет.
             </div>
           </div>
 

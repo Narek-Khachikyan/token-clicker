@@ -9,7 +9,7 @@ import {
 } from './catalog';
 import {
   advance, advanceTime, applyOffline, assistClickBonus, BASE_OFFLINE_HOURS, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click,
-  clickValue, computeShortfall, datasetMult, datasetValue, discountMult, earnTokens, flagshipMult, generationBoostMult, incomeGain, isContentFinale,
+  clickValue, computeBonusDrop, computeShortfall, perkBonusLoss, datasetMult, datasetValue, discountMult, earnTokens, flagshipMult, generationBoostMult, incomeGain, isContentFinale,
   labIncomeShare, maxAffordable, modelIncome, offlineBreakdown, offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, prestigePreview,
   progressToNextAgent, sellAgents, START_PRICE_MULT, totalIncome,
 } from './engine';
@@ -394,6 +394,64 @@ describe('income and click', () => {
   it('compute adds +1% per unit', () => {
     const s = { ...buyAgents(rich(cold(newGame(T0))), first.id, 10), compute: 50 };
     expect(totalIncome(s)).toBeCloseTo(first.baseIncome * 10 * 1.5);
+  });
+  it('a perk takes from the income bonus exactly the compute it costs', () => {
+    const owned = { ...buyAgents(rich(cold(newGame(T0))), first.id, 10), compute: 50 };
+    const base = first.baseIncome * 10;
+    expect(totalIncome(owned)).toBeCloseTo(base * 1.5);
+    // click_x2 стоит 3 Compute: свободного остаётся 47, и Доход падает ровно на 3%.
+    const bought = buyPerk(owned, 'click_x2');
+    expect(bought.perks).toEqual(['click_x2']);
+    expect(totalIncome(bought)).toBeCloseTo(base * 1.47);
+    expect(totalIncome(bought)).toBeLessThan(totalIncome(owned));
+    // Свободный Compute тянет Доход вверх: тот же Перк на три Compute богаче платит теми же 3%.
+    expect(totalIncome({ ...bought, compute: 53 })).toBeCloseTo(base * 1.5);
+  });
+  it('a perk still costs income deep in the soft cap', () => {
+    const owned = { ...buyAgents(rich(cold(newGame(T0))), first.id, 10), compute: 1000 };
+    const bought = buyPerk(owned, 'click_x2');
+    expect(totalIncome(bought)).toBeLessThan(totalIncome(owned));
+  });
+  it('bonus follows free compute one to one below the knee of 100', () => {
+    const s = buyAgents(rich(cold(newGame(T0))), first.id, 10);
+    const base = first.baseIncome * 10;
+    for (const free of [1, 10, 99, 100]) {
+      expect(totalIncome({ ...s, compute: free + 7, computeSpent: 7 })).toBeCloseTo(base * (1 + free / 100));
+    }
+  });
+  it('bonus bends under a soft cap and never reaches +400%', () => {
+    const s = buyAgents(rich(cold(newGame(T0))), first.id, 10);
+    const base = first.baseIncome * 10;
+    // 300 свободного Compute: 100 по прямой и 200 по кривой потолка — литерал из формулы
+    // 1 + 3 · (1 − e^(−2/3)), а не пересчёт движком.
+    expect(totalIncome({ ...s, compute: 300 })).toBeCloseTo(base * 3.45975, 4);
+    let prev = 0;
+    for (const free of [0, 50, 100, 150, 300, 1e3, 1e4, 1e6, 1e12]) {
+      const income = totalIncome({ ...s, compute: free });
+      expect(income).toBeGreaterThanOrEqual(prev);
+      expect(income).toBeLessThanOrEqual(base * 5);
+      prev = income;
+    }
+    expect(totalIncome({ ...s, compute: 1e12 })).toBeCloseTo(base * 5, 6);
+  });
+  it('tells how much bonus a perk takes before it is bought, and the price matches the purchase', () => {
+    const owned = { ...buyAgents(rich(cold(newGame(T0))), first.id, 10), compute: 50 };
+    expect(perkBonusLoss(owned, 3)).toBeCloseTo(0.03);
+    // Цена выше свободного Compute съедает весь бонус, но не уводит его в минус.
+    expect(perkBonusLoss(owned, 500)).toBeCloseTo(0.5);
+    // Под потолком та же цена стоит копейки: 3 Compute при 1000 свободных — доли процента.
+    expect(perkBonusLoss({ ...owned, compute: 1000 }, 3)).toBeCloseTo(0.0015, 4);
+    // Обещанное совпадает с исполненным: Доход после покупки падает ровно на показанное.
+    const bought = buyPerk(owned, 'click_x2');
+    const promised = perkBonusLoss(owned, PERK_BY_ID['click_x2'].cost);
+    expect(totalIncome(owned) / totalIncome(bought)).toBeCloseTo(1.5 / (1.5 - promised));
+  });
+  it('knows whom the new rule cost income, and only them', () => {
+    expect(computeBonusDrop({ ...newGame(T0), compute: 0 })).toBeNull();
+    expect(computeBonusDrop({ ...newGame(T0), compute: 50, computeSpent: 0 })).toBeNull();
+    expect(computeBonusDrop({ ...newGame(T0), compute: 200, computeSpent: 120 })).toEqual({ before: 2, after: 0.8 });
+    // Копилка выше потолка теряет и без трат: старая формула не знала предела.
+    expect(computeBonusDrop({ ...newGame(T0), compute: 1000 })?.before).toBe(10);
   });
   it('shows click upgrades progressively', () => {
     const s = { ...cold(newGame(T0)), runTokens: 1e300 };
@@ -1586,7 +1644,8 @@ describe('prestige', () => {
     s = buyPerk(s, 'click_x2');
     expect(s.perks).toEqual(['click_x2']);
     expect(buyPerk(s, 'start_tokens')).toBe(s);
-    expect(clickValue(s)).toBeCloseTo(2 * 1.04);
+    // Перк стоит 3 из 4 Compute: свободным остаётся 1, и бонус к Клику равен +1%.
+    expect(clickValue(s)).toBeCloseTo(2 * 1.01);
   });
   // Разбор Перков кэшируется по ссылке на список, поэтому покупка обязана кэш сменить.
   // Без такой проверки стихший кэш выглядел бы как «Перк куплен, но не работает»: списание
@@ -1595,11 +1654,12 @@ describe('prestige', () => {
     let s = { ...newGame(T0), compute: 8 };
     const before = clickValue(s);
     s = buyPerk(s, 'click_x2');
-    expect(clickValue(s)).toBeCloseTo(before * 2);
+    // Бонус Compute после покупки ужимается с 8% до 5%: x2 от Перка умножается на 1,05/1,08.
+    expect(clickValue(s)).toBeCloseTo(before * 2 * (1.05 / 1.08));
     const after = clickValue(s);
-    // Перк, не влияющий на Клик, не должен ломать уже купленный, и отказ по дубликату —
-    // тоже: форма Дохода после них обязана совпасть до последней цифры.
-    expect(clickValue(buyPerk(s, 'start_tokens'))).toBe(after);
+    // Перк, не влияющий на Клик, не должен ломать уже купленный: x2 остаётся, уходит только бонус
+    // Compute (последние 5 Compute потрачены, бонус 1,0). Отказ по дубликату — тот же объект.
+    expect(clickValue(buyPerk(s, 'start_tokens'))).toBeCloseTo(2);
     expect(clickValue(buyPerk(s, 'click_x2'))).toBe(after);
   });
 
@@ -1995,7 +2055,9 @@ describe('news and achievements', () => {
     // плюс Апгрейд, Перк и 10 000 Кликов — остальные условия. Бюджет берётся с запасом:
     // пачка растёт как 1.15^n, и 250 Агентов флагмана последнего Поколения стоят дороже
     // прежнего 1e50.
-    s = rich(s, 1e300);
+    // totalTokens задан прямо: Клики при потолке бонуса Compute (ADR-0010) уже не набирают 1e27
+    // сами, а тест про полноту лестницы Достижений, а не про темп.
+    s = { ...rich(s, 1e300), totalTokens: 1e300 };
     for (const m of CATALOG[s.generation].models) s = buyAgents(s, m.id, m.isFlagship ? 250 : 1);
     s = buyUpgrade(s, clickUpgradeId(s.generation, 0));
     s = buyPerk(s, 'click_x2');

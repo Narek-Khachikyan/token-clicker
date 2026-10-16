@@ -25,7 +25,7 @@ import { migrate } from './save';
 import { newGame, SAVE_VERSION, type GameState } from './state';
 import { QUIPS } from '../data/quips';
 import { SHADOW_ACHIEVEMENTS } from './shadow';
-import { CLICK_UPGRADES, clickUpgradeId } from './upgrades';
+import { assistUpgradeId, CLICK_UPGRADES, clickUpgradeId } from './upgrades';
 
 const T0 = 1_000_000;
 const HOUR = 3_600_000;
@@ -120,7 +120,10 @@ const REACH: Record<string, () => GameState> = {
   shadow_100_hours: () => applyOffline(newGame(T0), T0 + 100 * HOUR).state,
   shadow_all_click_upgrades: () =>
     CLICK_UPGRADES.reduce((s, _, i) => buyUpgrade(s, clickUpgradeId(0, i)), rich(newGame(T0), 1e12)),
-  shadow_click_worth_1e24: () => lateGame(),
+  // Бонус Compute упирается в потолок (ADR-0010), поэтому одним Compute планку не взять:
+  // нужны оба Апгрейда-ассистента, у которых Клик растёт вместе с числом Агентов.
+  shadow_click_worth_1e24: () =>
+    ([1, 2] as const).reduce((s, i) => buyUpgrade(s, assistUpgradeId(LAST_GENERATION, i)), rich(lateGame(), 1e300)),
   shadow_one_model_1000: () => hireAll(prestigeToFrontier(), [last.models[0]], 1_000),
   shadow_flagship_500: () => hireAll(prestigeToFrontier(), [last.flagship], 500),
   shadow_swarm_10k: () => hireAll(prestigeToFrontier(), last.models, 2_000),

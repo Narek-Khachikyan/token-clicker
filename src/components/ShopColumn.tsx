@@ -15,9 +15,9 @@ import {
 } from '../store/selectors';
 import { useMotionAllowed } from './EventSprites';
 import { CATALOG, type Model } from '../economy/catalog';
-import type { GameState } from '../economy/state';
+import type { GameState, Notation } from '../economy/state';
 import { LABS, type LabId } from '../data/labs';
-import { canPrestige, isContentFinale } from '../economy/engine';
+import { bonusLossOf, canPrestige, computeBonus, isContentFinale } from '../economy/engine';
 import { openUi } from '../economy/reveal';
 import {
   labAgents,
@@ -1103,11 +1103,37 @@ const CrystalCard: React.FC = () => {
   );
 };
 
+/**
+ * Строка «Бонус к Доходу: −N%» на карточке Перка (ADR-0010).
+ *
+ * Цена Перка в бонусе: игрок видит, сколько Дохода уйдёт вместе с Compute, до нажатия кнопки.
+ * Под потолком та же цена стоит копейки, и тогда строка так и говорит, а не округляет до нуля.
+ */
+const PerkBonusLoss: React.FC<{ loss: number; notation: Notation }> = ({ loss, notation }) => {
+  const pct = loss * 100;
+  return (
+    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+      Бонус к Доходу:{' '}
+      {pct < 0.1 ? (
+        'почти не изменится'
+      ) : (
+        <>
+          <Num>−{formatNumber(pct, notation)}</Num>%
+        </>
+      )}
+    </div>
+  );
+};
+
 /** Магазин Перков: Compute и список купленных меняются покупкой и Престижем, а не тиком. */
 const PerkShop: React.FC = () => {
   const buyPerk = useGameStore((s) => s.buyPerk);
   const perks = useGameStore((s) => s.state.perks);
   const unspentCompute = useGameStore((s) => s.state.compute - s.state.computeSpent);
+  const notation = useGameStore((s) => s.state.settings.notation);
+  // Бонус к Доходу от свободного Compute и цена покупки в нём (ADR-0010): Перк отнимает ровно
+  // столько бонуса, сколько стоит, поэтому цифры берутся у движка, а не считаются здесь.
+  const computeBonusPct = computeBonus(unspentCompute) * 100;
   // Особые перки живут в том же PERKS, но с другой ценой и условием: список делится здесь, в
   // render, без нового состояния: обычные — со своей статичной ценой, особые — отдельной
   // подсекцией ниже.
@@ -1119,6 +1145,12 @@ const PerkShop: React.FC = () => {
         style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: 'var(--space-2)' }}
       >
         Постоянные перки (Свободно: <Num>{unspentCompute}</Num> Compute)
+      </div>
+      {/* Свободный Compute даёт бонус к Доходу, Перк его отнимает: игрок видит обе стороны
+          выбора «копить или тратить» до покупки, а не в упавшем Доходе после. */}
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginBottom: 'var(--space-2)' }}>
+        Свободный Compute даёт <Num>+{formatNumber(computeBonusPct, notation)}</Num>% к Доходу; покупка Перка
+        отнимает от бонуса его цену. Выше +100% бонус растёт всё медленнее.
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
@@ -1143,6 +1175,7 @@ const PerkShop: React.FC = () => {
               <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
                 {p.desc}
               </div>
+              {!owned && <PerkBonusLoss loss={bonusLossOf(unspentCompute, p.cost)} notation={notation} />}
 
               {/* Отказ — той же обёрткой, что у Моделей/Апгрейдов: кнопка остаётся
                   disabled, Клик ловится на погружении, вспышка — на самой кнопке
@@ -1196,6 +1229,7 @@ const LegacyPerks: React.FC = () => {
   const perks = useGameStore((s) => s.state.perks);
   const generation = useGameStore((s) => s.state.generation);
   const unspentCompute = useGameStore((s) => s.state.compute - s.state.computeSpent);
+  const notation = useGameStore((s) => s.state.settings.notation);
   const prestigeReady = useStateSlice(canPrestige);
   const genPerks = CATALOG.flatMap((g) => {
     const p = PERK_BY_ID[genPerkId(g.index)];
@@ -1254,6 +1288,13 @@ const LegacyPerks: React.FC = () => {
               <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
                 {p.desc}
               </div>
+
+              {!owned && !locked && (
+                <PerkBonusLoss
+                  loss={bonusLossOf(unspentCompute, nextGenPerkCost)}
+                  notation={notation}
+                />
+              )}
 
               {/* Подпись причины: будущее Поколение и missing флагман текущего —
                   разные тупики, и молча приглушённая карточка не объяснила бы, что
