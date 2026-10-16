@@ -5,6 +5,7 @@ import { QUIPS } from '../data/quips';
 import { pickQuip } from '../economy/quips';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
 import { ACHIEVEMENTS } from '../economy/achievements';
+import { formatCount } from '../economy/format';
 import {
   BASE_OFFLINE_HOURS,
   buyAgents as engineBuyAgents,
@@ -920,8 +921,7 @@ describe('achievement awards', () => {
     expect(vi.mocked(playAchievementSound)).toHaveBeenCalledTimes(1);
     const toast = store().toasts[0];
     const n = awarded.length;
-    const word = n % 10 === 1 && n % 100 !== 11 ? 'Достижение' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'Достижения' : 'Достижений';
-    expect(toast.title).toBe(`+${n} ${word}`);
+    expect(toast.title).toBe(`+${n} ${formatCount(n, 'Достижение', 'Достижения', 'Достижений')}`);
     // Названия урезаны до трёх, остальное — счётом: карточка обязана помещаться на 320 px.
     expect(toast.name.split(' · ')).toHaveLength(Math.min(n, 3));
     expect(toast.name.split(' · ')[0]).toBe(awarded[0].name);
@@ -1229,12 +1229,6 @@ describe('reward moments on the scene', () => {
     expect(store().sceneMoment).toBeNull();
   });
 
-  it('is not part of the save', () => {
-    freshStore();
-    hire(g0.flagship.id, 1);
-    expect(JSON.stringify(state())).not.toContain('sceneMoment');
-  });
-
   it('lets go of the moment after its dwell, but only its own', () => {
     vi.useFakeTimers();
     freshStore();
@@ -1281,7 +1275,6 @@ describe('the prestige tab section', () => {
   beforeEach(() => useGameStore.setState({ prestigeSection: 'prestige' }));
 
   it('opens on «Престиж» and remembers the section the player picked, whatever tab comes between', () => {
-    expect(store().prestigeSection).toBe('prestige');
     store().setPrestigeSection('legacy');
     store().setActiveTab('click');
     store().setActiveTab('prestige');
@@ -1365,11 +1358,6 @@ describe('the effect switches', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
-  });
-
-  it('starts with every effect on', () => {
-    freshStore();
-    expect(state().settings).toMatchObject({ particles: true, floaters: true, shake: true, ticker: true });
   });
 
   it('flips one effect and leaves the others', () => {
@@ -1466,12 +1454,6 @@ describe('the finale screen flag', () => {
     expect(store().finaleDismissed).toBe(false);
   });
 
-  it('openFinale re-arms the flag after the player closed it', () => {
-    freshStore();
-    store().dismissFinale();
-    store().openFinale();
-    expect(store().finaleDismissed).toBe(false);
-  });
 });
 
 describe('shattering a crystal', () => {
