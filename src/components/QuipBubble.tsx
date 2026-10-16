@@ -231,6 +231,7 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
 
   return (
     <div
+      className="modal-scrim"
       style={{
         position: "fixed",
         inset: 0,
@@ -241,7 +242,6 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
         // Тот же слой, что у окон в Modals.tsx: тосты лежат выше (100), оверлей Престижа
         // ниже (40), а Переписка с остальными окнами не пересекается.
         zIndex: 50,
-        padding: 'var(--space-4)',
         animation: "toast-fade 0.18s ease-out",
       }}
       onClick={onClose}
@@ -254,10 +254,10 @@ export const QuipLogModal: React.FC<QuipLogProps> = ({ isOpen, onClose }) => {
         className="pixel-card"
         style={{
           width: "100%",
-          // 520 и 85vh — те же значения, что у пяти окон в Modals.tsx: одинаковая ширина
+          // 520 и 85 % окна — те же значения, что у пяти окон в Modals.tsx: одинаковая ширина
           // и высота означают, что переход в Переписку не «прыгает» карточкой на экране.
           maxWidth: "520px",
-          maxHeight: "85vh",
+          maxHeight: "var(--modal-max-h)",
           display: "flex",
           flexDirection: "column",
           padding: 'var(--space-4)',

@@ -136,9 +136,10 @@ export const NewsTicker: React.FC = () => {
       onMouseLeave={() => setPaused(false)}
       onFocus={pause}
       onBlur={resumeIfOutside}
-      className={paused ? 'news-ticker--paused' : undefined}
+      className={paused ? 'news-ticker news-ticker--paused' : 'news-ticker'}
       style={{
-        display: 'flex',
+        // `display` — в классе `.news-ticker` (index.css): инлайн-значение перекрыло бы его скрытие
+        // в альбомной ориентации.
         alignItems: 'center',
         padding: 'var(--space-1) var(--space-3)',
         backgroundColor: 'var(--bg-void)',

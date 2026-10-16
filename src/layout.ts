@@ -49,18 +49,21 @@ export const OFFICE_COL_MIN = 360;
 export const THREE_COL_MIN = CLICK_COL_MIN + SHOP_COL_MIN + OFFICE_COL_MIN;
 
 /**
- * Ширина окна, ниже которой шапка сжимается до одного ряда: на 390 px она занимала две
- * строки, а подвал с атрибуцией Artificial Analysis обрезался.
+ * Ширина окна, до которой интерфейс идёт под палец: шапка сжата до одного ряда с кнопками в
+ * 44 px, а цели нажатия и подвал подогнаны под телефон.
  *
- * Это НЕ порог раскладки: одна колонка начинается ниже, на `THREE_COL_MIN`, но между 600 и
- * 1000 px шапка уже обязана ужиматься. Правило живёт здесь, потому что `index.css` не умеет
- * взять константу, а дублировать число в двух местах — значит рано или поздно получить два
- * разных ответа на один вопрос.
+ * Это НЕ порог раскладки: одна колонка начинается выше, на `THREE_COL_MIN`. 960, а не 600:
+ * телефон в альбомной ориентации шире 600 (iPhone SE 667, iPhone 14 844, Pro Max 932), и полная
+ * шапка — логотип, бейдж Поколения с периодом, Compute и четыре кнопки с подписями — на 844 px
+ * уже не помещалась: бейдж обрезался до «Поколени…», а ниже 900 она переносилась на второй ряд.
+ * Выше 960 шапка полная и в строку влезает. Так же под палец идут и планшеты в портрете.
  *
- * Дубль числа в CSS убран вместе с медиазапросом: App.tsx вешает на корень `data-narrow`,
- * и CSS спрашивает признак, а не ширину. Медиазапрос константу взять не умеет — признак умеет.
+ * Правило живёт здесь, потому что `index.css` не умеет взять константу, а дублировать число в
+ * двух местах — значит рано или поздно получить два разных ответа на один вопрос. App.tsx
+ * вешает на корень `data-narrow`, и CSS спрашивает признак, а не ширину: медиазапрос константу
+ * взять не умеет, признак умеет.
  */
-export const NARROW_MAX = 600;
+export const NARROW_MAX = 960;
 
 /* ── Счётчик Токенов ──────────────────────────────────────────────────────────────
    Счётчик набран Departure Mono на ступени 33 px (ADR-0009). Шрифт моноширинный: каждый
@@ -203,8 +206,32 @@ export const quipTailLeft = (centerX: number, left: number, width: number): numb
 
 export const TAP_MIN = 44;
 
-/** Высота шапки, px: 44 px тапа плюс ряд кнопок, поэтому выше тапа. */
-export const HEADER_H = 48;
+/**
+ * Высота узкой шапки без выреза, px: кнопка в 44 px, 2 px воздуха над ней, жёсткая тень кнопки
+ * (`--drop`, 4 px) под ней и нижняя рамка в 2 px. Выше тапа ровно на то, что вокруг него.
+ */
+export const HEADER_H = 52;
+
+/** Поле шапки слева и справа на узком экране, px: ступень `--space-2` шкалы отступов. */
+export const HEADER_PAD_X = 8;
+/** Зазор между кнопками шапки на узком экране, px: ступень `--space-1`. */
+export const HEADER_GAP = 4;
+/** Сколько кнопок в правой группе шапки: звук, Достижения, Инфо, Настройки. */
+export const HEADER_BUTTONS = 4;
+/**
+ * Что нужно левой группе шапки на узком экране, px: знак «TC» (около 28) и бейдж «Пок. N»
+ * (около 64) с зазором. Меньше этого логотип с бейджем в строку не встанут, и шапка на 320 px
+ * уйдёт во второй ряд.
+ */
+export const HEADER_LEFT_MIN = 96;
+/**
+ * Сколько места остаётся левой группе узкой шапки в окне шириной `vw`, px: все кнопки по 44 px
+ * (палец, а не курсор), зазоры между ними и перед группой, поля по краям. Ширина кнопок не
+ * зависит от слов на них: подписи на узком экране уходят в `aria-label`, а счётчик Достижений
+ * стоит под значком, а не рядом с ним.
+ */
+export const headerLeftRoom = (vw: number): number =>
+  vw - HEADER_PAD_X * 2 - HEADER_BUTTONS * TAP_MIN - HEADER_BUTTONS * HEADER_GAP;
 
 /**
  * Высота панели вкладок в одноколоночном режиме, px. Замерено в браузере на 320, 360 и
@@ -246,6 +273,35 @@ export const STATUS_STRIP_H = STATUS_PAD_Y + STATUS_ROW_H * 2 + STATUS_GAP + STA
 export const STATUS_THERMAL_W = 96;
 /** Зазор между счётчиком и ячейкой Температуры, px: `--space-2`. */
 export const STATUS_COL_GAP = 8;
+
+/* ── Альбомная ориентация ──────────────────────────────────────────────────────────
+   Телефон на боку (844 × 390, 667 × 375, 568 × 320) — та же одноколоночная раскладка, и кнопки
+   в ней стоят на тех же местах относительно друг друга: Токены сверху, вкладки снизу, Клик
+   последним над ними. Меняется только высота: рабочей области остаётся 390 минус шапка, лента
+   новостей, панель вкладок и подвал, и закреплённая полоса из двух строк съедала бы ещё
+   четверть оставшегося. Поэтому полоса в альбомной ориентации — одна строка: ширина у неё есть,
+   высоты нет. */
+
+/** Высота окна, до которой окно шире своей высоты считается телефоном на боку, px. */
+export const LANDSCAPE_MAX_H = 500;
+
+/**
+ * Телефон на боку: одноколоночная раскладка, окно шире своей высоты и ниже `LANDSCAPE_MAX_H`.
+ * «Шире высоты» нужно затем, что портретный телефон с адресной строкой тоже бывает ниже 500
+ * (iPhone SE: около 460), но в нём полосе нужны две строки — ширины на одну не хватает.
+ */
+export const isLandscapePhone = (width: number, height: number): boolean =>
+  width < THREE_COL_MIN && width > height && height <= LANDSCAPE_MAX_H;
+
+/** Высота полосы в альбомной ориентации, px: одна строка вместо двух. */
+export const STATUS_STRIP_LANDSCAPE_H = STATUS_PAD_Y + STATUS_ROW_H + STATUS_GAP + STATUS_GAUGE_H + STATUS_FRAME;
+
+/** Высота закреплённой полосы телефона, px. */
+export const statusStripH = (landscape: boolean): number =>
+  landscape ? STATUS_STRIP_LANDSCAPE_H : STATUS_STRIP_H;
+
+/** Знаков в самой длинной записи Дохода полосы: «+100,00 QaDc / сек» — мантисса, суффикс и «/ сек». */
+export const STATUS_INCOME_CHARS = 18;
 
 /** Измеренные края для стека тостов на телефоне. */
 export interface PinnedToastInput {
@@ -397,8 +453,23 @@ export interface HintPlacement {
   side: 'left' | 'right' | 'below' | 'above';
 }
 
+/** Небезопасные края окна (вырез, скруглённые углы, системные полосы), px. */
+export interface SafeInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/** Окно без вырезов: так читается и десктоп, и телефон без `viewport-fit=cover`. */
+export const NO_INSETS: SafeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+
 /**
  * Куда поставить подсказку размера `size` у цели `anchor` в окне `viewport`.
+ *
+ * `insets` — небезопасные края окна: подсказка стоит внутри безопасной области, а не под вырезом.
+ * Считается в безопасной области как в целом окне и сдвигается обратно, поэтому все остальные
+ * правила (поле от края, сторона, высота) остаются теми же.
  *
  * Сначала сбоку: на десктопе магазин стоит у правого края, и карточка ложится на Сцену слева,
  * не закрывая ни саму строку, ни кнопки рядом с ней. Если сбоку не хватает ширины (одна
@@ -409,8 +480,17 @@ export interface HintPlacement {
 export function placeHint(
   anchor: HintBox,
   size: { width: number; height: number },
-  viewport: { width: number; height: number },
+  viewport: { width: number; height: number; insets?: SafeInsets },
 ): HintPlacement {
+  const insets = viewport.insets ?? NO_INSETS;
+  if (insets.top || insets.right || insets.bottom || insets.left) {
+    const inner = placeHint(
+      { ...anchor, left: anchor.left - insets.left, top: anchor.top - insets.top },
+      size,
+      { width: viewport.width - insets.left - insets.right, height: viewport.height - insets.top - insets.bottom },
+    );
+    return { ...inner, left: inner.left + insets.left, top: inner.top + insets.top };
+  }
   const fitY = (top: number, height: number) =>
     clamp(top, HINT_MARGIN, Math.max(HINT_MARGIN, viewport.height - HINT_MARGIN - height));
   const fitX = (left: number) =>

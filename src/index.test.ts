@@ -130,6 +130,46 @@ describe('index.css', () => {
     });
   });
 
+  // Оболочка на телефоне: высота окна, вырез и полоса жестов. Ни то ни другое не видно ни TypeScript,
+  // ни тестам логики — телефон без выреза и с адресной строкой, которой нет у десктопа, ведёт себя
+  // так же, как и сломанный CSS, пока кто-нибудь не откроет игру на iPhone. Тест читает таблицу
+  // стилей и index.html: поведение браузера проверяется в браузере, а здесь — что обязательные
+  // объявления на месте и порядок у запасного значения верный.
+  describe('shell on a phone: visible height and the notch', () => {
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const html = readFileSync(new URL('../index.html', import.meta.url).pathname, 'utf8');
+    // Все правила с этим селектором подряд: у `.app-root` их несколько, по одному на заботу.
+    const rule = (selector: string): string =>
+      [...code.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].trim() === selector).map((m) => m[2]).join('\n');
+
+    it('sizes the app by the visible window (dvh) with vh only as the fallback before it', () => {
+      const body = rule('.app-root');
+      const heights = [...body.matchAll(/(?<![\w-])height\s*:\s*([^;]+)/g)].map((m) => m[1].trim());
+      expect(heights, 'высота корня: сначала запасная vh, потом dvh').toEqual(['100vh', '100dvh']);
+      // body — тот же вопрос: min-height в `vh` оставлял бы страницу выше видимой области.
+      expect(rule('body')).toMatch(/min-height:\s*100vh;\s*min-height:\s*100dvh/);
+    });
+
+    it('lets the page reach under the notch and keeps the bars out of it', () => {
+      expect(html).toMatch(/<meta name="viewport"[^>]*viewport-fit=cover/);
+      const root = rule('.app-root');
+      for (const side of ['top', 'right', 'bottom', 'left']) {
+        expect(root, `--safe-${side} не берёт env(safe-area-inset-${side})`).toMatch(
+          new RegExp(`--safe-${side}\\s*:\\s*env\\(safe-area-inset-${side}`),
+        );
+      }
+      // Корень держит бока, шапка — верх, подвал — низ: иначе одна из полос осталась бы под вырезом.
+      expect(root).toMatch(/padding-left:\s*var\(--safe-left\)/);
+      expect(root).toMatch(/padding-right:\s*var\(--safe-right\)/);
+      expect(rule('.header-bar')).toMatch(/padding-top:\s*calc\([^;]*var\(--safe-top\)/);
+      expect(rule('.footer-bar')).toMatch(/padding-bottom:\s*calc\([^;]*var\(--safe-bottom\)/);
+    });
+
+    it('keeps the header one row: no wrapping at any width', () => {
+      expect(rule('.header-bar')).toMatch(/flex-wrap:\s*nowrap/);
+    });
+  });
+
   // Пиксельный интерфейс (ADR-0008): скруглений и размытых теней у кнопок, вкладок, карточек и
   // панелей нет. Тест читает таблицу стилей без комментариев, чтобы пояснение «скруглений нет» в
   // комментарии не считалось нарушением.
