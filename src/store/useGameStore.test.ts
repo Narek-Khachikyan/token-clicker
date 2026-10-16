@@ -928,6 +928,16 @@ describe('achievement awards', () => {
     expect(toast.desc).toBe(n > 3 ? `и ещё ${n - 3}` : '');
   });
 
+  it('prints a batch of two or three achievements with the «Достижения» form', () => {
+    freshStore();
+    useGameStore.setState({ state: { ...state(), clicks: 100 }, toasts: [] });
+    tick();
+    expect(store().toasts.map((t) => t.title)).toEqual(['+2 Достижения']);
+    useGameStore.setState({ state: { ...state(), achievements: [], clicks: 1000 }, toasts: [] });
+    tick();
+    expect(store().toasts.map((t) => t.title)).toEqual(['+3 Достижения']);
+  });
+
   it('keeps one achievement as its own card and joins a long tick batch into at most one toast', () => {
     reachedGeneration(2);
     hire(first.id, 100);
