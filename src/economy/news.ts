@@ -1,6 +1,7 @@
 import { CATALOG } from './catalog';
 import type { LabId } from '../data/labs';
 import type { GameState } from './state';
+import { GENERATION_RULES } from '../data/generationRules';
 
 interface NewsItem {
   text: string;
@@ -42,6 +43,8 @@ const NEWS: NewsItem[] = [
   { text: 'Compute-кристалл зреет в реальном времени. Геологи в восторге, Агенты в ожидании.', when: (s) => s.crystals > 0 || s.crystalPlantedAt > 0 },
   { text: 'Переписка пухнет: говорящие Модели наговорили уже на целый архив.', when: (s) => s.quipsSeen.length >= 5 },
   { text: '«Лицензия» глушит красные События. Глюки в трауре.', when: (s) => s.covenant },
+  // Строка Правила Поколения живёт в ленте весь Забег своего Поколения: игрок, пропустивший её на входе, прочтёт позже.
+  ...GENERATION_RULES.map((r): NewsItem => ({ text: r.news, when: (s) => s.generation === r.generation })),
 ];
 
 export function pickNews(s: GameState, rnd = Math.random): string {

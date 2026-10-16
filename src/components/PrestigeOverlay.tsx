@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { effectAllowed, motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
+import { generationRule } from '../economy/rules';
 import { formatNumber } from '../economy/format';
 import { Num } from './Num';
 
@@ -78,6 +79,7 @@ export const PrestigeOverlay: React.FC = () => {
 
   if (!shown) return null;
   const gen = CATALOG[shown.generation];
+  const rule = generationRule(shown.generation);
 
   return (
     <div
@@ -130,6 +132,12 @@ export const PrestigeOverlay: React.FC = () => {
           </span>{' '}
           Compute навсегда
         </div>
+        {/* Правило нового Поколения называется уже здесь: игрок видит его до первой покупки. */}
+        {rule && (
+          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)', marginTop: 'var(--space-2)' }}>
+            Правило Поколения: <b>{rule.name}</b>
+          </div>
+        )}
         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>нажми, чтобы продолжить</div>
       </div>
     </div>
