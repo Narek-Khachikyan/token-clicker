@@ -1356,6 +1356,8 @@ body {
   position: absolute;
   opacity: 0;
   background-color: var(--gold);
+  /* Жёсткий контур в пиксель арта: на тёплом полу Сцены 1 золото и акцент иначе тонут. */
+  box-shadow: 0 0 0 var(--px) var(--bg-void);
 }
 
 .confetti__bit:nth-child(3n + 2) {

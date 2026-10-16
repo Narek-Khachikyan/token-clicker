@@ -142,11 +142,11 @@ const moteCount = (agents: number): number => {
 // один раз на модуль, а не на каждый рендер.
 const CONFETTI_COUNT = 28;
 const CONFETTI = Array.from({ length: CONFETTI_COUNT }, (_, i) => {
-  const spread = (((i * 0.618034) % 1) * 2 - 1) * 86;
+  const spread = (((i * 0.618034) % 1) * 2 - 1) * 110;
   return {
     dx: Math.round(spread),
-    dy: -(54 + ((i * 7) % 11) * 9),
-    size: 4 + (i % 2) * 2,
+    dy: -(70 + ((i * 7) % 11) * 10),
+    size: 6 + (i % 2) * 2,
     // Задержка до 0.3 с: конфетти выстреливает волной, а не одним кадром.
     delay: ((i * 3) % 10) * 0.03,
   };
