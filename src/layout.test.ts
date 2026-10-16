@@ -8,8 +8,15 @@ import {
   COUNTER_CHARS,
   counterWidth,
   HEADER_H,
+  MASCOT_CARD_EDGE,
+  MASCOT_CARD_W,
+  mascotCardBottom,
+  mascotCardLeft,
+  mascotCardWidth,
   NARROW_MAX,
   OFFICE_COL_MIN,
+  SCENE_COL_PAD,
+  SCENE_MIN_H,
   SHOP_COL_MAX,
   SHOP_COL_MIN,
   shopColWidth,
@@ -206,5 +213,68 @@ describe('layout', () => {
       const column = vw < THREE_COL_MIN ? vw : clickColWidth(vw);
       expect(counterWidth()).toBeLessThanOrEqual(column - CLICK_COL_PAD * 2);
     }
+  });
+
+  // Сцена главная на десктопе: карточка Маскота живёт внутри неё, и на самых узких Сценах
+  // (одна колонка на 320 px и Сцена в колонке на пороге) она обязана остаться на виду целиком.
+  describe('mascot card on the Scene', () => {
+    const narrowest = [320 - SCENE_COL_PAD * 2, THREE_COL_MIN - clickColWidth(THREE_COL_MIN) - shopColWidth(THREE_COL_MIN) - SCENE_COL_PAD * 2];
+
+    it('keeps the Scene taller than the card with its margins', () => {
+      expect(SCENE_MIN_H).toBeGreaterThan(MASCOT_CARD_EDGE * 2);
+      expect(SCENE_COL_PAD).toBeGreaterThan(0);
+    });
+
+    it('fits the card at full width inside the narrowest Scenes', () => {
+      for (const sceneW of narrowest) {
+        expect(mascotCardWidth(sceneW)).toBe(MASCOT_CARD_W);
+      }
+    });
+
+    it('shrinks the card, never the margins, on a Scene narrower than the card', () => {
+      expect(mascotCardWidth(MASCOT_CARD_W)).toBe(MASCOT_CARD_W - MASCOT_CARD_EDGE * 2);
+      expect(mascotCardWidth(100)).toBe(100 - MASCOT_CARD_EDGE * 2);
+      expect(mascotCardWidth(4)).toBe(0);
+    });
+
+    it('never lets the card leave the Scene, whichever Mascot is under the pointer', () => {
+      for (let sceneW = 120; sceneW <= 1200; sceneW += 13) {
+        const width = mascotCardWidth(sceneW);
+        for (let center = -40; center <= sceneW + 40; center += 11) {
+          const left = mascotCardLeft(center, sceneW);
+          expect(left).toBeGreaterThanOrEqual(MASCOT_CARD_EDGE);
+          if (sceneW >= width + MASCOT_CARD_EDGE * 2) {
+            expect(left + width).toBeLessThanOrEqual(sceneW - MASCOT_CARD_EDGE);
+          }
+        }
+      }
+    });
+
+    it('lifts the card over the booth when there is room above it', () => {
+      expect(mascotCardBottom(120, 90, 700)).toBe(120);
+    });
+
+    it('lays the card over the booth, never past the top of the Scene, when there is no room', () => {
+      for (let sceneH = 300; sceneH <= 900; sceneH += 25) {
+        for (let bottom = 0; bottom <= sceneH; bottom += 20) {
+          for (const cardH of [72, 94, 134]) {
+            const placed = mascotCardBottom(bottom, cardH, sceneH);
+            expect(placed + cardH).toBeLessThanOrEqual(sceneH - MASCOT_CARD_EDGE);
+            expect(placed).toBeGreaterThanOrEqual(MASCOT_CARD_EDGE);
+            // Выше места карточка не поднимается больше, чем просили.
+            expect(placed).toBeLessThanOrEqual(Math.max(bottom, MASCOT_CARD_EDGE));
+          }
+        }
+      }
+    });
+
+    it('centres the card over a Mascot in the middle of the Scene', () => {
+      expect(mascotCardLeft(400, 800)).toBe(400 - MASCOT_CARD_W / 2);
+    });
+
+    it('presses the card to the edge over the first and last Mascot', () => {
+      expect(mascotCardLeft(30, 500)).toBe(MASCOT_CARD_EDGE);
+      expect(mascotCardLeft(470, 500)).toBe(500 - MASCOT_CARD_EDGE - MASCOT_CARD_W);
+    });
   });
 });

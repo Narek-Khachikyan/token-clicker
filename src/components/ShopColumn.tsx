@@ -3,12 +3,12 @@ import { effectAllowed, useGameStore, useStateSlice, type BuyAmount } from '../s
 import {
   availableUpgradesOf,
   crystalGrowthView,
+  crystalShatterView,
   crystalStockView,
   crystalUpgradeView,
   GOAL_TICK_COUNT,
   modelView,
   pledgeView,
-  prestigeCardView,
   upgradeView,
 } from '../store/selectors';
 import { useMotionAllowed } from './EventSprites';
@@ -29,6 +29,7 @@ import { formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { Icon } from './Icon';
+import { ChallengeCard, PrestigeForecastCard, PrestigeSectionNav } from './PrestigeTab';
 import { playDenySound } from '../audio/sound';
 
 // 8 искр из точки покупки. Радиус 14–26 px — чуть больше самой кнопки, поэтому жест читается
@@ -736,93 +737,6 @@ const UpgradesTab: React.FC = () => {
   );
 };
 
-/** Карточка совершения Престижа. */
-const PrestigeCard: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels }) => {
-  const requestPrestige = useGameStore((s) => s.requestPrestige);
-  const { finale, ready, gain } = useStateSlice(prestigeCardView);
-
-  return (
-    <div
-      className="pixel-card"
-      style={{
-        padding: 'var(--space-3)',
-        border: 'var(--frame-w) solid var(--gold)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-2)',
-      }}
-    >
-      <div className="pixel-22" style={{ color: 'var(--gold)' }}>Престиж в следующее поколение</div>
-
-      <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-        Сбросит текущий забег (токены, агенты, апгрейды) и перенесёт тебя в следующее поколение.
-      </div>
-
-      {!finale && (
-        <div
-          style={{
-            backgroundColor: 'var(--tint-strong)',
-            padding: 'var(--space-2)',
-            fontSize: '0.85rem',
-          }}
-        >
-          <div>
-            Получишь Compute:{' '}
-            {/* Через formatNumber, иначе в поздней игре это число с пятнадцатью
-                значащими цифрами: `Num` ничего не форматирует. То же число показывает окно подтверждения,
-                и расходиться они не должны. */}
-            <Num>+{gain}</Num>
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 'var(--space-0)' }}>
-            (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
-          </div>
-        </div>
-      )}
-
-      {/* Кнопка не гаснет, даже когда Престиж невозможен: погашенная кнопка молчит о
-          причине, а окно подтверждения её объясняет и отказывает тем же переходом,
-          который проверяет стор. */}
-      <button
-        onClick={requestPrestige}
-        className="pixel-btn pixel-btn-gold"
-        style={{ width: '100%', marginTop: 'var(--space-1)' }}
-      >
-        {finale ? 'Финал контента' : ready ? 'Сделать Престиж!' : 'Нужен 1 Агент Флагмана'}
-      </button>
-
-      {/* Финал контента: кнопка Престижа выше ничего не выполнит, поэтому плашка без
-          действия — тупик. CTA ведёт на вкладку «Модели» тем же локальным setTab,
-          без новой навигации; текст не противоречит плашке Сцены в OfficeColumn. */}
-      {finale && (
-        <div
-          style={{
-            backgroundColor: 'var(--tint-strong)',
-            padding: 'var(--space-2)',
-            fontSize: '0.85rem',
-            color: 'var(--text-muted)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-2)',
-            animation: 'toast-fade 0.15s ease-out',
-          }}
-        >
-          <div>
-            Ты дошёл до последнего Поколения — продолжение выйдет с новыми моделями. А
-            пока закрой все Достижения и развей офис до максимума
-          </div>
-          <button
-            onClick={onBackToModels}
-            className="pixel-btn pixel-btn-accent"
-            style={{ width: '100%' }}
-          >
-            К Моделям
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
-
 /**
  * ОТКУПЫ. Блок виден всегда, а не только во время Восстания: скрытая покупка — дверь в одну
  * сторону, и игрок не узнал бы, что от красных событий вообще можно откупиться.
@@ -1054,6 +968,48 @@ const CrystalUpgradeCard: React.FC<{ upgrade: CrystalUpgrade }> = ({ upgrade: u 
 };
 
 /**
+ * Разбитие выросшего кристалла: обмен вечного +1% к Доходу на разовые Токены. Сумму называет
+ * `shatterPayout`, ту же, что платит действие, и цена названа до нажатия: кристалл уходит
+ * из запаса вместе со своим процентом, и молчаливый размен читался бы как пропажа.
+ */
+const CrystalShatter: React.FC = () => {
+  const shatterCrystal = useGameStore((s) => s.shatterCrystal);
+  const { canShatter, payoutText, payoutWord, lostText } = useStateSlice(crystalShatterView);
+
+  return (
+    <div
+      onClickCapture={handleDeny(canShatter)}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-1)',
+        ...(canShatter ? undefined : { cursor: 'not-allowed' }),
+      }}
+    >
+      <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+        Разбитый кристалл платит разово Токенами, но уносит с собой свой +<Num>{lostText}</Num>% к Доходу.
+      </div>
+      <button
+        onClick={shatterCrystal}
+        disabled={!canShatter}
+        className="pixel-btn pixel-btn-accent"
+        // Недоступная кнопка прозрачна для указателя: иначе браузер подавил бы Клик точно в неё
+        // и обёртка выше не услышала бы отказ.
+        style={{ width: '100%', pointerEvents: canShatter ? undefined : 'none' }}
+      >
+        {canShatter ? (
+          <>
+            Разбить кристалл (+<Num>{payoutText}</Num> {payoutWord})
+          </>
+        ) : (
+          'Нужен выросший кристалл'
+        )}
+      </button>
+    </div>
+  );
+};
+
+/**
  * КРИСТАЛЛЫ. Здесь показан весь размен ускорителя, а не только его польза: кристалл в запасе
  * даёт +1% к общему Доходу, поэтому покупка забирает часть этого бонуса навсегда. Без этой строки
  * игрок покупал бы ускоритель, думая, что он ничего не стоит.
@@ -1081,6 +1037,8 @@ const CrystalCard: React.FC = () => {
       </div>
 
       <CrystalGrowth />
+
+      <CrystalShatter />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         {CRYSTAL_UPGRADES.map((u) => (
@@ -1298,16 +1256,32 @@ const LegacyPerks: React.FC = () => {
   );
 };
 
-/** ВКЛАДКА ПРЕСТИЖА И ПЕРКОВ */
-const PerksTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-    <PrestigeCard onBackToModels={onBackToModels} />
-    <PledgeCard />
-    <CrystalCard />
-    <PerkShop />
-    <LegacyPerks />
-  </div>
-);
+/** ВКЛАДКА ПРЕСТИЖА И ПЕРКОВ: три подраздела, выбранный хранит стор. */
+const PerksTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels }) => {
+  const section = useGameStore((s) => s.prestigeSection);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <PrestigeSectionNav />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        {section === 'prestige' && (
+          <>
+            <PrestigeForecastCard onBackToModels={onBackToModels} />
+            <ChallengeCard />
+            <PledgeCard />
+          </>
+        )}
+        {section === 'perks' && <PerkShop />}
+        {section === 'legacy' && (
+          <>
+            <LegacyPerks />
+            <CrystalCard />
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
 
 /**
  * Колонка магазина: переключатель вкладок и множители. Подписана на то немногое, что решает

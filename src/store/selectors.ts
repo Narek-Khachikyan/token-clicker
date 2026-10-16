@@ -1,22 +1,21 @@
 import type { Model } from '../economy/catalog';
-import type { LabId } from '../data/labs';
+import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import {
   bulkCost,
-  canPrestige,
   clickValue,
   discountMult,
   incomeGain,
-  isContentFinale,
   labIncomeShare,
   maxAffordable,
   nextAgentCost,
-  prestigeGain,
   progressToNextAgent,
   sellRefund,
+  shatterPayout,
   shortfall,
   totalIncome,
 } from '../economy/engine';
-import { crystalCycleMs, crystalIncomeMult, type CrystalUpgrade } from '../economy/crystal';
+import { canStartChallenge, CHALLENGE_REWARD_PCT, type ChallengeDef } from '../economy/challenges';
+import { crystalCycleMs, crystalIncomeMult, CRYSTAL_PER_STOCK_BONUS, type CrystalUpgrade } from '../economy/crystal';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import {
   canLicense,
@@ -28,10 +27,18 @@ import {
   revokeCost,
 } from '../economy/glitches';
 import { THERMAL_HOT_HEAT, THERMAL_STATE_LABEL, thermalState, type ThermalStateId } from '../data/thermalCopy';
+import { prestigeForecast } from '../economy/prestigeForecast';
 import { milestoneHint, milestoneReward, nextMilestone, type Milestone } from '../economy/milestones';
 import type { GameState, Glitch } from '../economy/state';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
-import { availableUpgrades, type Upgrade } from '../economy/upgrades';
+import {
+  availableUpgrades,
+  labAgents,
+  labWork,
+  SYNERGY_PER_AGENT,
+  synergyUpgradeId,
+  type Upgrade,
+} from '../economy/upgrades';
 import type { BuyAmount } from './useGameStore';
 
 /**
@@ -404,13 +411,57 @@ export interface PrestigeCardView {
   ready: boolean;
   /** Сколько Compute заплатит Престиж сейчас, в нотации игрока. */
   gain: string;
+  /** Compute, при котором прибавка заметна (+50%, но не меньше единицы). */
+  boostGain: string;
+  /** Прибавка ровно +50%, а не «следующая единица»: при Compute меньше двух +50% не набираются. */
+  boostIsHalf: boolean;
+  /** Сколько Токенов Забега ещё нужно заработать до `boostGain`. */
+  boostShortfall: string;
+  boostShortfallWord: string;
 }
 
 export function prestigeCardView(s: GameState): PrestigeCardView {
+  const notation = s.settings.notation;
+  const f = prestigeForecast(s);
   return {
-    finale: isContentFinale(s),
-    ready: canPrestige(s),
-    gain: formatNumber(prestigeGain(s), s.settings.notation),
+    finale: f.finale,
+    ready: f.ready,
+    gain: formatNumber(f.gain, notation),
+    boostGain: formatNumber(f.boostGain, notation),
+    boostIsHalf: f.gain >= 2,
+    boostShortfall: formatNumber(f.boostShortfall, notation),
+    boostShortfallWord: formatCount(f.boostShortfall, 'Токен', 'Токена', 'Токенов', notation),
+  };
+}
+
+export interface ChallengeView {
+  /** Это Испытание выбрано на текущий Забег. */
+  active: boolean;
+  /** Оно уже закрыто Престижем и платит прибавку. */
+  done: boolean;
+}
+
+export function challengeView(s: GameState, def: ChallengeDef): ChallengeView {
+  return { active: s.activeChallenge === def.id, done: s.challengesDone.includes(def.id) };
+}
+
+export interface ChallengeCardView {
+  /** Забег свежий: Испытание ещё можно выбрать или сменить. */
+  canStart: boolean;
+  /** Ничего не выбрано: обычный Забег. */
+  none: boolean;
+  /** Прибавка к Доходу от закрытых Испытаний, в процентах. */
+  bonusText: string;
+  doneCount: number;
+}
+
+export function challengeCardView(s: GameState): ChallengeCardView {
+  const doneCount = new Set(s.challengesDone).size;
+  return {
+    canStart: canStartChallenge(s),
+    none: s.activeChallenge === null,
+    bonusText: formatNumber(doneCount * CHALLENGE_REWARD_PCT, s.settings.notation),
+    doneCount,
   };
 }
 
@@ -461,6 +512,27 @@ export function crystalStockView(s: GameState): CrystalStockView {
   return {
     stock: formatNumber(s.crystals, notation),
     bonus: formatNumber(Math.round((crystalIncomeMult(s) - 1) * 100), notation),
+  };
+}
+
+export interface CrystalShatterView {
+  /** В запасе есть целый кристалл: кнопка разбития доступна. */
+  canShatter: boolean;
+  /** Сколько Токенов даст разбитие сейчас. */
+  payoutText: string;
+  payoutWord: string;
+  /** Сколько процентов Дохода уйдёт вместе с кристаллом. */
+  lostText: string;
+}
+
+export function crystalShatterView(s: GameState): CrystalShatterView {
+  const notation = s.settings.notation;
+  const payout = shatterPayout(s);
+  return {
+    canShatter: Math.floor(s.crystals) >= 1,
+    payoutText: formatNumber(payout, notation),
+    payoutWord: formatCount(payout, 'Токен', 'Токена', 'Токенов', notation),
+    lostText: formatNumber(Math.round(CRYSTAL_PER_STOCK_BONUS * 100), notation),
   };
 }
 
@@ -581,4 +653,56 @@ const SHARE_MIN = 0.01;
 export function labShareView(s: GameState, lab: LabId): number {
   const share = labIncomeShare(s, lab, incomeOf(s));
   return share >= SHARE_MIN ? Math.round(share * 100) : -1;
+}
+
+/**
+ * Что карточка Маскота говорит о его Лаборатории: Агенты, работа, доля в Доходе и Синергия.
+ * Плоский срез из примитивов — тик карточку не перерисовывает.
+ *
+ * `synergy` — процент, который Синергия даёт всем Моделям Лаборатории, или -1, пока она не
+ * куплена или Испытание «Забег без Синергий» её гасит: карточка не обещает бонуса, которого
+ * движок не начислит.
+ */
+export interface LabCardView {
+  /** Агенты Лаборатории готовой записью («1,5 К»). */
+  agents: string;
+  /** Слово при числе Агентов: «Агент», «Агента», «Агентов». */
+  agentsWord: string;
+  /** Название работы Лаборатории по её высшему Апгрейду; пусто, пока Апгрейдов нет. */
+  work: string;
+  /** Доля в Доходе целым процентом; -1, когда её не показывают. */
+  share: number;
+  /** Бонус Синергии целым процентом; -1, когда её нет. */
+  synergy: number;
+  /** Бонус Синергии готовой записью. */
+  synergyText: string;
+}
+
+export function labCardView(s: GameState, lab: LabId, showShare: boolean): LabCardView {
+  const notation = s.settings.notation;
+  const count = labAgents(s, lab);
+  const synergyOn =
+    s.activeChallenge !== 'no-synergy' && s.upgrades.includes(synergyUpgradeId(s.generation, lab));
+  const synergy = synergyOn ? Math.round(count * SYNERGY_PER_AGENT * 100) : -1;
+  return {
+    agents: formatNumber(count, notation),
+    agentsWord: formatCount(count, 'Агент', 'Агента', 'Агентов', notation),
+    work: labWork(s, lab),
+    share: showShare ? labShareView(s, lab) : -1,
+    synergy,
+    synergyText: synergy >= 0 ? formatNumber(synergy, notation) : '',
+  };
+}
+
+/**
+ * Подписи мест Маскотов для чтеца с экрана, по одной на Лабораторию в порядке `LAB_IDS`:
+ * «Anthropic: 15 Агентов, Синергия +15%». Карточка над Маскотом для чтеца скрыта, потому что
+ * говорит то же самое, и числа в обеих записях идут из одного `labCardView`.
+ */
+export function labBoothLabels(s: GameState): string[] {
+  return LAB_IDS.map((lab) => {
+    const view = labCardView(s, lab, false);
+    const synergy = view.synergy >= 0 ? `, Синергия +${view.synergyText}%` : '';
+    return `${LABS[lab].name}: ${view.agents} ${view.agentsWord}${synergy}`;
+  });
 }
