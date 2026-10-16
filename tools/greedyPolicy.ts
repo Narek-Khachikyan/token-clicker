@@ -25,7 +25,7 @@ import {
   prestigeGain,
 } from '../src/economy/engine';
 import { availableUpgrades } from '../src/economy/upgrades';
-import { PERKS } from '../src/economy/perks';
+import { PERKS, perkLock } from '../src/economy/perks';
 import { migrate } from '../src/economy/save';
 
 export const T0 = 1_700_000_000_000;
@@ -71,12 +71,16 @@ export function seeded(seed: number): () => number {
   };
 }
 
-/** Покупает Перк, если хватает Compute сверх запаса. Дороже — раньше: дешёвые кончаются первыми. */
+/**
+ * Покупает Перк, если хватает Compute сверх запаса. Дороже — раньше: дешёвые кончаются первыми.
+ * Перки, которые дерево пока не пускает (предшественники, верхний чужой Ветви), пропускаются:
+ * политика не сбрасывает дерево и не выбирает Ветвь, она берёт самое дорогое из доступного.
+ */
 function buyAffordablePerk(s: GameState, reserve: number): GameState {
   const free = s.compute - s.computeSpent - reserve;
   const sorted = [...PERKS].sort((a, b) => b.cost - a.cost);
   for (const p of sorted) {
-    if (p.cost <= free && !s.perks.includes(p.id)) return buyPerk(s, p.id);
+    if (p.cost <= free && !s.perks.includes(p.id) && !perkLock(s.perks, p.id)) return buyPerk(s, p.id);
   }
   return s;
 }

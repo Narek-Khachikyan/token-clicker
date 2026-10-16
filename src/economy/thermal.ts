@@ -1,3 +1,4 @@
+import { perkEffects } from './perks';
 import type { GameState } from './state';
 
 /**
@@ -111,11 +112,47 @@ export const HALLUC_RATE = 1 / 30;
  * Ключевые числа Температуры в одном месте для симулятора и подписей.
  * Сделано функциями, а не объектом, чтобы вызывающая сторона решала, какие читать.
  */
-export const heatRate = (temp: number): number => HEAT_RATE * temp;
-export const halluRate = (temp: number): number => HALLUC_RATE * temp * temp;
+/**
+ * Поправки Температуры от Перков Оверклокера (ADR-0012): множители к скорости перегрева, длине
+ * оглушения и частоте Галлюцинаций и прибавка к силе жара. Единица (и ноль для прибавки) — Перков
+ * нет. Все три множителя держат тик внутри допущения стора: перегрев копится не быстрее
+ * `heatRate(TEMP_MAX)` без поправки (`heat` ≤ 1), поэтому поправка перегрева только замедляет.
+ */
+export interface ThermalMods {
+  heat: number;
+  stun: number;
+  hallu: number;
+  /** Прибавка к `TEMP_YIELD_MAX` в долях: 0,15 — жар поднимает Доход на 15% сильнее. */
+  yield: number;
+}
+
+export const NO_THERMAL_MODS: ThermalMods = { heat: 1, stun: 1, hallu: 1, yield: 0 };
+
+let modsCache: { perks: readonly string[]; mods: ThermalMods } | null = null;
+
+/**
+ * Поправки по купленным Перкам. Кэш по ссылке на список — по тем же причинам, что у `perkEffects`:
+ * список меняется только заменой целиком, а тик зовёт функцию несколько раз за каждые 50 мс.
+ */
+export function thermalMods(perks: string[]): ThermalMods {
+  if (modsCache?.perks === perks) return modsCache.mods;
+  let mods = NO_THERMAL_MODS;
+  for (const e of perkEffects(perks)) {
+    if (e.kind === 'heatSlow') mods = { ...mods, heat: mods.heat * e.mult };
+    else if (e.kind === 'stunShort') mods = { ...mods, stun: mods.stun * e.mult };
+    else if (e.kind === 'yieldBoost') mods = { ...mods, yield: mods.yield + e.pct };
+    else if (e.kind === 'overclock') mods = { ...mods, yield: mods.yield + e.yieldPct, hallu: mods.hallu * e.halluMult };
+  }
+  modsCache = { perks, mods };
+  return mods;
+}
+
+export const heatRate = (temp: number, mods: ThermalMods = NO_THERMAL_MODS): number => HEAT_RATE * temp * mods.heat;
+export const halluRate = (temp: number, mods: ThermalMods = NO_THERMAL_MODS): number => HALLUC_RATE * temp * temp * mods.hallu;
 
 /** Доход от Температуры: базовый множитель по жару. */
-export const tempYieldMult = (temp: number): number => 1 + TEMP_YIELD_MAX * clampTemp(temp);
+export const tempYieldMult = (temp: number, mods: ThermalMods = NO_THERMAL_MODS): number =>
+  1 + TEMP_YIELD_MAX * (1 + mods.yield) * clampTemp(temp);
 
 /** Множитель от перегрева: 1 в холоде, `1 - HEAT_PENALTY` на полном перегреве. */
 export const heatMult = (heat: number): number => 1 - HEAT_PENALTY * Math.min(1, Math.max(0, heat));
@@ -127,9 +164,10 @@ export const heatMult = (heat: number): number => 1 - HEAT_PENALTY * Math.min(1,
 export const overheatStunMult = (state: GameState, now: number): number => {
   const left = now - state.overheatedAt;
   if (state.overheatedAt <= 0 || left < 0) return 1;
-  if (left > OVERHEAT_STUN_SEC * 1000) return 1;
+  const window = OVERHEAT_STUN_SEC * thermalMods(state.perks).stun * 1000;
+  if (left > window) return 1;
   // Линейное затухание: к концу окна штраф доходит до нуля ровно в момент, когда он снимается.
-  const t = 1 - left / (OVERHEAT_STUN_SEC * 1000);
+  const t = 1 - left / window;
   return 1 - HEAT_PENALTY * t;
 };
 
@@ -158,13 +196,14 @@ export interface ThermalRead {
 export function thermalRead(state: GameState, now: number = state.lastTick): ThermalRead {
   const temp = clampTemp(state.temp);
   const stun = overheatStunMult(state, now);
+  const mods = thermalMods(state.perks);
   return {
     temp,
     heat: Math.min(1, Math.max(0, state.heat)),
     // Оглушение и перегрев складываются, а не выбирают: перегрев — это про тепло,
     // оглушение — про его последствие, и игрок теряет обе вещи сразу.
-    mult: tempYieldMult(temp) * heatMult(state.heat) * stun,
-    halluRate: halluRate(temp),
+    mult: tempYieldMult(temp, mods) * heatMult(state.heat) * stun,
+    halluRate: halluRate(temp, mods),
     stunned: stun < 1,
   };
 }

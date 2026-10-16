@@ -26,7 +26,7 @@ import {
   UPGRADES_BY_GEN,
   type Upgrade,
 } from '../economy/upgrades';
-import { countGenPerks, genPerkCost, genPerkGeneration, genPerkId, isGenPerkId, PERK_BY_ID, PERKS } from '../economy/perks';
+import { BRANCHES, perkDepth, perkLock, PERK_BY_ID, PERKS, type Perk, type PerkBranch, type PerkLock } from '../economy/perks';
 import { PLEDGE_GROWTH, PLEDGE_MAX } from '../economy/glitches';
 import { CRYSTAL_STOCK_CAP, CRYSTAL_UPGRADES, type CrystalUpgrade } from '../economy/crystal';
 import { formatNumber } from '../economy/format';
@@ -1125,7 +1125,138 @@ const PerkBonusLoss: React.FC<{ loss: number; notation: Notation }> = ({ loss, n
   );
 };
 
-/** Магазин Перков: Compute и список купленных меняются покупкой и Престижем, а не тиком. */
+/** Отступ карточки по глубине в дереве: ступени лестницы отступов, чтобы на узком экране не уйти вбок. */
+const DEPTH_INDENT = ['0', 'var(--space-2)', 'var(--space-3)', 'var(--space-4)'] as const;
+
+/** Карточка Перка дерева: что даёт, чего ждёт от игрока и почему не продаётся. */
+const PerkCard: React.FC<{
+  perk: Perk;
+  owned: boolean;
+  lock: PerkLock | null;
+  unspentCompute: number;
+  notation: Notation;
+  onBuy: (id: string) => void;
+}> = ({ perk, owned, lock, unspentCompute, notation, onBuy }) => {
+  const locked = !owned && lock !== null;
+  const canAfford = !owned && !locked && unspentCompute >= perk.cost;
+  const depth = Math.min(perkDepth(perk.id), DEPTH_INDENT.length - 1);
+
+  return (
+    <div
+      data-perk={perk.id}
+      style={{
+        backgroundColor: 'var(--bg-card)',
+        border: owned ? 'var(--frame-w) solid var(--green)' : 'var(--frame-w) solid var(--border)',
+        marginLeft: DEPTH_INDENT[depth],
+        padding: 'var(--space-2)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-1)',
+        minWidth: 0,
+        ...(locked ? { opacity: 0.7 } : undefined),
+      }}
+    >
+      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
+        {perk.name}
+        {perk.top && <span style={{ color: 'var(--gold)' }}> · верхний Перк</span>}
+      </span>
+
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{perk.desc}</div>
+
+      {/* Причина отказа словами: молча приглушённая карточка не объяснила бы, что делать. */}
+      {lock?.kind === 'needs' && (
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+          Сначала: {lock.ids.map((id) => PERK_BY_ID[id].name).join(', ')}
+        </div>
+      )}
+      {lock?.kind === 'rival' && (
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+          Занято: куплен верхний Перк «{PERK_BY_ID[lock.id].name}». Сбросьте дерево, чтобы выбрать другую Ветвь.
+        </div>
+      )}
+      {!owned && !locked && <PerkBonusLoss loss={bonusLossOf(unspentCompute, perk.cost)} notation={notation} />}
+
+      {/* Отказ — той же обёрткой, что у Моделей/Апгрейдов: кнопка остаётся disabled, Клик ловится
+          на погружении, вспышка — на самой кнопке. По «Куплено» обёртка молчит. */}
+      <div
+        onClickCapture={handleDeny(owned || canAfford)}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          ...(owned || canAfford ? undefined : { cursor: 'not-allowed' }),
+        }}
+      >
+        <button
+          onClick={(e) => {
+            restartSquash(e);
+            onBuy(perk.id);
+          }}
+          onAnimationEnd={handleSquashEnd}
+          disabled={owned || !canAfford}
+          className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
+          style={{
+            padding: 'var(--space-1) var(--space-2)',
+            fontSize: 'var(--text-sm)',
+            alignSelf: 'flex-end',
+            // Недоступная кнопка прозрачна для указателя: иначе браузер подавил бы Клик точно в
+            // неё и deny-обёртка выше его бы не увидела.
+            pointerEvents: owned || canAfford ? undefined : 'none',
+          }}
+        >
+          {owned ? 'Куплено' : <>Купить перк (<Num>{perk.cost}</Num> Compute)</>}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/** Сброс дерева: раз за Забег, бесплатно, с подтверждением, потому что снимает все Перки разом. */
+const PerkTreeReset: React.FC = () => {
+  const resetPerkTree = useGameStore((s) => s.resetPerkTree);
+  const used = useGameStore((s) => s.state.perkResetUsed);
+  const owned = useGameStore((s) => s.state.perks.length);
+  const spent = useGameStore((s) => s.state.computeSpent);
+  const notation = useGameStore((s) => s.state.settings.notation);
+  const [sure, setSure] = useState(false);
+
+  if (used) {
+    return (
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+        Сброс дерева использован. Он снова откроется после Престижа.
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+        Раз за Забег дерево сбрасывается бесплатно: все Перки снимаются, а потраченный Compute возвращается.
+      </div>
+      <button
+        onClick={() => {
+          if (!sure) {
+            setSure(true);
+            return;
+          }
+          setSure(false);
+          resetPerkTree();
+        }}
+        onBlur={() => setSure(false)}
+        disabled={owned === 0}
+        className="pixel-btn"
+        style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', alignSelf: 'flex-start' }}
+      >
+        {sure ? (
+          <>Вернуть <Num>{formatNumber(spent, notation)}</Num> Compute?</>
+        ) : (
+          'Сбросить дерево'
+        )}
+      </button>
+    </div>
+  );
+};
+
+/** Дерево Перков: ствол и три Ветви. Compute и список купленных меняются покупкой и Престижем, а не тиком. */
 const PerkShop: React.FC = () => {
   const buyPerk = useGameStore((s) => s.buyPerk);
   const perks = useGameStore((s) => s.state.perks);
@@ -1134,219 +1265,48 @@ const PerkShop: React.FC = () => {
   // Бонус к Доходу от свободного Compute и цена покупки в нём (ADR-0010): Перк отнимает ровно
   // столько бонуса, сколько стоит, поэтому цифры берутся у движка, а не считаются здесь.
   const computeBonusPct = computeBonus(unspentCompute) * 100;
-  // Особые перки живут в том же PERKS, но с другой ценой и условием: список делится здесь, в
-  // render, без нового состояния: обычные — со своей статичной ценой, особые — отдельной
-  // подсекцией ниже.
-  const regularPerks = PERKS.filter((p) => !isGenPerkId(p.id));
 
-  return (
-    <div>
-      <div
-        style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: 'var(--space-2)' }}
-      >
-        Постоянные перки (Свободно: <Num>{unspentCompute}</Num> Compute)
+  const group = (title: string, hint: string, branch: PerkBranch) => (
+    <section key={branch} aria-label={title} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+      <div>
+        <div className="pixel-22" style={{ color: 'var(--text-main)' }}>{title}</div>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{hint}</div>
       </div>
-      {/* Свободный Compute даёт бонус к Доходу, Перк его отнимает: игрок видит обе стороны
-          выбора «копить или тратить» до покупки, а не в упавшем Доходе после. */}
-      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginBottom: 'var(--space-2)' }}>
-        Свободный Compute даёт <Num>+{formatNumber(computeBonusPct, notation)}</Num>% к Доходу; покупка Перка
-        отнимает от бонуса его цену. Выше +100% бонус растёт всё медленнее.
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        {regularPerks.map((p) => {
-          const owned = perks.includes(p.id);
-          const canAfford = !owned && unspentCompute >= p.cost;
-
-          return (
-            <div
-              key={p.id}
-              style={{
-                backgroundColor: 'var(--bg-card)',
-                border: owned ? 'var(--frame-w) solid var(--green)' : 'var(--frame-w) solid var(--border)',
-                padding: 'var(--space-2)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 'var(--space-1)',
-              }}
-            >
-              <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
-
-              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-                {p.desc}
-              </div>
-              {!owned && <PerkBonusLoss loss={bonusLossOf(unspentCompute, p.cost)} notation={notation} />}
-
-              {/* Отказ — той же обёрткой, что у Моделей/Апгрейдов: кнопка остаётся
-                  disabled, Клик ловится на погружении, вспышка — на самой кнопке
-                  (строки дефицита здесь нет). По «Куплено» обёртка молчит: owned гасит
-                  и звук, и вспышку. */}
-              <div
-                onClickCapture={handleDeny(owned || canAfford)}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-end',
-                  ...(owned || canAfford ? undefined : { cursor: 'not-allowed' }),
-                }}
-              >
-                <button
-                  onClick={(e) => {
-                    restartSquash(e);
-                    buyPerk(p.id);
-                  }}
-                  onAnimationEnd={handleSquashEnd}
-                  disabled={owned || !canAfford}
-                  className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
-                  style={{
-                    padding: 'var(--space-1) var(--space-2)',
-                    fontSize: 'var(--text-sm)',
-                    alignSelf: 'flex-end',
-                    // Недоступная кнопка прозрачна для указателя: иначе браузер подавил бы
-                    // Клик точно в неё и deny-обёртка выше его бы не увидела.
-                    pointerEvents: owned || canAfford ? undefined : 'none',
-                  }}
-                >
-                  {owned ? 'Куплено' : <>Купить перк (<Num>{p.cost}</Num> Compute)</>}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+      {PERKS.filter((p) => p.branch === branch).map((p) => (
+        <PerkCard
+          key={p.id}
+          perk={p}
+          owned={perks.includes(p.id)}
+          lock={perkLock(perks, p.id)}
+          unspentCompute={unspentCompute}
+          notation={notation}
+          onBuy={buyPerk}
+        />
+      ))}
+    </section>
   );
-};
-
-/**
- * Наследие поколений: особые перки переживают Престиж и усиливают только своё Поколение. Цена
- * общая на всех — genPerkCost за следующий некупленный, поэтому карточка показывает её, а не
- * статичный cost из таблицы. Покупка идёт тем же buyPerk (движок сам сверяет Поколение и
- * флагмана), новых экшенов нет.
- */
-const LegacyPerks: React.FC = () => {
-  const buyPerk = useGameStore((s) => s.buyPerk);
-  const perks = useGameStore((s) => s.state.perks);
-  const generation = useGameStore((s) => s.state.generation);
-  const unspentCompute = useGameStore((s) => s.state.compute - s.state.computeSpent);
-  const notation = useGameStore((s) => s.state.settings.notation);
-  const prestigeReady = useStateSlice(canPrestige);
-  const genPerks = CATALOG.flatMap((g) => {
-    const p = PERK_BY_ID[genPerkId(g.index)];
-    return p ? [p] : [];
-  });
-  const boughtGenPerks = countGenPerks(perks);
-  const nextGenPerkCost = genPerkCost(perks);
 
   return (
-    <div>
-      <div
-        style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: 'var(--space-1)' }}
-      >
-        Наследие поколений (Куплено: <Num>{boughtGenPerks}</Num> из{' '}
-        <Num>{genPerks.length}</Num>)
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+      <div>
+        <div style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: 'var(--space-2)' }}>
+          Дерево Перков (Свободно: <Num>{unspentCompute}</Num> Compute)
+        </div>
+        {/* Свободный Compute даёт бонус к Доходу, Перк его отнимает: игрок видит обе стороны
+            выбора «копить или тратить» до покупки, а не в упавшем Доходе после. */}
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+          Свободный Compute даёт <Num>+{formatNumber(computeBonusPct, notation)}</Num>% к Доходу; покупка Перка
+          отнимает от бонуса его цену. Выше +100% бонус растёт всё медленнее.
+        </div>
       </div>
-      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginBottom: 'var(--space-2)' }}>
-        Усиливают только своё Поколение навсегда. Следующий —{' '}
-        <Num>{nextGenPerkCost}</Num> Compute: цена растёт с числом купленных.
+
+      <PerkTreeReset />
+
+      {group('Ствол', 'Общие Перки для любой сборки', 'trunk')}
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+        Верхние Перки Ветвей взаимоисключающие: из трёх можно взять один. Нижние Перки разных Ветвей уживаются.
       </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        {genPerks.map((p) => {
-          const owned = perks.includes(p.id);
-          // Поколение особого перка: null быть не может (список собран через genPerkId
-          // по каталогу), но чужой id из старого сохранения разбираем в 0, чтобы
-          // карточка не упала, а ушла в приглушённые.
-          const perkGen = genPerkGeneration(p.id) ?? 0;
-          const genName = CATALOG[perkGen]?.name ?? '';
-          const isCurrentGen = perkGen === generation;
-          const isFutureGen = perkGen > generation;
-          // Флагман — то же условие, что у кнопки Престижа, но только для перка
-          // ТЕКУЩЕГО Поколения: прошлые докупаются позже без флагмана, ведь сам
-          // переход дальше уже доказал мастерство (Престиж требовал флагмана).
-          const needFlagship = !owned && isCurrentGen && !prestigeReady;
-          // Приглушены только будущие (ещё не открыты) и текущее без флагмана;
-          // прошлые некупленные — обычные покупаемые, «упущенности» нет.
-          const locked = !owned && (isFutureGen || needFlagship);
-          const canAfford = !locked && unspentCompute >= nextGenPerkCost;
-
-          return (
-            <div
-              key={p.id}
-              style={{
-                backgroundColor: 'var(--bg-card)',
-                border: owned ? 'var(--frame-w) solid var(--green)' : 'var(--frame-w) solid var(--border)',
-                padding: 'var(--space-2)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 'var(--space-1)',
-                ...(locked ? { opacity: 0.6 } : undefined),
-              }}
-            >
-              <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
-
-              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-                {p.desc}
-              </div>
-
-              {!owned && !locked && (
-                <PerkBonusLoss
-                  loss={bonusLossOf(unspentCompute, nextGenPerkCost)}
-                  notation={notation}
-                />
-              )}
-
-              {/* Подпись причины: будущее Поколение и missing флагман текущего —
-                  разные тупики, и молча приглушённая карточка не объяснила бы, что
-                  делать. Прошлые Поколения подписи не получают: они покупаемы как
-                  обычные, упущенности нет. */}
-              {locked && (
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  {isFutureGen
-                    ? <>Откроется в поколении «{genName}»</>
-                    : needFlagship
-                      ? 'Нужен флагман поколения'
-                      : null}
-                </div>
-              )}
-
-              <div
-                onClickCapture={handleDeny(owned || canAfford)}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-end',
-                  ...(owned || canAfford ? undefined : { cursor: 'not-allowed' }),
-                }}
-              >
-                <button
-                  onClick={(e) => {
-                    restartSquash(e);
-                    buyPerk(p.id);
-                  }}
-                  onAnimationEnd={handleSquashEnd}
-                  disabled={owned || !canAfford}
-                  className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
-                  style={{
-                    padding: 'var(--space-1) var(--space-2)',
-                    fontSize: 'var(--text-sm)',
-                    alignSelf: 'flex-end',
-                    pointerEvents: owned || canAfford ? undefined : 'none',
-                  }}
-                >
-                  {owned ? (
-                    'Куплено'
-                  ) : (
-                    <>
-                      Купить перк (<Num>{nextGenPerkCost}</Num> Compute)
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {BRANCHES.map((b) => group(b.name, b.focus, b.id))}
     </div>
   );
 };
@@ -1371,12 +1331,7 @@ const PrestigeShopTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToMod
           </>
         )}
         {section === 'perks' && <PerkShop />}
-        {section === 'legacy' && (
-          <>
-            <LegacyPerks />
-            <CrystalCard />
-          </>
-        )}
+        {section === 'crystals' && <CrystalCard />}
       </div>
     </div>
   );

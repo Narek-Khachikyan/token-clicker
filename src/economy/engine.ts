@@ -11,8 +11,9 @@ import {
   heatRate,
   halluRate,
   thermalRead,
+  thermalMods,
 } from './thermal';
-import { perkEffects, PERK_BY_ID, START_TOKENS_UNITS, GEN_PERK_MAX_TOTAL, genPerkCost, genPerkGeneration, isGenPerkId, type PerkEffect } from './perks';
+import { perkEffects, perkLock, PERK_BY_ID, START_TOKENS_UNITS, type PerkEffect } from './perks';
 import type { GameState } from './state';
 import { nonShadowCount } from './achievements';
 import {
@@ -307,6 +308,7 @@ export type IncomeFactorKind =
   | 'labPerk'
   | 'pairSynergy'
   | 'genPerk'
+  | 'orchestra'
   | 'dataset'
   | 'compute'
   | 'crystals'
@@ -375,11 +377,15 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
       note(out, 'pairSynergy', PAIR_SYNERGY_MULT);
     }
   }
-  // Особый Перк усиливает только Модели своего Поколения и одинаково все его ранги,
-  // поэтому ранговая лестница внутри Поколения не инвертируется по построению.
-  const genPerk = generationBoostMult(perkEffects(state.perks), model.generation);
+  // «Наследие поколений» множит все Модели одинаково, поэтому ранговая лестница внутри Поколения
+  // не инвертируется по построению. Здесь же верхний Перк Оркестратора: тоже один множитель на всех.
+  const effects = perkEffects(state.perks);
+  const genPerk = legacyBoostMult(effects, state.maxGeneration);
   mult *= genPerk;
   note(out, 'genPerk', genPerk);
+  const orchestra = agentBoostMult(effects);
+  mult *= orchestra;
+  note(out, 'orchestra', orchestra);
   // Датасет — последний множитель Модели: он считается от числа Достижений, а не от
   // конкретной Модели, поэтому ни один множитель выше не должен стоять после него.
   const dataset = datasetMult(state);
@@ -427,16 +433,19 @@ export function modelFactors(state: GameState, model: Model): IncomeFactor[] {
 }
 
 /**
- * Множитель особых Перков для Поколения `generation`: сумма бонусов только своих
- * Перков, но не больше хард-капа. Кап держит инвариант прогрессии: даже в пределе
- * бонус не дотягивает Поколение до следующего (масштаб ×1000 на Поколение).
+ * Множитель «Наследия поколений»: +pct за каждое пройденное Поколение (`maxGeneration`, то есть
+ * индекс самого дальнего достигнутого). Действует на текущий Забег — в этом его отличие от
+ * прежнего Перка, который усиливал уже пройденное Поколение.
  */
-export function generationBoostMult(effects: PerkEffect[], generation: number): number {
-  const total = effects.reduce(
-    (s, e) => (e.kind === 'generationBoost' && e.generation === generation ? s + e.pct : s),
-    0,
-  );
-  return 1 + Math.min(total, GEN_PERK_MAX_TOTAL);
+export function legacyBoostMult(effects: PerkEffect[], maxGeneration: number): number {
+  let pct = 0;
+  for (const e of effects) if (e.kind === 'legacyBoost') pct += e.pctPerGeneration;
+  return 1 + pct * Math.max(0, maxGeneration);
+}
+
+/** Множитель Дохода всех Моделей от Перков Оркестратора. */
+export function agentBoostMult(effects: PerkEffect[]): number {
+  return effects.reduce((m, e) => (e.kind === 'agentBoost' ? m * e.mult : m), 1);
 }
 
 /**
@@ -707,30 +716,23 @@ export function buyUpgrade(state: GameState, id: string): GameState {
 
 export function buyPerk(state: GameState, id: string): GameState {
   const p = PERK_BY_ID[id];
-  if (!p || state.perks.includes(id)) return state;
-  if (isGenPerkId(id)) return buyGenPerk(state, id);
-  const free = state.compute - state.computeSpent;
-  if (p.cost > free) return state;
+  if (!p || perkLock(state.perks, id)) return state;
+  if (p.cost > freeCompute(state)) return state;
   return { ...state, computeSpent: state.computeSpent + p.cost, perks: [...state.perks, id] };
 }
 
 /**
- * Покупка особого Перка Поколения. Перк N доступен в Поколении N и позже:
- * упущенный докупается в любом позднем Забеге по той же цене. Флагман
- * (canPrestige) требуется только для перка ТЕКУЩЕГО Поколения — переход
- * дальше уже доказал мастерство прошлого, ведь сам переход требовал флагмана.
- * Цена растёт с числом уже купленных особых (10/15/20…), а не с Поколением,
- * и списывается из свободного Compute как у обычных Перков.
+ * Бесплатный сброс дерева: все Перки снимаются, потраченный Compute возвращается, раз за Забег
+ * (ADR-0012). Престиж снимает отметку.
+ *
+ * `computeSpent` обнуляется целиком, а не уменьшается на сумму цен: Compute тратится только на
+ * Перки, и вычитание сумм оставило бы в «потрачено» хвост, если Перк когда-то продавался по другой
+ * цене, — игрок потерял бы его насовсем. Без Перков сбрасывать нечего, и единственный сброс
+ * не тратится.
  */
-function buyGenPerk(state: GameState, id: string): GameState {
-  const generation = genPerkGeneration(id);
-  if (generation === null || generation > state.generation) return state;
-  // Прошлое Поколение флагман не требует: факт перехода дальше уже доказывает
-  // мастерство — Престиж оттуда без флагмана был невозможен.
-  if (generation === state.generation && !canPrestige(state)) return state;
-  const cost = genPerkCost(state.perks);
-  if (cost > state.compute - state.computeSpent) return state;
-  return { ...state, computeSpent: state.computeSpent + cost, perks: [...state.perks, id] };
+export function resetPerkTree(state: GameState): GameState {
+  if (state.perkResetUsed || state.perks.length === 0) return state;
+  return { ...state, perks: [], computeSpent: 0, perkResetUsed: true };
 }
 
 // ---------- Время ----------
@@ -813,12 +815,13 @@ function applyHallucination(state: GameState): GameState {
  */
 function advanceThermal(state: GameState, dt: number, rnd: () => number, now: number): GameState {
   const temp = state.temp;
+  const mods = thermalMods(state.perks);
   // Нижняя граница обязательна: без неё перегрев уходил бы в минус, и отрицательный
   // перегрев резал бы Доход сильнее полного — то есть охлаждение платило бы игроку.
-  const heat = Math.min(1, Math.max(0, state.heat + (heatRate(temp) - HEAT_COOL_RATE) * dt));
+  const heat = Math.min(1, Math.max(0, state.heat + (heatRate(temp, mods) - HEAT_COOL_RATE) * dt));
   let next: GameState = { ...state, heat };
   if (next.heat >= HEAT_LIMIT) return applyOverheat(next, now);
-  if (rnd() < halluRate(temp) * dt) next = applyHallucination(next);
+  if (rnd() < halluRate(temp, mods) * dt) next = applyHallucination(next);
   return next;
 }
 
@@ -1058,6 +1061,7 @@ export function prestige(state: GameState, now: number = state.lastTick): GameSt
     maxGeneration: Math.max(state.maxGeneration, next),
     compute: state.compute + prestigeGain(state),
     prestiges: state.prestiges + 1,
+    perkResetUsed: false,
     tokens: startingTokens(state, next),
     runTokens: 0,
     runClicks: 0,

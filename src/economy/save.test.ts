@@ -233,6 +233,70 @@ describe('migration chain', () => {
   });
 });
 
+describe('migration of the perk tree', () => {
+  /** Цена n особых Перков Поколения в прошлой версии: 10, 15, 20… за каждый следующий, вне зависимости от порядка. */
+  const oldGenPerksPaid = (n: number) => 10 * n + (5 * n * (n - 1)) / 2;
+
+  /** Сохранение v9 в форме, какой его писала игра: «Наследие» по Поколениям, плоский список Перков. */
+  const v9Save = (over: Record<string, unknown>) => {
+    const { perkResetUsed: _drop, ...base } = newGame(T0);
+    return { ...base, version: 9, ...over };
+  };
+
+  it('gives the price of every perk that left the tree back as Compute', () => {
+    const raw = v9Save({ compute: 200, computeSpent: 3 + 5 + oldGenPerksPaid(3), perks: ['click_x2', 'start_tokens', 'gen_0', 'gen_1', 'gen_5'] });
+    const s = migrate(raw, T0);
+    expect(s.version).toBe(SAVE_VERSION);
+    // Остались только Перки, которые есть в дереве, и они же остались купленными.
+    expect(s.perks).toEqual(['click_x2', 'start_tokens']);
+    expect(s.computeSpent).toBe(3 + 5);
+    expect(s.compute).toBe(200);
+    expect(s.perkResetUsed).toBe(false);
+  });
+
+  it('keeps every perk whose id is still in the tree, with its paid price', () => {
+    const kept = ['click_x2', 'offline_rate_1', 'start_tokens', 'offline_24h', 'discount', 'autoclick', 'event_alert', 'lab_openai'];
+    const s = migrate(v9Save({ compute: 500, computeSpent: 3 + 4 + 5 + 10 + 20 + 25 + 30 + 15, perks: kept }), T0);
+    expect(s.perks).toEqual(kept);
+    expect(s.computeSpent).toBe(112);
+  });
+
+  it('never lets spent exceed earned, even when the old save was inconsistent', () => {
+    // Все восемь особых куплены, но «потрачено» в сохранении меньше суммы возврата: возврат упирается в ноль.
+    const raw = v9Save({ compute: 100, computeSpent: 40, perks: CATALOG.map((_, i) => `gen_${i}`) });
+    const s = migrate(raw, T0);
+    expect(s.perks).toEqual([]);
+    expect(s.computeSpent).toBe(0);
+    // «Потрачено» больше «начислено» в самом сохранении — тоже не доходит до игры.
+    const over = migrate(v9Save({ compute: 10, computeSpent: 50, perks: ['click_x2'] }), T0);
+    expect(over.computeSpent).toBeLessThanOrEqual(over.compute);
+  });
+
+  it('loads an export code of the previous version without loss', () => {
+    const raw = v9Save({
+      compute: 120,
+      computeSpent: 5 + oldGenPerksPaid(2),
+      perks: ['start_tokens', 'gen_2', 'gen_3'],
+      crystals: 4,
+      achievements: ['click_1'],
+    });
+    const s = importSave(encodeRaw(raw), T0)!;
+    expect(s).not.toBeNull();
+    expect(s.version).toBe(SAVE_VERSION);
+    expect(s.perks).toEqual(['start_tokens']);
+    expect(s.computeSpent).toBe(5);
+    expect(s.crystals).toBe(4);
+    expect(s.achievements).toEqual(['click_1']);
+  });
+
+  it('refunds only once: a migrated save loads again as it is', () => {
+    const once = migrate(v9Save({ compute: 200, computeSpent: 5 + oldGenPerksPaid(1), perks: ['start_tokens', 'gen_0'] }), T0);
+    const twice = migrate(JSON.parse(JSON.stringify(once)), T0);
+    expect(twice.computeSpent).toBe(once.computeSpent);
+    expect(twice.perks).toEqual(once.perks);
+  });
+});
+
 describe('import rejects non-saves', () => {
   it('rejects an empty object, an empty array and arbitrary JSON without progress fields', () => {
     expect(importSave(encodeRaw({}), T0)).toBeNull();

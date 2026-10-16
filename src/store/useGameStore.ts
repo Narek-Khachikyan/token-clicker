@@ -6,6 +6,7 @@ import {
   applyOffline,
   buyAgents as engineBuyAgents,
   buyPerk as engineBuyPerk,
+  resetPerkTree as engineResetPerkTree,
   buyUpgrade as engineBuyUpgrade,
   canPrestige,
   click as engineClick,
@@ -87,7 +88,7 @@ export type EffectSwitch = 'particles' | 'floaters' | 'shake' | 'ticker';
 export type VolumeChannel = 'music' | 'sfx';
 /** Подразделы вкладки «Престиж». Хранятся в UI-слое стора, а не в колонке: колонку размонтирует
  *  смена нижней вкладки на телефоне, а выбранный подраздел должен пережить возврат на вкладку. */
-export type PrestigeSection = 'prestige' | 'perks' | 'legacy';
+export type PrestigeSection = 'prestige' | 'perks' | 'crystals';
 
 /** Вкладки магазина: Модели, Апгрейды, Престиж. Живут в UI-слое стора, а не в колонке: колонку
  *  размонтирует смена нижней вкладки на телефоне, а горячие клавиши 1/2/3 приходят снаружи. */
@@ -328,6 +329,8 @@ interface GameStore {
   sellAgents: (modelId: string, amount?: BuyAmount) => void;
   buyUpgrade: (upgradeId: string) => void;
   buyPerk: (perkId: string) => void;
+  /** Бесплатный сброс дерева Перков раз за Забег: Перки снимаются, Compute возвращается. */
+  resetPerkTree: () => void;
   /** Покупает «Лобби»: красные события гаснут на полчаса, цена растёт на каждой покупке. */
   buyPledge: () => void;
   /** Покупает бессрочную «Лицензию»: налог с Дохода и ни одного Глюка. */
@@ -1102,6 +1105,16 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (next !== state) {
         playUpgradeSound(state.settings);
         set({ state: awardEarned(next) });
+        saveNow();
+      }
+    },
+
+    resetPerkTree: () => {
+      const { state } = get();
+      const next = engineResetPerkTree(state);
+      if (next !== state) {
+        playUpgradeSound(state.settings);
+        set({ state: next });
         saveNow();
       }
     },

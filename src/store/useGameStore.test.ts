@@ -1335,10 +1335,10 @@ describe('the prestige tab section', () => {
   beforeEach(() => useGameStore.setState({ prestigeSection: 'prestige' }));
 
   it('opens on «Престиж» and remembers the section the player picked, whatever tab comes between', () => {
-    store().setPrestigeSection('legacy');
+    store().setPrestigeSection('crystals');
     store().setActiveTab('click');
     store().setActiveTab('prestige');
-    expect(store().prestigeSection).toBe('legacy');
+    expect(store().prestigeSection).toBe('crystals');
     store().setPrestigeSection('perks');
     expect(store().prestigeSection).toBe('perks');
   });
@@ -1639,6 +1639,22 @@ describe('the save', () => {
     expect(w.saved()?.upgrades).toEqual([`m:${first.id}:0`]);
 
     w.store.getState().buyPerk('click_x2');
+    expect(w.saved()?.perks).toEqual(['click_x2']);
+  });
+
+  it('has the perk-tree reset in the save, once per run', async () => {
+    const w = await windowed();
+    funded(w, 1e12);
+    w.store.setState({ state: { ...w.store.getState().state, compute: 50 } });
+    w.store.getState().buyPerk('click_x2');
+    w.store.getState().resetPerkTree();
+    // Сброс переписывает деньги игрока: если он не дошёл до записи, вкладка закрылась бы с Перками и без Compute.
+    expect(w.saved()?.perks).toEqual([]);
+    expect(w.saved()?.computeSpent).toBe(0);
+    expect(w.saved()?.perkResetUsed).toBe(true);
+    // Второй сброс до Престижа ничего не меняет.
+    w.store.getState().buyPerk('click_x2');
+    w.store.getState().resetPerkTree();
     expect(w.saved()?.perks).toEqual(['click_x2']);
   });
 
