@@ -19,6 +19,11 @@ import {
   TOAST_CLEARANCE,
   TOAST_MARGIN,
   toastStackWidth,
+  toastStackBand,
+  TOAST_GAP,
+  TOAST_CARD_BUDGET,
+  TOAST_VISIBLE_MAX,
+  TOAST_QUEUE_H,
 } from './layout';
 
 // Раскладку не проверяет ничто, кроме этих чисел, поэтому тест ловит ровно тот класс дефекта,
@@ -103,6 +108,58 @@ describe('layout', () => {
     }
     // Замер из задачи: на 320 px стек занимает окно за вычетом полей.
     expect(toastStackWidth(320)).toBe(320 - TOAST_MARGIN * 2);
+  });
+
+  // Тост не должен лежать на счётчике, а пока есть место — и на шкале Температуры; на любой
+  // сетке окон, а не на одном замеренном.
+  it('never puts the toast stack over the counter, and over the scale while there is room', () => {
+    for (let counterBottom = 100; counterBottom <= 260; counterBottom += 20) {
+      for (let keepVisibleBottom = counterBottom + 40; keepVisibleBottom <= 700; keepVisibleBottom += 30) {
+        for (let contentBottom = keepVisibleBottom; contentBottom <= 760; contentBottom += 40) {
+          for (let limit = 480; limit <= 900; limit += 20) {
+            const { top, slots } = toastStackBand({ counterBottom, keepVisibleBottom, contentBottom, limit });
+            expect(top, 'стек начинается над счётчиком').toBeGreaterThanOrEqual(counterBottom + TOAST_GAP);
+            if (keepVisibleBottom + TOAST_GAP + (TOAST_CARD_BUDGET - TOAST_GAP) <= limit) {
+              expect(top, 'стек закрыл шкалу Температуры').toBeGreaterThanOrEqual(keepVisibleBottom + TOAST_GAP);
+            }
+            expect(slots).toBeGreaterThanOrEqual(1);
+            expect(slots).toBeLessThanOrEqual(TOAST_VISIBLE_MAX);
+          }
+        }
+      }
+    }
+  });
+
+  it('keeps one toast card inside the window whenever the counter leaves room for it', () => {
+    for (let counterBottom = 100; counterBottom <= 260; counterBottom += 20) {
+      for (let limit = 480; limit <= 900; limit += 20) {
+        if (counterBottom + TOAST_GAP + (TOAST_CARD_BUDGET - TOAST_GAP) > limit) continue;
+        const { top } = toastStackBand({ counterBottom, keepVisibleBottom: limit, contentBottom: limit + 100, limit });
+        expect(top + TOAST_CARD_BUDGET - TOAST_GAP, 'тост вышел за нижнюю полосу').toBeLessThanOrEqual(limit);
+      }
+    }
+  });
+
+  it('starts the toast stack under the column when there is room and lifts it when there is not', () => {
+    const roomy = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 480, limit: 900 });
+    expect(roomy.top).toBe(480 + TOAST_GAP);
+    expect(roomy.slots).toBe(TOAST_VISIBLE_MAX);
+    const tight = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 640, limit: 686 });
+    expect(tight.top).toBe(686 - (TOAST_CARD_BUDGET - TOAST_GAP));
+    expect(tight.slots).toBe(1);
+    // Измеренная карточка ниже запаса: стек опускается ближе к шкале, а не прячется под запас.
+    const measured = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 640, limit: 686, cardHeight: 81 });
+    expect(measured.top).toBe(686 - 81);
+    // Совсем тесно (шкала уже за нижней полосой): окно важнее шкалы, но счётчик свободен.
+    const cramped = toastStackBand({ counterBottom: 140, keepVisibleBottom: 600, contentBottom: 660, limit: 640 });
+    expect(cramped.top).toBe(640 - (TOAST_CARD_BUDGET - TOAST_GAP));
+    expect(cramped.top).toBeGreaterThanOrEqual(140 + TOAST_GAP);
+  });
+
+  it('lifts the stack by the height of the queue button when more toasts wait than fit', () => {
+    const plain = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 640, limit: 686, cardHeight: 81 });
+    const queued = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 640, limit: 686, cardHeight: 81, below: TOAST_QUEUE_H });
+    expect(queued.top).toBe(plain.top - TOAST_QUEUE_H);
   });
 
   it('derives the toast stack width from the column math on every window', () => {

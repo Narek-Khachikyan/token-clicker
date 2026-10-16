@@ -27,6 +27,7 @@ import {
   pledgeCost,
   revokeCost,
 } from '../economy/glitches';
+import { THERMAL_HOT_HEAT, THERMAL_STATE_LABEL, thermalState, type ThermalStateId } from '../data/thermalCopy';
 import { milestoneHint, milestoneReward, nextMilestone, type Milestone } from '../economy/milestones';
 import type { GameState, Glitch } from '../economy/state';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
@@ -188,7 +189,7 @@ export type ThermalTone = 'stunned' | 'hot' | 'calm';
 /** Тон корня и шкалы: оглушение важнее жара, жар важнее покоя. */
 export function thermalTone(s: GameState): ThermalTone {
   const read = thermalRead(s);
-  return read.stunned ? 'stunned' : read.heat > 0.5 ? 'hot' : 'calm';
+  return read.stunned ? 'stunned' : read.heat > THERMAL_HOT_HEAT ? 'hot' : 'calm';
 }
 
 export interface ThermalView {
@@ -196,6 +197,10 @@ export interface ThermalView {
   temp: number;
   stunned: boolean;
   tone: ThermalTone;
+  /** Состояние шкалы: холод, норма, жар, перегрев. Значок и слово у шкалы идут от него. */
+  state: ThermalStateId;
+  /** Слово состояния для подписи: «Холод», «Норма», «Жар», «Перегрев». */
+  stateLabel: string;
   /** Слово состояния: цвет один не различают, поэтому оно всегда стоит рядом со шкалой. */
   status: string;
   /** Ширина полосы перегрева в процентах с шагом 0.5: у полосы переход в 0.25 с, и полпроцента
@@ -219,6 +224,7 @@ export interface ThermalView {
 export function thermalView(s: GameState): ThermalView {
   const read = thermalRead(s);
   const heatPct = read.heat * 100;
+  const state = thermalState(read.temp, read.heat, read.stunned);
   const status = read.stunned
     ? 'Перегрев: Доход падает'
     : read.heat > 0.75
@@ -229,20 +235,23 @@ export function thermalView(s: GameState): ThermalView {
   return {
     temp: read.temp,
     stunned: read.stunned,
-    tone: read.stunned ? 'stunned' : read.heat > 0.5 ? 'hot' : 'calm',
+    tone: read.stunned ? 'stunned' : read.heat > THERMAL_HOT_HEAT ? 'hot' : 'calm',
+    state,
+    stateLabel: THERMAL_STATE_LABEL[state],
     status,
     heatBar: Math.round(heatPct * 2) / 2,
     heatNow: Math.round(heatPct),
     heatHigh: read.heat > 0.75,
     mult: formatNumber(read.mult, s.settings.notation),
     valueText: `${read.temp.toFixed(2)} из ${TEMP_MAX}, Доход ×${read.mult.toFixed(2)}, ${status}`,
-    risk:
-      read.heat > 0.6
+    risk: read.stunned
+      ? 'Доход падает'
+      : read.heat > 0.6
         ? `перегрев ${Math.round(heatPct)}%`
         : read.halluRate > 0
           ? `галлюцинации ${Math.round(read.halluRate * 60)}/мин`
           : 'риска нет',
-    riskHot: read.heat > 0.6,
+    riskHot: read.stunned || read.heat > 0.6,
   };
 }
 

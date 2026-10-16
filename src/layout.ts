@@ -143,6 +143,57 @@ export const TOAST_CLEARANCE = 8;
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
+/** Зазор между карточками стека и между стеком и тем, что над ним, px. */
+export const TOAST_GAP = 8;
+
+/** Высота, которую одна карточка тоста занимает в стеке вместе с зазором, px, пока измерить её
+ *  нечем: карточка с трёхстрочным описанием — 117 px, плюс зазор. */
+export const TOAST_CARD_BUDGET = 128;
+
+/** Сколько карточек стек показывает разом, как бы много места ни было. */
+export const TOAST_VISIBLE_MAX = 2;
+
+/** Измеренные края колонки Клика (px от верха окна), по которым ставится стек тостов. */
+export interface ToastAnchors {
+  /** Низ счётчика Токенов и Дохода: стек не поднимается выше. */
+  counterBottom: number;
+  /** Низ последнего, что обязано остаться на виду под тостом: шкала Температуры, а при её
+   *  отсутствии кнопка Клика. Стек не заходит выше этой черты ни на узком, ни на низком окне. */
+  keepVisibleBottom: number;
+  /** Низ колонки со всем главным (после Вех): отсюда стек начинается, если места хватает. */
+  contentBottom: number;
+  /** Верх нижних полос оболочки (панель вкладок, подвал): ниже него стеку не место. */
+  limit: number;
+  /** Измеренная высота одной карточки; пока тостов нет, замерять нечего и берётся `TOAST_CARD_BUDGET`. */
+  cardHeight?: number;
+  /** Что стек держит под карточками: кнопка «ещё N» хвоста очереди, px; без хвоста — 0. */
+  below?: number;
+}
+
+/** Высота кнопки «ещё N» вместе с зазором над ней, px: она стоит в стеке под карточками. */
+export const TOAST_QUEUE_H = 40;
+
+/**
+ * Где стоять стеку тостов и сколько карточек в него влезает.
+ *
+ * Три правила по убыванию силы. Первое: стек целиком в окне, над нижними полосами (`limit`) —
+ * тост, выехавший за экран, нельзя ни прочитать, ни закрыть. Второе: стек не лежит на числе
+ * Токенов и Доходе. Третье: пока есть место, он не лежит и на кнопке Клика, шкале Температуры
+ * и линии перегрева — стоит под колонкой, а на невысоком окне поднимается ровно настолько,
+ * чтобы поместиться, и закрывает тогда Вехи и прогресс покупки, то есть то, что переживёт
+ * четыре секунды без взгляда. Если места не хватает даже на это (320 × 640), третье правило
+ * уступает первому: колонка там и так прокручивается, а тост висит в окне.
+ */
+export const toastStackBand = (a: ToastAnchors): { top: number; slots: number } => {
+  const floor = a.counterBottom + TOAST_GAP;
+  const preferred = Math.max(a.contentBottom, a.keepVisibleBottom) + TOAST_GAP;
+  const card = a.cardHeight && a.cardHeight > 0 ? a.cardHeight : TOAST_CARD_BUDGET - TOAST_GAP;
+  const limit = a.limit - (a.below ?? 0);
+  const top = Math.max(floor, Math.min(preferred, limit - card));
+  const slots = clamp(Math.floor((limit - top + TOAST_GAP) / (card + TOAST_GAP)), 1, TOAST_VISIBLE_MAX);
+  return { top: Math.round(top), slots };
+};
+
 /** Ширина колонки Клика при ширине окна `vw`: те же границы, что у CSS `clamp`. */
 export const clickColWidth = (vw: number): number =>
   clamp(vw * CLICK_COL_SHARE, CLICK_COL_MIN, CLICK_COL_MAX);
