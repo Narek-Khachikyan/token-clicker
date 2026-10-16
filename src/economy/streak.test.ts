@@ -52,6 +52,14 @@ describe('Серия Кликов', () => {
     expect(levels[levels.length - 1]).toBe(0);
   });
 
+  it('drops a Клик exactly one window old, so the Серия ends on the window edge', () => {
+    // Три Клика в одной точке — уровень 1 (порог 3). Чуть раньше границы окна они ещё в Серии,
+    // ровно на границе — уже выпали.
+    const clicks = [1_000, 1_000, 1_000];
+    expect(streakLevel(clicks, 1_000 + STREAK_WINDOW_MS - 1)).toBe(1);
+    expect(streakLevel(clicks, 1_000 + STREAK_WINDOW_MS)).toBe(0);
+  });
+
   it('does not count a Клик from the future, so a clock set back cannot freeze the top level', () => {
     const clicks = evenly(20, 100, 50_000);
     expect(streakLevel(clicks, 10_000)).toBe(0);
