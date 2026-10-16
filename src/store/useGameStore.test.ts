@@ -1257,6 +1257,23 @@ describe('reward moments on the scene', () => {
     store().resetGame();
     expect(store().sceneMoment).toBeNull();
   });
+
+  it('is gone after a Престиж, so the new Поколение does not inherit the old celebration', () => {
+    freshStore();
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment?.flagship).toBe(true);
+    store().triggerPrestige();
+    expect(store().sceneMoment).toBeNull();
+  });
+
+  it('is gone after an import, which replaces the run instead of buying into it', () => {
+    freshStore();
+    const exported = exportSave(state());
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment).not.toBeNull();
+    expect(store().importSaveData(exported)).toBe(true);
+    expect(store().sceneMoment).toBeNull();
+  });
 });
 
 describe('the prestige tab section', () => {
