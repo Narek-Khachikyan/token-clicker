@@ -15,6 +15,7 @@ import {
 } from './thermal';
 import { perkEffects, perkLock, PERK_BY_ID, START_TOKENS_UNITS, type PerkEffect } from './perks';
 import type { GameState } from './state';
+import { ruleIncomeMult, rulePriceMult } from './rules';
 import { nonShadowCount } from './achievements';
 import {
   catchUpClick,
@@ -127,7 +128,8 @@ export function discountMult(state: GameState): number {
   // первого Агента (0,1/сек) до второй Модели за 97,5 Токена (COST_BASE × COST_STEP); скидка
   // срезает её треть, не трогая лестницу Рангов (множитель общий для всех Моделей) и ±30%
   // (модификаторы каталога не меняются).
-  return perk * (totalAgents(state) < 2 ? START_PRICE_MULT : 1);
+  // Правило Поколения («Ценовая война») — третий сомножитель той же скидки: цену читают все, кто зовёт эту функцию.
+  return perk * (totalAgents(state) < 2 ? START_PRICE_MULT : 1) * rulePriceMult(state);
 }
 
 /** Цена следующих `n` Агентов при `owned` уже купленных. */
@@ -309,6 +311,7 @@ export type IncomeFactorKind =
   | 'pairSynergy'
   | 'genPerk'
   | 'orchestra'
+  | 'rule'
   | 'dataset'
   | 'compute'
   | 'crystals'
@@ -386,6 +389,10 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
   const orchestra = agentBoostMult(effects);
   mult *= orchestra;
   note(out, 'orchestra', orchestra);
+  // Правило Поколения («Разнообразие») множит Модели своего Поколения одинаково, как особый Перк, поэтому лестницу Ранга не переворачивает.
+  const rule = ruleIncomeMult(state);
+  mult *= rule;
+  note(out, 'rule', rule);
   // Датасет — последний множитель Модели: он считается от числа Достижений, а не от
   // конкретной Модели, поэтому ни один множитель выше не должен стоять после него.
   const dataset = datasetMult(state);

@@ -31,6 +31,7 @@ const ROW_LABEL: Record<BreakdownKind, string> = {
   pairSynergy: 'Парная Синергия',
   genPerk: 'Наследие поколений',
   orchestra: 'Оркестратор',
+  rule: 'Правило Поколения',
   dataset: 'Датасет',
   compute: 'Compute',
   crystals: 'Кристаллы',
