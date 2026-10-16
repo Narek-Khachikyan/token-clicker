@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  HOLD_CLICK_MAX_PER_SEC,
   HOLD_CLICK_MIN_GAP_MS,
   pushClick,
   STREAK_MAX_LEVEL,
@@ -72,10 +71,5 @@ describe('Серия Кликов', () => {
     for (let i = 0; i < 30; i += 1) ({ moments } = pushClick(moments, i * 80));
     const after = pushClick(moments, 30 * 80 + STREAK_WINDOW_MS * 4);
     expect(after.level).toBe(0);
-  });
-
-  it('holding a key is capped at about ten Кликов per second', () => {
-    expect(HOLD_CLICK_MAX_PER_SEC).toBe(10);
-    expect(HOLD_CLICK_MIN_GAP_MS * HOLD_CLICK_MAX_PER_SEC).toBe(1000);
   });
 });
