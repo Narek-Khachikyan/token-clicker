@@ -3,6 +3,7 @@ import { motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { ACHIEVEMENTS, nonShadowCount } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
+import { computeBonus, freeCompute } from '../economy/engine';
 import { Num } from './Num';
 import { Icon } from './Icon';
 
@@ -123,9 +124,10 @@ export const Header: React.FC<HeaderProps> = ({
               animation: 'toast-fade 0.15s ease-out',
               whiteSpace: 'nowrap',
             }}
-            title="Бонус к доходу от Compute"
+            title="Бонус к Доходу даёт только свободный Compute: потраченный на Перки в него не входит"
           >
-            <Num>{formatNumber(state.compute, notation)}</Num> Compute (+<Num>{state.compute}</Num>%)
+            <Num>{formatNumber(freeCompute(state), notation)}</Num> Compute (+
+            <Num>{formatNumber(computeBonus(freeCompute(state)) * 100, notation)}</Num>%)
           </span>
         )}
       </div>

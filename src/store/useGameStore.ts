@@ -8,6 +8,7 @@ import {
   buyUpgrade as engineBuyUpgrade,
   canPrestige,
   click as engineClick,
+  computeBonusDrop,
   clickValue,
   earnTokens,
   isContentFinale,
@@ -42,7 +43,16 @@ import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX } from '../economy/thermal';
 import { perkEffects } from '../economy/perks';
 import { pickQuip, recordQuip } from '../economy/quips';
 import { availableUpgrades } from '../economy/upgrades';
-import { importSave, migrate, quarantineStoredSave, readStoredSave, SAVE_KEY, serialize } from '../economy/save';
+import {
+  computeRuleSeen,
+  importSave,
+  markComputeRuleSeen,
+  migrate,
+  quarantineStoredSave,
+  readStoredSave,
+  SAVE_KEY,
+  serialize,
+} from '../economy/save';
 import { newGame, type GameState, type Notation } from '../economy/state';
 import {
   playAchievementSound,
@@ -289,6 +299,11 @@ interface GameStore {
   finaleDismissed: boolean;
   openFinale: () => void;
   dismissFinale: () => void;
+  /** Объяснение нового правила бонуса Compute (ADR-0010): `before` и `after` — доли, 0,8 = +80%.
+   *  Показывается игроку, чей Доход упал после обновления, и один раз: отметка лежит под своим
+   *  ключом хранилища, а не в `GameState`, чтобы поля сейва не росли. null — объяснять нечего. */
+  computeRuleNotice: { before: number; after: number } | null;
+  dismissComputeRuleNotice: () => void;
   refreshNews: () => void;
 }
 
@@ -535,6 +550,15 @@ export function motionAllowed(): boolean {
 export const useGameStore = create<GameStore>((set, get) => {
   const initial = loadInitialState();
 
+  // Объяснение нужно тому, у кого старая формула дала бы больше новой, и только пока этот
+  // браузер его не видел. Всем остальным отметка ставится сразу: новичок, который потратит
+  // Compute позже, увидел бы объяснение чужого обновления вместо итога собственной покупки.
+  let computeRuleNotice = null as ReturnType<typeof computeBonusDrop>;
+  if (!computeRuleSeen()) {
+    computeRuleNotice = computeBonusDrop(initial.state);
+    if (!computeRuleNotice) markComputeRuleSeen();
+  }
+
   /**
    * Начисляет выполненные Достижения — обычные и теневые — и показывает тосты за обычные.
    * Вызывается из каждого перехода, который может выполнить условие Достижения.
@@ -691,6 +715,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     state: initial.state,
     news: pickNews(initial.state),
     offlineReport: initial.offline,
+    computeRuleNotice,
     prestigePrompt: false,
     activeTab: 'click',
     buyAmount: 1,
@@ -1210,6 +1235,11 @@ toggleMute: () => {
     openFinale: () => set({ finaleDismissed: false }),
     dismissFinale: () => set({ finaleDismissed: true }),
 
+    dismissComputeRuleNotice: () => {
+      markComputeRuleSeen();
+      set({ computeRuleNotice: null });
+    },
+
     dismissOfflineReport: () => set({ offlineReport: null }),
 
     removeToast: (id: string) =>
@@ -1268,6 +1298,8 @@ toggleMute: () => {
         // вернуть флаг в исходное состояние: иначе второе прохождение до последнего
         // Поколения встретило бы игрока молчащим финалом.
         finaleDismissed: false,
+        // Новая игра начинается без потраченного Compute: объяснять нечего.
+        computeRuleNotice: null,
       });
     },
 

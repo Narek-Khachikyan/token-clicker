@@ -8,8 +8,10 @@ import { exportSave } from '../economy/save';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import { CATALOG } from '../economy/catalog';
 import {
+  computeBonus,
   computeShortfall,
   discountMult,
+  freeCompute,
   isContentFinale,
   labIncomeShare,
   maxAffordable,
@@ -584,10 +586,12 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
     ['Текущее Поколение', `${CATALOG[state.generation].id}: ${CATALOG[state.generation].name}`],
     ['Максимальное Поколение', `${CATALOG[state.maxGeneration].id}: ${CATALOG[state.maxGeneration].name}`],
     ['Престижей совершено', <Num key="prestiges">{state.prestiges}</Num>],
+    ['Всего Compute', <Num key="compute">{formatNumber(state.compute, notation)}</Num>],
     [
-      'Всего Compute',
+      'Свободный Compute',
       <>
-        <Num key="compute">{state.compute}</Num> (+<Num>{state.compute}</Num>% к доходу)
+        <Num key="free">{formatNumber(freeCompute(state), notation)}</Num> (+
+        <Num>{formatNumber(computeBonus(freeCompute(state)) * 100, notation)}</Num>% к доходу)
       </>,
     ],
     ['Перков открыто', `${state.perks.length} / ${PERKS.length}`],
@@ -1496,6 +1500,69 @@ export const PrestigeModal: React.FC = () => {
             </div>
           </>
         )}
+      </div>
+    </ModalFrame>
+  );
+};
+
+/**
+ * Объяснение нового правила бонуса Compute (ADR-0010): показывается один раз игроку, у которого
+ * Доход после обновления упал, — молчаливое падение Дохода выглядело бы как поломка.
+ *
+ * Открытие целиком выводится из состояния (`computeBonusDrop`) и отметки браузера в сторе; в
+ * `GameState` признака нет. Пока открыт отчёт о простое, окно ждёт: два окна на одном входе
+ * гасили бы друг друга, а сумма простоя игроку нужнее.
+ */
+export const ComputeRuleModal: React.FC = () => {
+  const notice = useGameStore((s) => s.computeRuleNotice);
+  const offlineOpen = useGameStore((s) => s.offlineReport !== null);
+  const dismiss = useGameStore((s) => s.dismissComputeRuleNotice);
+  const notation = useGameStore((s) => s.state.settings.notation);
+  const { closing, requestClose } = useModalExit(notice !== null && !offlineOpen, dismiss);
+
+  if (!notice || offlineOpen) return null;
+
+  const pct = (share: number): React.ReactNode => <Num>+{formatNumber(share * 100, notation)}</Num>;
+
+  return (
+    <ModalFrame
+      isOpen
+      closing={closing}
+      requestClose={requestClose}
+      titleId="compute-rule-title"
+      tone="accent"
+      icon={<Icon name="bolt" size={22} />}
+      title="Compute теперь считается иначе"
+      footer={
+        <button
+          onClick={requestClose}
+          className="pixel-btn pixel-btn-accent"
+          style={{ flex: 1, padding: '12px', fontSize: '1.1rem' }}
+        >
+          Понятно
+        </button>
+      }
+    >
+      <div style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+        Бонус к Доходу теперь даёт только свободный Compute: начисленный минус потраченный на Перки.
+        Купленный Перк забирает у бонуса ровно свою цену, поэтому Compute можно копить ради Дохода
+        или тратить ради Перков.
+      </div>
+      <div
+        style={{
+          fontSize: '0.95rem',
+          backgroundColor: 'var(--tint-gold)',
+          border: '1px solid var(--gold)',
+          borderRadius: '4px',
+          padding: '8px 10px',
+          color: 'var(--gold)',
+        }}
+      >
+        Твой бонус к Доходу: был {pct(notice.before)}%, стал {pct(notice.after)}%.
+      </div>
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        Выше +100% бонус растёт всё медленнее и упирается в потолок. Цена каждого Перка в бонусе
+        видна на его карточке во вкладке «Престиж».
       </div>
     </ModalFrame>
   );

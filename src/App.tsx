@@ -8,6 +8,7 @@ import { ShopColumn } from './components/ShopColumn';
 import { Footer } from './components/Footer';
 import {
   AchievementsModal,
+  ComputeRuleModal,
   FinaleModal,
   OfflineModal,
   PrestigeModal,
@@ -304,6 +305,8 @@ export const App: React.FC = () => {
       {/* Экран финала контента: последнее Поколение пройдено, дальше идти некуда — игра обязана
           сказать об этом и предложить честный рестарт, а не прятать Престиж в приглушённую вкладку. */}
       <FinaleModal />
+      {/* После финала в DOM, чтобы лечь поверх него: объяснение падения Дохода нужно до всего. */}
+      <ComputeRuleModal />
       {/* Оверлей — празднование ПОСЛЕ Престижа, окно выше — подтверждение ДО него. */}
       <PrestigeOverlay />
     </div>

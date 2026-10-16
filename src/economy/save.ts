@@ -424,6 +424,36 @@ export function readStoredSave(): StoredSave {
 }
 
 /**
+ * Ключ отметки «объяснение нового правила Compute показано» (ADR-0010).
+ *
+ * Отдельно от сейва намеренно: в `GameState` отметка не живёт (поля сейва не растут), а в
+ * экспорт и импорт она попадать не должна — объяснение принадлежит этому браузеру, а не прогону.
+ */
+export const COMPUTE_RULE_SEEN_KEY = `${SAVE_KEY}:compute-rule-seen`;
+
+/**
+ * Видел ли этот браузер объяснение. Нечитаемое хранилище отвечает «видел»: без записи отметку
+ * не сохранить, и объяснение возвращалось бы при каждой загрузке.
+ */
+export function computeRuleSeen(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    return localStorage.getItem(COMPUTE_RULE_SEEN_KEY) !== null;
+  } catch {
+    return true;
+  }
+}
+
+export function markComputeRuleSeen(): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(COMPUTE_RULE_SEEN_KEY, '1');
+  } catch {
+    // ignore
+  }
+}
+
+/**
  * Увозит битые байты под отдельный ключ и освобождает основной под новую игру.
  * Копия — исходные байты один в один для ручного восстановления.
  */

@@ -6,10 +6,13 @@ import { LABS, type LabId } from '../data/labs';
 import {
   bulkCost,
   canPrestige,
+  computeBonus,
   discountMult,
+  freeCompute,
   incomeGain,
   isContentFinale,
   maxAffordable,
+  perkBonusLoss,
   prestigeGain,
   progressToNextAgent,
   sellRefund,
@@ -133,6 +136,28 @@ const TokenDeficit: React.FC<{ amount: number; notation: Notation }> = ({ amount
           Не хватает <Num>{formatNumber(amount, notation)}</Num>{' '}
           {/* Нотация обязательна: форма считается по цифрам той же записи, что и число. */}
           {formatCount(amount, 'Токен', 'Токена', 'Токенов', notation)}
+        </>
+      )}
+    </div>
+  );
+};
+
+/**
+ * Строка «Бонус к Доходу: −N%» на карточке Перка (ADR-0010).
+ *
+ * Цена Перка в бонусе: игрок видит, сколько Дохода уйдёт вместе с Compute, до нажатия кнопки.
+ * Под потолком та же цена стоит копейки, и тогда строка так и говорит, а не округляет до нуля.
+ */
+const PerkBonusLoss: React.FC<{ loss: number; notation: Notation }> = ({ loss, notation }) => {
+  const pct = loss * 100;
+  return (
+    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+      Бонус к Доходу:{' '}
+      {pct < 0.1 ? (
+        'почти не изменится'
+      ) : (
+        <>
+          <Num>−{formatNumber(pct, notation)}</Num>%
         </>
       )}
     </div>
@@ -274,7 +299,10 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const motion = useMotionAllowed();
   const d = discountMult(state);
   const upgrades = availableUpgrades(state);
-  const unspentCompute = state.compute - state.computeSpent;
+  const unspentCompute = freeCompute(state);
+  // Бонус к Доходу от свободного Compute и цена покупки в нём (ADR-0010): Перк отнимает ровно
+  // столько бонуса, сколько стоит, поэтому цифры берутся у движка, а не считаются здесь.
+  const computeBonusPct = computeBonus(unspentCompute) * 100;
   const finale = isContentFinale(state);
   const prestigeReady = canPrestige(state);
   // Вкладка приглушена, а не скрыта: скрытая вкладка — дверь в одну сторону, и игрок
@@ -985,7 +1013,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     <Num>+{formatNumber(prestigeGain(state), notation)}</Num>
                   </div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    (Каждая единица Compute даёт постоянный бонус +1% к Доходу)
+                    (Свободный Compute даёт бонус к Доходу: +1% за единицу, а потраченный на Перки не считается)
                   </div>
                 </div>
               )}
@@ -1312,6 +1340,12 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
               >
                 Постоянные перки (Свободно: <Num>{unspentCompute}</Num> Compute)
               </div>
+              {/* Свободный Compute даёт бонус к Доходу, Перк его отнимает: игрок видит обе стороны
+                  выбора «копить или тратить» до покупки, а не в упавшем Доходе после. */}
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                Свободный Compute даёт <Num>+{formatNumber(computeBonusPct, notation)}</Num>% к Доходу; покупка
+                Перка отнимает от бонуса его цену. Выше +100% бонус растёт всё медленнее.
+              </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {regularPerks.map((p) => {
@@ -1336,6 +1370,7 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                         {p.desc}
                       </div>
+                      {!owned && <PerkBonusLoss loss={perkBonusLoss(state, p.cost)} notation={notation} />}
 
                       {/* Отказ — той же обёрткой, что у Моделей/Апгрейдов: кнопка остаётся
                           disabled, Клик ловится на погружении, вспышка — на самой кнопке
@@ -1435,6 +1470,9 @@ export const ShopColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
                           разные тупики, и молча приглушённая карточка не объяснила бы, что
                           делать. Прошлые Поколения подписи не получают: они покупаемы как
                           обычные, упущенности нет. */}
+                      {!owned && !locked && (
+                        <PerkBonusLoss loss={perkBonusLoss(state, nextGenPerkCost)} notation={notation} />
+                      )}
                       {locked && (
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                           {isFutureGen

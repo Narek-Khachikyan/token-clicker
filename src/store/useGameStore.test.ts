@@ -982,6 +982,53 @@ describe('return report', () => {
   });
 });
 
+describe('compute rule notice', () => {
+  /** Хранилище живёт между перезагрузками модуля: «показано один раз» проверяется только так. */
+  const disk = new Map<string, string>();
+  const boot = async () => {
+    vi.stubGlobal('window', { innerWidth: 800, innerHeight: 600 });
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => disk.get(k) ?? null,
+      setItem: (k: string, v: string) => void disk.set(k, v),
+      removeItem: (k: string) => void disk.delete(k),
+    });
+    vi.resetModules();
+    return (await import('./useGameStore')).useGameStore;
+  };
+  const saved = (patch: Partial<GameState>) => {
+    const now = Date.now();
+    disk.set(SAVE_KEY, serialize({ ...newGame(now), lastTick: now, ...patch }));
+  };
+
+  beforeEach(() => disk.clear());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('tells a player with spent compute once why income fell, then never again', async () => {
+    saved({ compute: 200, computeSpent: 120 });
+    const first = await boot();
+    // Было +200% от всего Compute, стало +80% от свободного.
+    expect(first.getState().computeRuleNotice).toEqual({ before: 2, after: 0.8 });
+    // Пока игрок не закрыл окно, оно возвращается: молча проглоченное объяснение не объяснение.
+    expect((await boot()).getState().computeRuleNotice).not.toBeNull();
+    (await boot()).getState().dismissComputeRuleNotice();
+    expect((await boot()).getState().computeRuleNotice).toBeNull();
+  });
+
+  it('stays silent for a new player, even after they spend compute later', async () => {
+    const fresh = await boot();
+    expect(fresh.getState().computeRuleNotice).toBeNull();
+    // Позже у новичка появился потраченный Compute: падение Дохода — следствие его покупки,
+    // а не обновления, и объяснять нечего.
+    saved({ compute: 200, computeSpent: 120 });
+    expect((await boot()).getState().computeRuleNotice).toBeNull();
+  });
+
+  it('stays silent when nothing was spent, since the income did not change', async () => {
+    saved({ compute: 50, computeSpent: 0 });
+    expect((await boot()).getState().computeRuleNotice).toBeNull();
+  });
+});
+
 describe('quips', () => {
   it('shows the speaking model bubble on the fourth click, even with no agents', () => {
     // До первой покупки lab null — и первая реплика всё равно видна.
@@ -1173,7 +1220,8 @@ describe('the save', () => {
       getItem: (k: string) => cell.get(k) ?? null,
       setItem: (k: string, v: string) => {
         cell.set(k, v);
-        writes.push(v);
+        // Считаются записи сейва: отметка объяснения нового правила — отдельный ключ.
+        if (k === SAVE_KEY) writes.push(v);
       },
       removeItem: (k: string) => cell.delete(k),
       ...storage,
