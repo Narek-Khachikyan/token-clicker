@@ -254,3 +254,77 @@ export const clickColWidth = (vw: number): number =>
 /** Ширина колонки магазина при ширине окна `vw`. */
 export const shopColWidth = (vw: number): number =>
   clamp(vw * SHOP_COL_SHARE, SHOP_COL_MIN, SHOP_COL_MAX);
+
+/* ── Подсказка при наведении ───────────────────────────────────────────────────────
+   Карточка Модели и полная запись числа стоят рядом с тем, на что указывают, и не вылезают
+   за окно. Место карточки считается здесь, а не в компоненте: тесту нужны числа, а не пиксели. */
+
+/** Воздух между подсказкой и краем окна, px. */
+export const HINT_MARGIN = 8;
+/** Воздух между подсказкой и тем, на что она указывает, px. */
+export const HINT_GAP = 8;
+/** Ширина карточки Модели, px: пять строк «название — значение» Nunito 14 px без переносов. */
+export const HINT_CARD_W = 320;
+
+/** Ширина карточки в окне `vw`: не шире окна за вычетом воздуха, на 320 px это 304. */
+export const hintCardWidth = (vw: number): number => Math.min(HINT_CARD_W, vw - HINT_MARGIN * 2);
+
+export interface HintBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface HintPlacement {
+  left: number;
+  top: number;
+  /** Выше этой высоты содержимое прокручивается: карточка не должна выходить за окно. */
+  maxHeight: number;
+  /** С какой стороны от цели встала подсказка. */
+  side: 'left' | 'right' | 'below' | 'above';
+}
+
+/**
+ * Куда поставить подсказку размера `size` у цели `anchor` в окне `viewport`.
+ *
+ * Сначала сбоку: на десктопе магазин стоит у правого края, и карточка ложится на Сцену слева,
+ * не закрывая ни саму строку, ни кнопки рядом с ней. Если сбоку не хватает ширины (одна
+ * колонка на телефоне и в узком окне), подсказка уходит под цель или над ней, туда, где места
+ * больше; не вмещаясь и там, она берёт всё доступное и прокручивается. По вертикали сбоку она
+ * прижимается к верху цели и сдвигается ровно настолько, чтобы остаться в окне.
+ */
+export function placeHint(
+  anchor: HintBox,
+  size: { width: number; height: number },
+  viewport: { width: number; height: number },
+): HintPlacement {
+  const fitY = (top: number, height: number) =>
+    clamp(top, HINT_MARGIN, Math.max(HINT_MARGIN, viewport.height - HINT_MARGIN - height));
+  const fitX = (left: number) =>
+    clamp(left, HINT_MARGIN, Math.max(HINT_MARGIN, viewport.width - HINT_MARGIN - size.width));
+  const maxSide = viewport.height - HINT_MARGIN * 2;
+
+  const roomLeft = anchor.left - HINT_GAP - HINT_MARGIN;
+  if (roomLeft >= size.width) {
+    const height = Math.min(size.height, maxSide);
+    return { left: anchor.left - HINT_GAP - size.width, top: fitY(anchor.top, height), maxHeight: maxSide, side: 'left' };
+  }
+  const roomRight = viewport.width - (anchor.left + anchor.width) - HINT_GAP - HINT_MARGIN;
+  if (roomRight >= size.width) {
+    const height = Math.min(size.height, maxSide);
+    return { left: anchor.left + anchor.width + HINT_GAP, top: fitY(anchor.top, height), maxHeight: maxSide, side: 'right' };
+  }
+
+  const roomBelow = viewport.height - (anchor.top + anchor.height) - HINT_GAP - HINT_MARGIN;
+  const roomAbove = anchor.top - HINT_GAP - HINT_MARGIN;
+  const below = size.height <= roomBelow || (size.height > roomAbove && roomBelow >= roomAbove);
+  const room = Math.max(0, below ? roomBelow : roomAbove);
+  const height = Math.min(size.height, room);
+  return {
+    left: fitX(anchor.left + (anchor.width - size.width) / 2),
+    top: below ? anchor.top + anchor.height + HINT_GAP : anchor.top - HINT_GAP - height,
+    maxHeight: room,
+    side: below ? 'below' : 'above',
+  };
+}

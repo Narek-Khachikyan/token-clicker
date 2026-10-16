@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { effectAllowed, SAVE_INTERVAL_MS, SCENE_MOMENT_MS, useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
-import { CHALLENGES } from '../economy/challenges';
 import { QUIPS } from '../data/quips';
 import { pickQuip } from '../economy/quips';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
@@ -18,7 +17,6 @@ import {
 } from '../economy/engine';
 import { EVENT_TABLES, grantAmount } from '../economy/events';
 import { RED_TABLES } from '../economy/glitches';
-import { formatNumber } from '../economy/format';
 import {
   GLITCH_CLICKS,
   glitchPayout,
@@ -95,6 +93,9 @@ const first = g0.models[0];
 
 const store = () => useGameStore.getState();
 const state = () => store().state;
+/** Тосты не о Достижениях: пачка Достижений, выданная теми же переходами, к ним не относится. */
+const otherToasts = () =>
+  store().toasts.filter((t) => t.title !== 'Достижение разблокировано!' && !/^\+\d+ Достижени/.test(t.title));
 const rich = (s: GameState, tokens: number): GameState => ({ ...s, tokens, runTokens: tokens });
 
 /**
@@ -167,18 +168,18 @@ describe('glitch schedule', () => {
     expect(state().glitches).toHaveLength(1);
   });
 
-  it('says who arrived, but only for the first glitch of the run', () => {
+  it('spawns glitches without a single toast, the scene shows them', () => {
     reachedGeneration(2);
     hire(CATALOG[2].models[0].id);
     tick();
     useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick } });
     tick();
-    expect(store().toasts.map((t) => t.title)).toContain('Паразит в офисе');
-    // Молчаливый спавн паразита читался бы как ошибка, но объяснять каждый — как извинение.
+    expect(state().glitchSeq).toBe(1);
+    expect(otherToasts()).toEqual([]);
     useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick } });
     useGameStore.setState({ toasts: [] });
     tick();
-    expect(store().toasts).toEqual([]);
+    expect(otherToasts()).toEqual([]);
   });
 
   it('has no schedule at all on the first screen', () => {
@@ -194,12 +195,11 @@ describe('uprising', () => {
     // Флагман Поколения 0 — первый экран: стадия 0, и сплошь красные события на нём не выдаются.
     hire(CATALOG[0].flagship.id, 1);
     expect(state().uprising).toBe(0);
-    expect(store().toasts.filter((t) => t.title === 'Восстание моделей')).toEqual([]);
     store().triggerPrestige();
     // Флагман Поколения 1 — порог стадии 1.
     hire(CATALOG[1].flagship.id, 1);
     expect(state().uprising).toBe(1);
-    expect(store().toasts.map((t) => t.title)).toContain('Восстание моделей');
+    expect(store().toasts.filter((t) => t.title !== 'Достижение разблокировано!' && !t.title.startsWith('+'))).toEqual([]);
   });
 
   it('raises once per generation and never twice for the same flagship', () => {
@@ -207,13 +207,11 @@ describe('uprising', () => {
     expect(state().uprising).toBe(1);
     hire(CATALOG[2].flagship.id, 1);
     expect(state().uprising).toBe(2);
-    const raised = store().toasts.filter((t) => t.title === 'Восстание моделей').length;
     // Второй Агент того же Флагмана и обычная Модель того же Поколения стадию не двигают:
-    // переход возвращает тот же объект, и ни тост, ни звук не срабатывают.
+    // переход возвращает тот же объект.
     hire(CATALOG[2].flagship.id, 1);
     hire(CATALOG[2].models[0].id);
     expect(state().uprising).toBe(2);
-    expect(store().toasts.filter((t) => t.title === 'Восстание моделей')).toHaveLength(raised);
   });
 });
 
@@ -265,8 +263,8 @@ describe('catching an event', () => {
     expect(state().tokens).toBe(before.tokens);
     expect(state().eventCaughtAt).toBe(0);
     expect(store().crashArmedAt).toBe(before.event!.startedAt);
-    // Сумма названа: игрок должен знать, во что он соглашается, до того как согласится.
-    expect(store().toasts.map((t) => t.title)).toContain('Крах');
+    // Взвод назван на самой карточке события (подпись «Списать −N%»), а не тостом.
+    expect(otherToasts()).toEqual([]);
     // Ушёл — окно ушло, кошелёк цел: единственная кнопка так и не стала списанием. Доход за время
     // ожидания честно капает в плюс, поэтому сравнение идёт с ним, а не с нулём.
     tick(RED_TABLES.grant.durationMs / 1000 + 1);
@@ -336,7 +334,8 @@ describe('catching an event', () => {
     store().catchEvent();
     expect(state().tokens).toBe(before.tokens);
     expect(state().event).toEqual(before.event);
-    expect(store().toasts.map((t) => t.title)).toContain('Событие поймано');
+    expect(store().eventCaught).toBe(true);
+    expect(otherToasts()).toEqual([]);
   });
 
   it('does nothing without a live event', () => {
@@ -483,10 +482,8 @@ describe('collecting a rumor', () => {
     expect(state().tokens - before.tokens).toBeCloseTo(wanted, 6);
     expect(state().runTokens - before.runTokens).toBeCloseTo(wanted, 6);
     expect(state().totalTokens - before.totalTokens).toBeCloseTo(wanted, 6);
-    // Выплата обязана быть названа: лента обещает разовые Токены, и одной прибавки мало.
-    expect(store().toasts.find((t) => t.title === 'Слух пойман')?.desc).toBe(
-      `+${formatNumber(wanted, state().settings.notation)} Токенов`,
-    );
+    // Тостов о Слухах нет: выплату видно в счётчике, а клик отвечает звуком.
+    expect(otherToasts()).toEqual([]);
     expect(vi.mocked(playBuySound)).toHaveBeenCalledTimes(1);
     // Тот же слух второй раз: ни Токенов, ни тоста, ни звука, и состояние остаётся тем же объектом.
     const paid = state();
@@ -531,9 +528,7 @@ describe('collecting a rumor', () => {
     // сломанная кнопка.
     expect(vi.mocked(playBuySound)).not.toHaveBeenCalled();
     expect(vi.mocked(playClickSound)).toHaveBeenCalledTimes(1);
-    expect(store().toasts.find((t) => t.title === 'Слух пойман')?.desc).toBe(
-      'В этот раз никто ничего не принёс.',
-    );
+    expect(store().toasts).toEqual([]);
     // Забор ставится и на пустой выплате: тот же слух второй раз всё равно молчит.
     expect(store().collectedRumorId).toBe(1);
   });
@@ -645,8 +640,8 @@ describe('pledge and license', () => {
     expect((state().totalTokens - before.totalTokens) / payout).toBeCloseTo(1, 6);
     // Глюки, снимавшие долю Дохода, исчезли, и остаётся ровно налог за «Лицензию».
     expect(totalIncome(state()) / income).toBeCloseTo(1 - LICENSE_INCOME_TAX, 6);
-    // Выплата обязана быть сказана: Глюков на экране больше нет, иначе она видна только в счётчике.
-    expect(store().toasts.map((t) => t.title)).toContain('Лицензия куплена');
+    // Тостов о Глюках нет, в том числе о «Лицензии».
+    expect(otherToasts()).toEqual([]);
   });
 
   it('charges for the revoke and gives the taxed income back', () => {
@@ -748,32 +743,27 @@ describe('event window', () => {
     event: { kind, startedAt, red: false },
   });
 
-  it('announces a window the player has not seen, and does not announce it twice', () => {
+  it('notes a window the player has not seen once, and never with a toast', () => {
     reachedGeneration(2);
     useGameStore.setState({ state: liveEvent(), toasts: [] });
     tick();
     expect(store().eventWindowAt).toBe(state().event?.startedAt);
-    expect(store().toasts.map((t) => t.title)).toContain('Событие');
-    useGameStore.setState({ toasts: [] });
+    expect(otherToasts()).toEqual([]);
     tick();
-    expect(store().toasts).toEqual([]);
+    expect(otherToasts()).toEqual([]);
   });
 
-  it('reports a window that expired uncaught, once', () => {
+  it('lets a window expire uncaught without a farewell toast', () => {
     reachedGeneration(2);
     useGameStore.setState({ state: liveEvent(), toasts: [] });
     tick();
-    useGameStore.setState({ toasts: [] });
     // Активными шагами, а не одним длинным тиком: короткий тик идёт через обычный Доход, и
     // проверка не зависит от оффлайн-ветки.
     for (let i = 0; i < 5; i++) tick(5);
-    expect(store().toasts.map((t) => t.title)).toContain('Событие ушло');
-    useGameStore.setState({ toasts: [] });
-    tick();
-    expect(store().toasts).toEqual([]);
+    expect(otherToasts()).toEqual([]);
   });
 
-  it('stays silent on a single long tick and announces the fresh window on the next active one', () => {
+  it('makes no toasts on a single long tick, and notes the fresh window on the next active one', () => {
     freshStore();
     // Окно назрело, но его ещё нет: длинный тик создаст его в самом конце интервала.
     useGameStore.setState({
@@ -782,18 +772,19 @@ describe('event window', () => {
     });
     // Один тик через ветку простоя: окно, покрытое им целиком, игрок не видел.
     tick(3600);
-    const titles = store().toasts.map((t) => t.title);
-    expect(titles).not.toContain('Событие');
-    expect(titles).not.toContain('Событие ушло');
-    // Окно при этом создалось и ждёт объявления, а отметка «уже говорили» не сдвинута.
+    expect(store().toasts.filter((t) => t.title === 'Достижение разблокировано!' || t.title.startsWith('+'))).toHaveLength(
+      store().toasts.length,
+    );
+    expect(store().toasts.length).toBeLessThanOrEqual(1);
+    // Окно при этом создалось и ждёт замечания, а отметка «уже говорили» не сдвинута.
     expect(state().event).not.toBeNull();
     expect(store().eventWindowAt).not.toBe(state().event?.startedAt);
-    // Следующий активный тик объявляет ещё живое окно обычным порядком.
+    // Следующий активный тик замечает ещё живое окно обычным порядком.
     tick();
-    expect(store().toasts.map((t) => t.title)).toContain('Событие');
+    expect(store().eventWindowAt).toBe(state().event?.startedAt);
   });
 
-  it('covers a whole live window in one long tick without a farewell, then says it on the next active tick', () => {
+  it('covers a whole live window in one long tick without a toast pair, the player was not there', () => {
     freshStore();
     const started = state().lastTick;
     // «Грант» живёт 15 с, а следующее окно далеко: длинный тик накроет окно целиком
@@ -803,36 +794,30 @@ describe('event window', () => {
       toasts: [],
     });
     tick();
-    expect(store().toasts.map((t) => t.title)).toContain('Событие');
     useGameStore.setState({ toasts: [] });
     tick(60);
-    const titles = store().toasts.map((t) => t.title);
-    expect(titles).not.toContain('Событие');
-    expect(titles).not.toContain('Событие ушло');
-    // Прощание не потеряно, а отложено до присутствия игрока: окно было увидено,
-    // и следующий активный тик о нём сообщает.
     tick();
-    expect(store().toasts.map((t) => t.title)).toContain('Событие ушло');
+    tick();
+    const events = store().toasts.filter((t) => t.title.startsWith('Событие'));
+    expect(events).toEqual([]);
   });
 
-  it('folds several milestones claimed in one tick into a single toast', () => {
+  it('claims several milestones in one tick without any toast', () => {
     freshStore();
     store().clickPrompt(100, 100);
     hire(first.id, 10);
-    // Четвёртая веха подряд требует жара: без него забралась бы только первая,
-    // и пачки, которую надо сворачивать, не получилось бы.
+    // Четвёртая веха подряд требует жара: без него забралась бы только первая.
     useGameStore.setState({ state: { ...state(), temp: 0.8 }, toasts: [] });
     tick();
-    const milestoneToasts = store().toasts.filter((t) => t.title.startsWith('Вех'));
-    expect(milestoneToasts).toHaveLength(1);
-    expect(milestoneToasts[0].title).toBe('Вехи выполнены: 4');
+    expect(state().milestones.length).toBeGreaterThan(1);
+    expect(store().toasts.filter((t) => t.title.startsWith('Вех'))).toEqual([]);
   });
 
   it('keeps the alert a perk instead of a base feature', () => {
     reachedGeneration(2);
     useGameStore.setState({ state: liveEvent(), toasts: [] });
     tick();
-    expect(store().toasts.map((t) => t.title)).toContain('Событие');
+    expect(store().eventWindowAt).toBe(state().event?.startedAt);
     expect(vi.mocked(playEventAlertSound)).not.toHaveBeenCalled();
 
     // Следующее окно: стор о нём ещё не говорил, а Перк уже куплен — сигнал обязан прозвучать.
@@ -917,6 +902,53 @@ describe('achievement awards', () => {
     expect(toasts[0].desc).toBe(agents1?.desc);
     expect(vi.mocked(playAchievementSound)).toHaveBeenCalledTimes(1);
     expect(store().burst?.kind).toBe('achievement');
+  });
+
+  it('folds a batch of achievements from one tick into a single toast with the right plural', () => {
+    reachedGeneration(2);
+    hire(first.id, 100);
+    // Достижения сняты, а условия остались выполненными: следующий тик выдаёт их пачкой.
+    useGameStore.setState({ state: { ...state(), achievements: [], clicks: 10000 }, toasts: [] });
+    const before = state();
+    vi.mocked(playAchievementSound).mockClear();
+    tick();
+    const awarded = ACHIEVEMENTS.filter((a) => state().achievements.includes(a.id) && !before.achievements.includes(a.id));
+    expect(awarded.length).toBeGreaterThan(1);
+    // Одна карточка на пачку и один звук, а не стена карточек.
+    expect(store().toasts).toHaveLength(1);
+    expect(vi.mocked(playAchievementSound)).toHaveBeenCalledTimes(1);
+    const toast = store().toasts[0];
+    const n = awarded.length;
+    const word = n % 10 === 1 && n % 100 !== 11 ? 'Достижение' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'Достижения' : 'Достижений';
+    expect(toast.title).toBe(`+${n} ${word}`);
+    // Названия урезаны до трёх, остальное — счётом: карточка обязана помещаться на 320 px.
+    expect(toast.name.split(' · ')).toHaveLength(Math.min(n, 3));
+    expect(toast.name.split(' · ')[0]).toBe(awarded[0].name);
+    expect(toast.desc).toBe(n > 3 ? `и ещё ${n - 3}` : '');
+  });
+
+  it('keeps one achievement as its own card and joins a long tick batch into at most one toast', () => {
+    reachedGeneration(2);
+    hire(first.id, 100);
+    useGameStore.setState({ state: { ...state(), achievements: [], clicks: 10000 }, toasts: [] });
+    // Длинный тик (простой) тоже выдаёт пачку, но не стену карточек.
+    tick(3600);
+    expect(store().toasts.length).toBeLessThanOrEqual(1);
+    expect(store().toasts.every((t) => t.title === 'Достижение разблокировано!' || t.title.startsWith('+'))).toBe(true);
+  });
+
+  it('makes toasts for achievements only, whatever else the player does', () => {
+    reachedGeneration(2);
+    hire(first.id, 10);
+    useGameStore.setState({ toasts: [] });
+    for (let i = 0; i < 30; i++) tick(1);
+    store().clickPrompt(10, 10);
+    store().buyLicense();
+    store().shatterCrystal();
+    store().collectRumor(1);
+    store().catchEvent();
+    const ok = (t: { title: string }) => t.title === 'Достижение разблокировано!' || /^\+\d+ Достижени/.test(t.title);
+    expect(store().toasts.filter((t) => !ok(t))).toEqual([]);
   });
 
   it('keeps a shadow that was the only award, because the state still has to reach the save', () => {
@@ -1123,17 +1155,14 @@ describe('quips', () => {
 });
 
 describe('starting a challenge', () => {
-  it('sets the challenge on a fresh run, toasts its desc and sounds the upgrade', () => {
+  it('sets the challenge on a fresh run and sounds the upgrade', () => {
     freshStore();
     expect(state().activeChallenge).toBeNull();
     vi.mocked(playUpgradeSound).mockClear();
     store().startChallenge('no-synergy');
     expect(state().activeChallenge).toBe('no-synergy');
-    // Испытание — не Достижение: тост называет его словами из таблицы ядра, а не id.
-    const def = CHALLENGES.find((c) => c.id === 'no-synergy');
-    const toast = store().toasts.find((t) => t.title === 'Испытание принято');
-    expect(toast?.name).toBe(def?.name);
-    expect(toast?.desc).toBe(def?.desc);
+    // Испытание — не Достижение: тоста нет.
+    expect(store().toasts).toEqual([]);
     expect(vi.mocked(playUpgradeSound)).toHaveBeenCalledTimes(1);
   });
 
@@ -1428,7 +1457,7 @@ describe('the finale screen flag', () => {
 });
 
 describe('shattering a crystal', () => {
-  it('pays the gain into the wallet, names the sum and sounds the achievement', () => {
+  it('pays the gain into the wallet and sounds the achievement', () => {
     freshStore();
     // Без Агентов Дохода нет, и впрыск — 15% кошелька: 150 из 1000.
     useGameStore.setState({ state: { ...state(), crystals: 2, tokens: 1000 } });
@@ -1439,11 +1468,7 @@ describe('shattering a crystal', () => {
     expect(state().tokens - before.tokens).toBe(150);
     expect(state().runTokens - before.runTokens).toBe(150);
     expect(state().totalTokens - before.totalTokens).toBe(150);
-    // Сумма обязана быть названа: кристалл стоит +1% Дохода навсегда, и молчаливый размен
-    // читался бы как пропавший кристалл.
-    expect(store().toasts.find((t) => t.title === 'Кристалл разбит')?.desc).toBe(
-      `+${formatNumber(150, state().settings.notation)} Токенов`,
-    );
+    expect(store().toasts).toEqual([]);
     expect(vi.mocked(playAchievementSound)).toHaveBeenCalledTimes(1);
   });
 
