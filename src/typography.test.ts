@@ -171,6 +171,20 @@ describe('fonts live in the project (ADR-0009)', () => {
   it('keeps the old pixel face out of the stylesheet', () => {
     expect(stylesheet).not.toMatch(/Pixelify/i);
   });
+
+  // Кнопка без своего класса берёт шрифт браузера (Arial) — третье начертание на экране, которого
+  // таблица стилей не называет. «ещё N» в хвосте очереди тостов была именно такой кнопкой.
+  it('makes every control inherit the body face instead of the browser own', () => {
+    const rule = [...stylesheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(([, selector]) =>
+      /^:where\(\s*button\b/.test(selector.trim()),
+    );
+    expect(rule, 'нет правила :where(button, …) { font-family: inherit }').toBeDefined();
+    const [, selector, body] = rule!;
+    for (const control of ['button', 'input', 'select', 'textarea']) {
+      expect(selector, `${control} не покрыт`).toContain(control);
+    }
+    expect(body).toMatch(/font-family:\s*inherit/);
+  });
 });
 
 describe('pixel text sits on three steps only (ADR-0009)', () => {
