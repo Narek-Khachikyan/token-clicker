@@ -6,6 +6,7 @@ import {
   crystalStockView,
   crystalUpgradeView,
   GOAL_TICK_COUNT,
+  modelFigures,
   modelView,
   pledgeView,
   prestigeCardView,
@@ -13,6 +14,7 @@ import {
 } from '../store/selectors';
 import { useMotionAllowed } from './EventSprites';
 import { CATALOG, type Model } from '../economy/catalog';
+import type { GameState } from '../economy/state';
 import { LABS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale } from '../economy/engine';
 import {
@@ -28,6 +30,9 @@ import { CRYSTAL_STOCK_CAP, CRYSTAL_UPGRADES, type CrystalUpgrade } from '../eco
 import { formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
+import { Hint } from './Hint';
+import { FullNumber } from './FullNumber';
+import { ModelHintCard } from './ModelHintCard';
 import { Icon } from './Icon';
 import { playDenySound } from '../audio/sound';
 
@@ -393,8 +398,12 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
   const view = useStateSlice((s) => modelView(s, m, buyAmount, sellMode));
   const { owned, count, canAfford, showsGain, goalTicks } = view;
   const lab = LABS[m.lab];
+  // Полная запись читает те же числа, что напечатаны на кнопке, но только в момент наведения.
+  const figure = (pick: (f: ReturnType<typeof modelFigures>) => number) => (s: GameState) =>
+    pick(modelFigures(s, m, buyAmount, sellMode));
 
   return (
+    <Hint as="div" variant="card" content={<ModelHintCard model={m} />}>
     <ModelRow owned={owned} isFlagship={m.isFlagship} canAfford={canAfford}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
@@ -511,7 +520,10 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
             {showsGain && (
               <>
                 {sellMode ? '−' : '+'}
-                <Num>{view.gainText}</Num> к доходу
+                <FullNumber value={figure((f) => f.gain)}>
+                  <Num>{view.gainText}</Num>
+                </FullNumber>{' '}
+                к доходу
               </>
             )}
           </div>
@@ -551,7 +563,11 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
                   )
                 ) : count > 0 ? (
                   <>
-                    Купить ×<Num>{count}</Num> (<Num>{view.costText}</Num>)
+                    Купить ×<Num>{count}</Num> (
+                    <FullNumber value={figure((f) => f.cost)}>
+                      <Num>{view.costText}</Num>
+                    </FullNumber>
+                    )
                   </>
                 ) : (
                   <>Купить</>
@@ -559,12 +575,18 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
               </span>
               {view.missingText !== '' && (
                 <span className="body-font" style={{ fontSize: '0.7rem', opacity: 0.85 }}>
-                  не хватает <Num>{view.missingText}</Num>
+                  не хватает{' '}
+                  <FullNumber value={figure((f) => f.missing)}>
+                    <Num>{view.missingText}</Num>
+                  </FullNumber>
                 </span>
               )}
               {sellMode && count > 0 && (
                 <span className="body-font" style={{ fontSize: '0.7rem', opacity: 0.85 }}>
-                  вернёт <Num>{view.refundText}</Num>
+                  вернёт{' '}
+                  <FullNumber value={figure((f) => f.refund)}>
+                    <Num>{view.refundText}</Num>
+                  </FullNumber>
                 </span>
               )}
             </span>
@@ -616,6 +638,7 @@ const ModelCard: React.FC<{ model: Model; aaOpen: boolean; onToggleAA: (id: stri
           подписи не осталось, и в закрытом виде повисала под рельсом чужой чертой. */}
       {isAAOpen && <AAReference model={m} />}
     </ModelRow>
+    </Hint>
   );
 };
 
@@ -710,7 +733,11 @@ const UpgradeCard: React.FC<{ upgrade: Upgrade }> = ({ upgrade: u }) => {
         >
           {/* Цена живёт в кнопке на всех вкладках магазина: в шапке карточки её
               больше нет, поэтому искать её приходилось в двух разных местах. */}
-          Улучшить (<Num>{costText}</Num>)
+          Улучшить (
+          <FullNumber value={u.cost}>
+            <Num>{costText}</Num>
+          </FullNumber>
+          )
         </button>
 
         <TokenDeficit text={missingText} word={missingWord} />

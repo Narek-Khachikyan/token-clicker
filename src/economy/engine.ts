@@ -237,29 +237,68 @@ export function assistClickBonus(state: GameState): number {
 }
 
 /**
- * Доход Модели от постоянных множителей: Апгрейды, Синергия Лаборатории, парная Синергия,
- * флагман, Перки (включая особые), Датасет и Compute.
- *
- * Без события и без «Прорыва»: это и есть база, из которой платится и активный тик, и
- * оффлайн-доход. Часы здесь не нужны — ни один из этих множителей не зависит от времени.
+ * Из чего складывается Доход Модели, по видам множителя. Порядок — порядок умножения в
+ * `modelMultiplier`, и карточка Модели в магазине показывает строки именно в нём.
  */
-function modelBaseIncome(state: GameState, model: Model): number {
-  const n = state.agents[model.id] ?? 0;
-  if (!n) return 0;
+export type IncomeFactorKind =
+  | 'upgrades'
+  | 'synergy'
+  | 'flagship'
+  | 'labPerk'
+  | 'pairSynergy'
+  | 'genPerk'
+  | 'dataset'
+  | 'compute'
+  | 'crystals'
+  | 'covenant'
+  | 'challenge'
+  | 'surge';
+
+/** Один шаг умножения Дохода Модели: вид множителя и его значение. */
+export interface IncomeFactor {
+  kind: IncomeFactorKind;
+  mult: number;
+}
+
+const note = (out: IncomeFactor[] | undefined, kind: IncomeFactorKind, mult: number): void => {
+  if (out) out.push({ kind, mult });
+};
+
+/**
+ * Множитель Модели от её собственных усилений: Апгрейды, Синергия Лаборатории, парная Синергия,
+ * Флагман, Перки (включая особые) и Датасет. Compute и прочие постоянные множители всех Моделей
+ * сразу — в `globalMult`.
+ *
+ * Единственное место, где этот множитель считается: тик и карточка Модели в магазине читают его
+ * отсюда, поэтому разбивка на карточке не может разойтись с Доходом. `out` — необязательный
+ * журнал шагов в порядке умножения: тик зовёт функцию двадцать раз в секунду на каждую Модель и
+ * журнала не просит, поэтому аллокаций на горячем пути не прибавилось.
+ */
+function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): number {
   let mult = 1;
   for (let t = 0; t < MODEL_TIERS.length; t++) {
-    if (hasUpgrade(state, modelUpgradeId(model.id, t))) mult *= 2;
+    if (hasUpgrade(state, modelUpgradeId(model.id, t))) {
+      mult *= 2;
+      note(out, 'upgrades', 2);
+    }
   }
   // Испытание «Забег без Синергий» гасит оба синергийных множителя — лабораторный и парный, —
   // а Апгрейды Модели, Флагман, Перки и Датасет продолжают работать: испытание отменяет
   // Синергии, а не все усиления сразу.
   const noSynergy = state.activeChallenge === 'no-synergy';
   if (!noSynergy && hasUpgrade(state, synergyUpgradeId(state.generation, model.lab))) {
-    mult *= 1 + SYNERGY_PER_AGENT * labAgents(state, model.lab);
+    const synergy = 1 + SYNERGY_PER_AGENT * labAgents(state, model.lab);
+    mult *= synergy;
+    note(out, 'synergy', synergy);
   }
-  mult *= flagshipMult(state, model);
+  const flagship = flagshipMult(state, model);
+  mult *= flagship;
+  note(out, 'flagship', flagship);
   for (const e of perkEffects(state.perks)) {
-    if (e.kind === 'labBoost' && e.lab === model.lab) mult *= e.mult;
+    if (e.kind === 'labBoost' && e.lab === model.lab) {
+      mult *= e.mult;
+      note(out, 'labPerk', e.mult);
+    }
   }
   // Парная синергия проверяет состав live, а не только в момент покупки: продажа Агентов
   // ниже 15/15 гасит ×1.5 сразу, а запись о покупке остаётся и оживает при новом найме.
@@ -273,15 +312,58 @@ function modelBaseIncome(state: GameState, model: Model): number {
     if (noSynergy) continue;
     if (labAgents(state, u.lab) >= SYNERGY_MIN_AGENTS && labAgents(state, u.pairLab) >= SYNERGY_MIN_AGENTS) {
       mult *= PAIR_SYNERGY_MULT;
+      note(out, 'pairSynergy', PAIR_SYNERGY_MULT);
     }
   }
   // Особый Перк усиливает только Модели своего Поколения и одинаково все его ранги,
   // поэтому ранговая лестница внутри Поколения не инвертируется по построению.
-  mult *= generationBoostMult(perkEffects(state.perks), model.generation);
+  const genPerk = generationBoostMult(perkEffects(state.perks), model.generation);
+  mult *= genPerk;
+  note(out, 'genPerk', genPerk);
   // Датасет — последний множитель Модели: он считается от числа Достижений, а не от
   // конкретной Модели, поэтому ни один множитель выше не должен стоять после него.
-  mult *= datasetMult(state);
-  return model.baseIncome * n * mult * globalMult(state);
+  const dataset = datasetMult(state);
+  mult *= dataset;
+  note(out, 'dataset', dataset);
+  return mult;
+}
+
+/**
+ * Постоянные множители всех Моделей сразу, по видам, — то же произведение, что `globalMult`,
+ * только разложенное для карточки Модели. Тест держит равенство: два места, где они считаются,
+ * не должны разойтись.
+ */
+export function globalFactors(state: GameState): IncomeFactor[] {
+  return [
+    { kind: 'compute', mult: 1 + state.compute * COMPUTE_BONUS },
+    { kind: 'crystals', mult: crystalIncomeMult(state) },
+    { kind: 'covenant', mult: covenantIncomeMult(state) },
+    { kind: 'challenge', mult: challengeIncomeMult(state) },
+  ];
+}
+
+/**
+ * Доход Модели от постоянных множителей: Апгрейды, Синергия Лаборатории, парная Синергия,
+ * флагман, Перки (включая особые), Датасет и Compute.
+ *
+ * Без события и без «Прорыва»: это и есть база, из которой платится и активный тик, и
+ * оффлайн-доход. Часы здесь не нужны — ни один из этих множителей не зависит от времени.
+ */
+function modelBaseIncome(state: GameState, model: Model): number {
+  const n = state.agents[model.id] ?? 0;
+  if (!n) return 0;
+  return model.baseIncome * n * modelMultiplier(state, model) * globalMult(state);
+}
+
+/**
+ * Шаги умножения Дохода Модели в порядке, в котором их делает `modelIncome`: собственные
+ * множители Модели, затем общие. Вместе с базой одного Агента и числом Агентов их произведение
+ * равно `modelIncome` без «Прорыва» (его добавляет `surgeMultFor`).
+ */
+export function modelFactors(state: GameState, model: Model): IncomeFactor[] {
+  const out: IncomeFactor[] = [];
+  modelMultiplier(state, model, out);
+  return [...out, ...globalFactors(state)];
 }
 
 /**
@@ -475,14 +557,31 @@ export function click(state: GameState): GameState {
   return { ...s, clicks: s.clicks + 1, runClicks: s.runClicks + 1, catchUpPaid: state.catchUpPaid + catchUp };
 }
 
+/**
+ * Сколько Агентов и за сколько купит `buyAgents(state, model, n)` в этом состоянии.
+ *
+ * Покупка и карточка Модели в магазине спрашивают один и тот же ответ: карточка обещает итог
+ * ×10/×100/Max заранее, и обещание не может считаться отдельной формулой. Нехватка Токенов в
+ * ответ не входит — `cost` остаётся ценой желаемого, а решает, хватает ли, вызывающий.
+ */
+export function purchaseQuote(
+  state: GameState,
+  model: Model,
+  n: number | 'max',
+): { count: number; cost: number } {
+  const owned = state.agents[model.id] ?? 0;
+  const d = discountMult(state);
+  const count = n === 'max' ? maxAffordable(model, owned, state.tokens, d) : n;
+  if (count <= 0) return { count: 0, cost: 0 };
+  return { count, cost: bulkCost(model, owned, count, d) };
+}
+
 export function buyAgents(state: GameState, modelId: string, n: number | 'max'): GameState {
   const model = MODEL_BY_ID[modelId];
   if (!model || model.generation !== state.generation) return state;
   const owned = state.agents[modelId] ?? 0;
-  const d = discountMult(state);
-  const count = n === 'max' ? maxAffordable(model, owned, state.tokens, d) : n;
+  const { count, cost } = purchaseQuote(state, model, n);
   if (count <= 0) return state;
-  const cost = bulkCost(model, owned, count, d);
   if (cost > state.tokens) return state;
   return { ...state, tokens: state.tokens - cost, agents: { ...state.agents, [modelId]: owned + count } };
 }
