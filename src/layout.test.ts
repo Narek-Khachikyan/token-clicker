@@ -12,6 +12,11 @@ import {
   COUNTER_CHARS,
   counterWidth,
   HEADER_H,
+  hintCardWidth,
+  HINT_CARD_W,
+  HINT_MARGIN,
+  type HintBox,
+  placeHint,
   MASCOT_CARD_EDGE,
   MASCOT_CARD_W,
   mascotCardBottom,
@@ -316,5 +321,75 @@ describe('+N Серии', () => {
 
   it('leaves a point that already fits where it was', () => {
     expect(floaterLeft(700, 6, 22, 1440)).toBe(700);
+  });
+});
+
+describe('placeHint', () => {
+  const card = (vw: number, height = 360) => ({ width: hintCardWidth(vw), height });
+  const rowAt = (vw: number, top: number): HintBox => {
+    // Строка Модели в магазине: на десктопе — правая колонка, в одноколоночном режиме — всё окно.
+    const width = vw >= THREE_COL_MIN ? shopColWidth(vw) : vw;
+    return { left: vw - width, top, width, height: 140 };
+  };
+  const inside = (p: { left: number; top: number }, size: { width: number; height: number }, vw: number, vh: number) => {
+    expect(p.left).toBeGreaterThanOrEqual(HINT_MARGIN);
+    expect(p.top).toBeGreaterThanOrEqual(HINT_MARGIN);
+    expect(p.left + size.width).toBeLessThanOrEqual(vw - HINT_MARGIN);
+    expect(p.top + size.height).toBeLessThanOrEqual(vh - HINT_MARGIN);
+  };
+  const overlaps = (a: HintBox, b: HintBox) =>
+    a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
+
+  it('на десктопе ложится слева от магазина и не закрывает свою строку', () => {
+    for (const [vw, vh] of [[1131, 700], [1280, 800], [1440, 900], [2560, 1300]]) {
+      for (const top of [60, 300, 560]) {
+        const anchor = rowAt(vw, top);
+        const size = card(vw);
+        const p = placeHint(anchor, size, { width: vw, height: vh });
+        expect(p.side).toBe('left');
+        const box = { left: p.left, top: p.top, width: size.width, height: Math.min(size.height, p.maxHeight) };
+        expect(overlaps(box, anchor)).toBe(false);
+        inside(p, { width: size.width, height: box.height }, vw, vh);
+      }
+    }
+  });
+
+  it('в одну колонку уходит под строку или над ней и остаётся в окне на 320, 390 и 1024 px', () => {
+    for (const [vw, vh] of [[320, 568], [390, 844], [1024, 700]]) {
+      for (const top of [40, 200, 380, 500]) {
+        const anchor = rowAt(vw, top);
+        const size = card(vw);
+        const p = placeHint(anchor, size, { width: vw, height: vh });
+        expect(['below', 'above']).toContain(p.side);
+        const height = Math.min(size.height, p.maxHeight);
+        const box = { left: p.left, top: p.top, width: size.width, height };
+        expect(overlaps(box, anchor)).toBe(false);
+        inside(p, { width: size.width, height }, vw, vh);
+      }
+    }
+  });
+
+  it('выбирает сторону, где места больше, а не вмещающую только по случаю', () => {
+    const vw = 390;
+    const vh = 800;
+    const nearTop = placeHint(rowAt(vw, 20), card(vw), { width: vw, height: vh });
+    const nearBottom = placeHint(rowAt(vw, 640), card(vw), { width: vw, height: vh });
+    expect(nearTop.side).toBe('below');
+    expect(nearBottom.side).toBe('above');
+  });
+
+  it('карточка выше любой свободной стороны берёт всё место и прокручивается', () => {
+    const vw = 390;
+    const vh = 420;
+    const p = placeHint(rowAt(vw, 140), { width: hintCardWidth(vw), height: 900 }, { width: vw, height: vh });
+    expect(p.maxHeight).toBeLessThan(900);
+    expect(p.maxHeight).toBeGreaterThan(0);
+    expect(p.top).toBeGreaterThanOrEqual(HINT_MARGIN);
+    expect(p.top + p.maxHeight).toBeLessThanOrEqual(vh - HINT_MARGIN);
+  });
+
+  it('карточка помещается в окно шириной 320 px', () => {
+    expect(hintCardWidth(320)).toBe(320 - HINT_MARGIN * 2);
+    expect(hintCardWidth(1440)).toBe(HINT_CARD_W);
   });
 });

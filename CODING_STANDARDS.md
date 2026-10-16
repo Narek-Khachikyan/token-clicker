@@ -80,6 +80,11 @@ components/    presentation: reads state, calls actions
   `borderRadius` or blurred shadow on a button, tab, card or panel — `index.test.ts` enforces the
   CSS side (ADR-0008). A button is clipped by `clip-path`, so its rings go inside it. Dialogs trap focus through `useDialogFocus.ts`. Over a
   Сцена, every readable label sits off the artwork or on a darkened HUD band of its own (ADR-0002).
+- **Hints are `Hint.tsx`, never `title=`.** It opens on hover, on keyboard focus and on a tap (touch),
+  closes on Esc or a tap elsewhere, and mounts its content only while open. The Модель card
+  (`ModelHintCard`) reads `modelCardSummary` from `src/economy/modelCard.ts`, whose breakdown comes
+  from the same `modelMultiplier` the tick pays from; `FullNumber` shows `formatFull` for an
+  abbreviated number. Where a hint sits is `placeHint` in `layout.ts`.
 - **Audio is synthesized** — no files, no asset pipeline. `AudioContext` resumes only after a user
   gesture, so silence before the first click is expected. `sound.ts` owns the one context and the
   graph: the player's volume and mute live only on the master gain, the music and effects levels
