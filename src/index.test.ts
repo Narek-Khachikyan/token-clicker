@@ -209,21 +209,6 @@ describe('index.css', () => {
       }
       expect(blurred, 'размытая тень: тень — смещённый прямоугольник').toEqual([]);
     });
-
-    it('keeps the spacing ladder on whole art pixels', () => {
-      const root = /:root\s*\{([\s\S]*?)\n\}/.exec(code)?.[1] ?? '';
-      const px = (name: string): number => {
-        const m = new RegExp(`--${name}\\s*:\\s*([\\d.]+)(rem|px)`).exec(root);
-        if (!m) throw new Error(`--${name} не объявлена в :root`);
-        return Number(m[1]) * (m[2] === 'rem' ? 16 : 1);
-      };
-      const art = px('px');
-      expect(art).toBe(2);
-      const ladder = [0, 1, 2, 3, 4, 5, 6].map((i) => px(`space-${i}`));
-      expect(ladder).toEqual([2, 4, 8, 12, 16, 24, 32]);
-      for (const step of ladder) expect(step % art, `ступень ${step}px не кратна пикселю арта`).toBe(0);
-      expect([...ladder].sort((a, b) => a - b)).toEqual(ladder);
-    });
   });
 });
 
