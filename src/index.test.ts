@@ -35,6 +35,71 @@ describe('index.css', () => {
     }
   });
 
+  // Переключатель «меньше анимации» сильнее системной настройки: всё, что двигает или растягивает,
+  // обязано гаситься и им. Раньше ручка шкалы Температуры выезжала под пальцем при включённом
+  // переключателе, потому что переход жил только под системным гейтом. Тест читает таблицу
+  // стилей, а не поведение браузера: поведение проверяется в браузере, а здесь — что у каждого
+  // перехода положения или размера в гейте движения есть пара под data-motion.
+  describe('player motion switch', () => {
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const MOVES = /\b(width|height|left|right|top|bottom|margin[\w-]*|padding[\w-]*|inset|transform|translate|scale|rotate|all)\b/;
+    const rules = (text: string): Array<{ selectors: string[]; body: string }> =>
+      [...text.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+        selectors: m[1].split(',').map((x) => x.trim().replace(/\s+/g, ' ')),
+        body: m[2],
+      }));
+    // Переход с нулевой длительностью («transform 0s» на нажатой кнопке) ничего не двигает.
+    const moves = (value: string): boolean =>
+      value.split(/,(?![^(]*\))/).some((part) => MOVES.test(part) && !/\s0m?s\b/.test(part));
+    const transitionOf = (body: string): string | undefined => /(?<![\w-])transition\s*:\s*([^;]+)/.exec(body)?.[1];
+
+    // Тело блока `@media (prefers-reduced-motion: no-preference)` по балансу скобок.
+    const gated: string[] = [];
+    for (const m of code.matchAll(/@media\s*\(prefers-reduced-motion:\s*no-preference\)\s*\{/g)) {
+      let depth = 1;
+      let i = m.index + m[0].length;
+      const start = i;
+      for (; i < code.length && depth > 0; i++) depth += code[i] === '{' ? 1 : code[i] === '}' ? -1 : 0;
+      gated.push(code.slice(start, i - 1));
+    }
+    const switchRules = rules(code).filter((r) => r.selectors.every((x) => /\[data-motion=.reduced.\]/.test(x)));
+
+    it('reads at least one motion gate', () => {
+      expect(gated.length).toBeGreaterThan(0);
+    });
+
+    it('lets the player switch turn off every transition that moves or resizes something', () => {
+      const unpaired: string[] = [];
+      for (const block of gated) {
+        for (const rule of rules(block)) {
+          const value = transitionOf(rule.body);
+          if (!value || !moves(value)) continue;
+          for (const selector of rule.selectors) {
+            const pair = switchRules.find(
+              (r) =>
+                r.selectors.some((x) => x.replace(/^\.app-root/, '').trim() === `[data-motion='reduced'] ${selector}`) &&
+                (() => {
+                  const kept = transitionOf(r.body);
+                  return kept !== undefined && (kept.trim() === 'none' || !moves(kept));
+                })(),
+            );
+            if (!pair) unpaired.push(`${selector}: transition ${value.trim()}`);
+          }
+        }
+      }
+      expect(unpaired, 'переход положения или размера без пары под [data-motion=\'reduced\']').toEqual([]);
+    });
+
+    it('keeps the Temperature scale, its handle and its heat line still under the switch', () => {
+      for (const part of ['fill', 'handle', 'heat']) {
+        const selector = `[data-motion='reduced'] .thermal-dial__${part}`;
+        const rule = switchRules.find((r) => r.selectors.includes(selector));
+        expect(rule, `нет правила ${selector}`).toBeDefined();
+        expect(transitionOf(rule?.body ?? '')?.trim()).toBe('none');
+      }
+    });
+  });
+
   // Пиксельный интерфейс (ADR-0008): скруглений и размытых теней у кнопок, вкладок, карточек и
   // панелей нет. Тест читает таблицу стилей без комментариев, чтобы пояснение «скруглений нет» в
   // комментарии не считалось нарушением.
