@@ -1618,6 +1618,12 @@ describe('the save', () => {
     });
   });
 
+  it('writes an effect switch to the save on the same touch, not on a later save', async () => {
+    const w = await windowed();
+    w.store.getState().setEffect('shake', false);
+    expect(w.saved()?.settings).toMatchObject({ shake: false });
+  });
+
   it('has the imported run in the save, so a reload cannot undo the import', async () => {
     const w = await windowed();
     const other: GameState = { ...newGame(T0), generation: 1, maxGeneration: 1, totalTokens: 5e9 };
