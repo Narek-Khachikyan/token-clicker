@@ -7,6 +7,8 @@ import { pickQuip } from '../economy/quips';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
 import { ACHIEVEMENTS } from '../economy/achievements';
 import {
+  BASE_OFFLINE_HOURS,
+  buyAgents as engineBuyAgents,
   canPrestige,
   clickValue,
   computeShortfall,
@@ -974,12 +976,117 @@ describe('return report', () => {
     expect(snapshot.state.crystals).toBe(1);
   });
 
+  it('on load, says how much of the absence was credited and where it came from', async () => {
+    const now = Date.now();
+    const away = 30 * HOUR;
+    const s: GameState = { ...newGame(now - away), tokens: 1e50, totalTokens: 1e9, lastTick: now - away, temp: 0, heat: 0 };
+    const staffed = engineBuyAgents(s, g0.models[0].id, 5);
+    const snapshot = await reloadWith(serialize({ ...staffed, lastTick: now - away }));
+    const report = snapshot.offlineReport!;
+    expect(report.seconds).toBe(BASE_OFFLINE_HOURS * 3600);
+    expect(Math.abs(report.elapsed - away / 1000)).toBeLessThan(2);
+    expect(report.rows.length).toBeGreaterThan(0);
+    expect(Math.abs(report.rows.reduce((a, r) => a + r.earned, 0) - report.earned)).toBeLessThanOrEqual(report.earned * 1e-9);
+  });
+
   it('says nothing when the absence brought nothing', async () => {
     const now = Date.now();
     const snapshot = await reloadWith(
       serialize({ ...newGame(now - HOUR), tokens: 0, totalTokens: 1e9, lastTick: now - HOUR }),
     );
     expect(snapshot.offlineReport).toBeNull();
+  });
+});
+
+describe('return report from a long tick', () => {
+  const sumRows = () => (store().offlineReport?.rows ?? []).reduce((a, r) => a + r.earned, 0);
+  /** Агенты в двух Лабораториях: разбивке есть что делить. */
+  const staff = (): void => {
+    for (const m of g0.models.slice(0, 3)) hire(m.id, 10);
+  };
+
+  it('breaks the pay down by source and counts how much of the absence was credited', () => {
+    staff();
+    const before = state().totalTokens;
+    tick(3 * 3600);
+    const report = store().offlineReport;
+    expect(report).not.toBeNull();
+    expect(report!.seconds).toBe(3 * 3600);
+    expect(report!.elapsed).toBe(3 * 3600);
+    // Сумма строк — это начисленное, а начисленное — это то, что реально легло в кошелёк.
+    expect(report!.earned).toBeGreaterThan(0);
+    expect(state().totalTokens - before).toBeCloseTo(report!.earned, -Math.floor(Math.log10(report!.earned)) + 6);
+    expect(Math.abs(sumRows() - report!.earned)).toBeLessThanOrEqual(report!.earned * 1e-9);
+  });
+
+  it('says "credited 8 of 100 hours" when the absence hit the cap', () => {
+    staff();
+    tick(100 * 3600);
+    const report = store().offlineReport!;
+    expect(report.seconds).toBe(BASE_OFFLINE_HOURS * 3600);
+    expect(report.elapsed).toBe(100 * 3600);
+    expect(Math.abs(sumRows() - report.earned)).toBeLessThanOrEqual(report.earned * 1e-9);
+  });
+
+  it('opens nothing for a short pause', () => {
+    staff();
+    tick(5);
+    expect(store().offlineReport).toBeNull();
+  });
+
+  it('does not open the screen when the tab is hidden and shown quickly', () => {
+    staff();
+    for (let i = 0; i < 5; i++) {
+      store().setTabHidden(true);
+      tick(1);
+      store().setTabHidden(false);
+    }
+    expect(store().offlineReport).toBeNull();
+  });
+
+  it('opens one screen when the player returns, and never a second one on later switches', () => {
+    staff();
+    store().setTabHidden(true);
+    // Скрытая вкладка просыпается раз в минуту: каждый такой тик — длинный.
+    for (let i = 0; i < 3; i++) tick(60);
+    expect(store().offlineReport).toBeNull();
+    store().setTabHidden(false);
+    const report = store().offlineReport;
+    expect(report).not.toBeNull();
+    expect(report!.elapsed).toBe(180);
+    expect(Math.abs(sumRows() - report!.earned)).toBeLessThanOrEqual(report!.earned * 1e-9);
+
+    store().dismissOfflineReport();
+    for (let i = 0; i < 4; i++) {
+      store().setTabHidden(true);
+      store().setTabHidden(false);
+    }
+    expect(store().offlineReport).toBeNull();
+  });
+
+  it('adds a second long pause to the open screen instead of opening another', () => {
+    staff();
+    tick(3600);
+    const first = store().offlineReport!.earned;
+    tick(3600);
+    expect(store().offlineReport!.elapsed).toBe(7200);
+    expect(store().offlineReport!.earned).toBeGreaterThan(first);
+  });
+
+  it('keeps the shown-screen flag out of the save', () => {
+    staff();
+    tick(3600);
+    expect(store().offlineReport).not.toBeNull();
+    expect(Object.keys(state()).sort()).toEqual(Object.keys(newGame(T0)).sort());
+  });
+
+  it('forgets a pending absence when the run is reset', () => {
+    staff();
+    store().setTabHidden(true);
+    tick(600);
+    store().resetGame();
+    store().setTabHidden(false);
+    expect(store().offlineReport).toBeNull();
   });
 });
 
@@ -1048,6 +1155,26 @@ describe('starting a challenge', () => {
     expect(state()).toBe(before);
     expect(store().toasts).toEqual([]);
     expect(vi.mocked(playUpgradeSound)).not.toHaveBeenCalled();
+  });
+});
+
+describe('the prestige tab section', () => {
+  beforeEach(() => useGameStore.setState({ prestigeSection: 'prestige' }));
+
+  it('opens on «Престиж» and remembers the section the player picked, whatever tab comes between', () => {
+    expect(store().prestigeSection).toBe('prestige');
+    store().setPrestigeSection('legacy');
+    store().setActiveTab('click');
+    store().setActiveTab('perks');
+    expect(store().prestigeSection).toBe('legacy');
+    store().setPrestigeSection('perks');
+    expect(store().prestigeSection).toBe('perks');
+  });
+
+  it('does not touch the game state or the save, since the section is only where the player looks', () => {
+    const before = state();
+    store().setPrestigeSection('perks');
+    expect(state()).toBe(before);
   });
 });
 

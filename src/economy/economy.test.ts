@@ -14,7 +14,7 @@ import {
 import {
   advance, advanceTime, applyOffline, assistClickBonus, BASE_OFFLINE_HOURS, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click,
   clickValue, computeShortfall, datasetMult, datasetValue, discountMult, earnTokens, flagshipMult, generationBoostMult, incomeGain, isContentFinale,
-  labIncomeShare, maxAffordable, modelIncome, offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, prestigePreview,
+  labIncomeShare, maxAffordable, modelIncome, offlineBreakdown, offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, prestigePreview,
   progressToNextAgent, sellAgents, START_PRICE_MULT, totalIncome,
 } from './engine';
 import {
@@ -560,6 +560,55 @@ describe('broken clocks and intervals', () => {
     expect(offline.seconds).toBe(0);
     expect(offline.state.lastTick).toBe(2000);
     expect(offline.state.tokens).toBe(100);
+  });
+});
+
+describe('offline breakdown', () => {
+  /** Состояние поздней стадии: по пять Агентов каждой Модели Поколения, чтобы каждая Лаборатория что-то платила. */
+  const staffed = (generation: number): GameState => {
+    let s = { ...cold(newGame(T0)), generation, lastTick: T0 };
+    for (const m of CATALOG[generation].models) s = buyAgents(rich(s, 1e300), m.id, 5);
+    return { ...s, lastTick: T0 };
+  };
+
+  it('adds up to what the absence paid, in every Поколение', () => {
+    for (let g = 0; g < CATALOG.length; g++) {
+      const s = staffed(g);
+      for (const hours of [1, 8, 100]) {
+        const { earned } = applyOffline(s, T0 + hours * HOUR);
+        const rows = offlineBreakdown(s, earned);
+        expect(rows.length).toBeGreaterThan(0);
+        const sum = rows.reduce((a, r) => a + r.earned, 0);
+        expect(Math.abs(sum - earned)).toBeLessThanOrEqual(earned * 1e-9);
+      }
+    }
+  });
+
+  it('still adds up while an event and a glitch boost or eat the live income', () => {
+    // Живой Доход под событием ×7 и Глюком другой, чем оффлайновый; доли по нему разошлись бы с выплатой.
+    const s = staffed(0);
+    const busy: GameState = {
+      ...s,
+      event: { kind: 'hype', startedAt: T0, red: false },
+      glitches: [{ id: 1, stolen: 0.5, clicks: 0 }],
+    };
+    const { earned } = applyOffline(busy, T0 + HOUR);
+    const sum = offlineBreakdown(busy, earned).reduce((a, r) => a + r.earned, 0);
+    expect(Math.abs(sum - earned)).toBeLessThanOrEqual(earned * 1e-9);
+  });
+
+  it('lists only Лаборатории with Агенты, richest first', () => {
+    const one = buyAgents(rich(cold(newGame(T0)), 1e6), first.id, 1);
+    const rows = offlineBreakdown(one, 100);
+    expect(rows.map((r) => r.lab)).toEqual([first.lab]);
+    expect(rows[0].earned).toBeCloseTo(100);
+    const many = offlineBreakdown(staffed(0), 1000);
+    for (let i = 1; i < many.length; i++) expect(many[i - 1].earned).toBeGreaterThanOrEqual(many[i].earned);
+  });
+
+  it('is empty when nothing was earned', () => {
+    expect(offlineBreakdown(cold(newGame(T0)), 0)).toEqual([]);
+    expect(offlineBreakdown(staffed(0), 0)).toEqual([]);
   });
 });
 

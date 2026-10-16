@@ -11,7 +11,6 @@ import {
   computeShortfall,
   discountMult,
   isContentFinale,
-  labIncomeShare,
   maxAffordable,
   offlineCapHours,
   prestigeGain,
@@ -19,7 +18,7 @@ import {
 } from '../economy/engine';
 import { availableUpgrades } from '../economy/upgrades';
 import { SHADOW_ACHIEVEMENTS } from '../economy/shadow';
-import { LABS, LAB_IDS } from '../data/labs';
+import { LABS } from '../data/labs';
 import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
@@ -1238,22 +1237,16 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
   const notation = state.settings.notation;
 
   const capHours = offlineCapHours(state);
-  const capSeconds = capHours * 3600;
-  const isCapped = offlineReport.seconds >= capSeconds;
+  // Потолок срезал простой, когда засчитано меньше, чем прошло: сравнение пары из отчёта, а не
+  // с текущим потолком — Перк, купленный уже после возвращения, чужой отчёт не меняет.
+  const isCapped = offlineReport.seconds < offlineReport.elapsed;
 
   const gen = CATALOG[state.generation];
 
-  // Разбор по Лабораториям делит уже начисленную сумму на доли Лабораторий в общем Доходе.
-  // Сырые секунды простоя не пересчитываются: их вместе с капом уже учёл applyOffline, и своя
-  // формула здесь дала бы расхождение с числом выше. Доля считается в движке, а не делением
-  // здесь, иначе пустой общий Доход дал бы NaN прямо на экране. Лаборатории без Агентов
-  // отфильтрованы — нулевой строкой в отчёте смотреть не на что.
-  const labRows = LAB_IDS.map((lab) => {
-    const share = labIncomeShare(state, lab);
-    return { lab, share, earned: offlineReport.earned * share };
-  })
-    .filter((row) => row.share > 0)
-    .sort((a, b) => b.earned - a.earned);
+  // Разбор по Лабораториям лежит в самом отчёте: он посчитан в момент возвращения и в сумме
+  // равен начисленному. Пересчёт здесь по живому состоянию дал бы доли после покупок игрока и
+  // доход с событием и Температурой, то есть числа, не сходящиеся с суммой над ними.
+  const labRows = offlineReport.rows;
 
   // Подсказки покупки — только из движка: цены и доступность в компоненте не считаются.
   // availableUpgrades уже отсортирован по цене, а maxAffordable отвечает за Модели.
@@ -1301,9 +1294,19 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
       <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
         Пока тебя не было (
         <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
-          {formatDuration(offlineReport.seconds)}
+          {formatDuration(offlineReport.elapsed)}
         </span>
         ), твои ИИ-Агенты усердно трудились и заработали:
+      </div>
+
+      {/* Пара «засчитано из прошло» стоит всегда, а не только у потолка: игрок, у которого
+          потолок не сработал, видит «всё засчитано» и не гадает, не потерял ли он часть. */}
+      <div style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>
+        Засчитано{' '}
+        <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
+          {formatDuration(offlineReport.seconds)}
+        </span>{' '}
+        из {formatDuration(offlineReport.elapsed)}
       </div>
 
       {isCapped && (
@@ -1318,7 +1321,7 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
             alignSelf: 'center',
           }}
         >
-          Достигнут потолок Оффлайн-дохода (<Num>{capHours}</Num> ч). Время отсутствия сверх лимита было срезано потолком.
+          Достигнут потолок Оффлайн-дохода (<Num>{capHours}</Num> ч). Время сверх потолка не оплачивается.
         </div>
       )}
 

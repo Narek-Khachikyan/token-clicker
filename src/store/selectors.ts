@@ -2,21 +2,20 @@ import type { Model } from '../economy/catalog';
 import type { LabId } from '../data/labs';
 import {
   bulkCost,
-  canPrestige,
   clickValue,
   discountMult,
   incomeGain,
-  isContentFinale,
   labIncomeShare,
   maxAffordable,
   nextAgentCost,
-  prestigeGain,
   progressToNextAgent,
   sellRefund,
+  shatterPayout,
   shortfall,
   totalIncome,
 } from '../economy/engine';
-import { crystalCycleMs, crystalIncomeMult, type CrystalUpgrade } from '../economy/crystal';
+import { canStartChallenge, CHALLENGE_REWARD_PCT, type ChallengeDef } from '../economy/challenges';
+import { crystalCycleMs, crystalIncomeMult, CRYSTAL_PER_STOCK_BONUS, type CrystalUpgrade } from '../economy/crystal';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import {
   canLicense,
@@ -27,6 +26,7 @@ import {
   pledgeCost,
   revokeCost,
 } from '../economy/glitches';
+import { prestigeForecast } from '../economy/prestigeForecast';
 import { milestoneHint, milestoneReward, nextMilestone, type Milestone } from '../economy/milestones';
 import type { GameState, Glitch } from '../economy/state';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
@@ -427,13 +427,57 @@ export interface PrestigeCardView {
   ready: boolean;
   /** Сколько Compute заплатит Престиж сейчас, в нотации игрока. */
   gain: string;
+  /** Compute, при котором прибавка заметна (+50%, но не меньше единицы). */
+  boostGain: string;
+  /** Прибавка ровно +50%, а не «следующая единица»: при Compute меньше двух +50% не набираются. */
+  boostIsHalf: boolean;
+  /** Сколько Токенов Забега ещё нужно заработать до `boostGain`. */
+  boostShortfall: string;
+  boostShortfallWord: string;
 }
 
 export function prestigeCardView(s: GameState): PrestigeCardView {
+  const notation = s.settings.notation;
+  const f = prestigeForecast(s);
   return {
-    finale: isContentFinale(s),
-    ready: canPrestige(s),
-    gain: formatNumber(prestigeGain(s), s.settings.notation),
+    finale: f.finale,
+    ready: f.ready,
+    gain: formatNumber(f.gain, notation),
+    boostGain: formatNumber(f.boostGain, notation),
+    boostIsHalf: f.gain >= 2,
+    boostShortfall: formatNumber(f.boostShortfall, notation),
+    boostShortfallWord: formatCount(f.boostShortfall, 'Токен', 'Токена', 'Токенов', notation),
+  };
+}
+
+export interface ChallengeView {
+  /** Это Испытание выбрано на текущий Забег. */
+  active: boolean;
+  /** Оно уже закрыто Престижем и платит прибавку. */
+  done: boolean;
+}
+
+export function challengeView(s: GameState, def: ChallengeDef): ChallengeView {
+  return { active: s.activeChallenge === def.id, done: s.challengesDone.includes(def.id) };
+}
+
+export interface ChallengeCardView {
+  /** Забег свежий: Испытание ещё можно выбрать или сменить. */
+  canStart: boolean;
+  /** Ничего не выбрано: обычный Забег. */
+  none: boolean;
+  /** Прибавка к Доходу от закрытых Испытаний, в процентах. */
+  bonusText: string;
+  doneCount: number;
+}
+
+export function challengeCardView(s: GameState): ChallengeCardView {
+  const doneCount = new Set(s.challengesDone).size;
+  return {
+    canStart: canStartChallenge(s),
+    none: s.activeChallenge === null,
+    bonusText: formatNumber(doneCount * CHALLENGE_REWARD_PCT, s.settings.notation),
+    doneCount,
   };
 }
 
@@ -484,6 +528,27 @@ export function crystalStockView(s: GameState): CrystalStockView {
   return {
     stock: formatNumber(s.crystals, notation),
     bonus: formatNumber(Math.round((crystalIncomeMult(s) - 1) * 100), notation),
+  };
+}
+
+export interface CrystalShatterView {
+  /** В запасе есть целый кристалл: кнопка разбития доступна. */
+  canShatter: boolean;
+  /** Сколько Токенов даст разбитие сейчас. */
+  payoutText: string;
+  payoutWord: string;
+  /** Сколько процентов Дохода уйдёт вместе с кристаллом. */
+  lostText: string;
+}
+
+export function crystalShatterView(s: GameState): CrystalShatterView {
+  const notation = s.settings.notation;
+  const payout = shatterPayout(s);
+  return {
+    canShatter: Math.floor(s.crystals) >= 1,
+    payoutText: formatNumber(payout, notation),
+    payoutWord: formatCount(payout, 'Токен', 'Токена', 'Токенов', notation),
+    lostText: formatNumber(Math.round(CRYSTAL_PER_STOCK_BONUS * 100), notation),
   };
 }
 
