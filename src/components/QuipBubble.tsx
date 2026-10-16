@@ -112,11 +112,10 @@ interface SceneAnchor {
  * хвостика. Слой декоративный: Глюки и Золотой Токен ловятся сквозь него.
  */
 export const SceneQuipBubble: React.FC<{
-  sceneRef: React.RefObject<HTMLElement | null>;
   /** Карточка Маскота открыта: она ложится на то же место, и пузырь уступает ей, а не торчит
    *  из-под неё обрезком. Реплика остаётся в «Переписке». */
   yieldToCard: boolean;
-}> = ({ sceneRef, yieldToCard }) => {
+}> = ({ yieldToCard }) => {
   const lastQuip = useGameStore((s) => s.lastQuip);
   const nodeRef = useRef<HTMLDivElement>(null);
   const [anchor, setAnchor] = useState<SceneAnchor | null>(null);
@@ -124,8 +123,11 @@ export const SceneQuipBubble: React.FC<{
   const lab = lastQuip?.lab ?? null;
 
   useLayoutEffect(() => {
-    const scene = sceneRef.current;
     const node = nodeRef.current;
+    // Сцена — родитель пузыря. Через ref Сцены не выйдет: слой-ребёнок получает свой эффект раньше,
+    // чем родитель привяжет ref, и на вкладке «Офис» узкого экрана, которая монтируется уже с
+    // репликой в руках, пузырь остался бы без замера и невидимым.
+    const scene = node?.parentElement;
     if (!scene || !node) return;
     const place = () => {
       const sceneW = scene.clientWidth;
@@ -163,7 +165,7 @@ export const SceneQuipBubble: React.FC<{
     const observer = new ResizeObserver(place);
     observer.observe(scene);
     return () => observer.disconnect();
-  }, [sceneRef, nonce, lab]);
+  }, [nonce, lab]);
 
   if (!lastQuip) return null;
 
