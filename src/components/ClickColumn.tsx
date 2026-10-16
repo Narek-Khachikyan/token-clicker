@@ -206,14 +206,18 @@ const ClickButton: React.FC = () => {
       className="pixel-btn pixel-btn-accent pulse-glow click-btn"
       style={{
         width: '100%',
-        padding: 'var(--space-5) var(--space-4)',
+        padding: 'var(--space-4)',
         flexDirection: 'column',
-        gap: 'var(--space-2)',
+        gap: 'var(--space-1)',
         '--click-power': power,
       } as React.CSSProperties}
     >
-      <Icon name="chat" size={30} />
-      <span className="pixel-33">Отправить промпт</span>
+      {/* Значок и подпись в одну строку: ступень 22 px, потому что «Отправить промпт» на 33 px
+          шире колонки Клика (16 знаков по 21 px) и ломалась на две строки, съедая высоту. */}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+        <Icon name="chat" size={24} />
+        <span className="pixel-22">Отправить промпт</span>
+      </span>
       <span
         style={{
           fontSize: '0.85rem',
@@ -297,7 +301,7 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         // В одноколоночном режиме колонка единственная и занимает всю ширину.
         flex: full ? '1 1 auto' : '0 0 var(--col-click)',
         minWidth: 0,
-        gap: 'var(--space-4)',
+        gap: 'var(--space-3)',
         height: '100%',
         overflowY: 'auto',
       }}
@@ -326,14 +330,14 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           объявление. */}
       {hasEvent && <GoldenToken />}
 
-      {/* Веха и шкала Температуры */}
-      <div style={{ width: '100%', marginTop: 'var(--space-0)' }}>
-        <MilestoneStrip />
-      </div>
+      {/* Главное действие, сразу под ним — Температура, под ней — Вехи одной строкой. Порядок
+          «счётчик → Клик → Температура → Вехи» держит и шкалу, и кнопку на экране невысокого
+          окна: всё, что ниже, второстепенно и может уйти за прокрутку. */}
+      <ClickButton />
+
       <ThermalDial />
 
-      {/* Большая кнопка Клика */}
-      <ClickButton />
+      <MilestoneStrip />
 
       {/* Прогресс до ближайшей покупки Агента: сколько осталось до самой дешёвой Модели.
           При пустом кошельке первого запуска полоска нулевая, но подсказка уже стоит —

@@ -187,6 +187,30 @@ describe('temperature slices', () => {
     expect(thermalView(stunned).status).toBe('Перегрев: Доход падает');
   });
 
+  it('names the scale state cold, normal, hot or overheat for every temperature and heat', () => {
+    const stunned = { ...heated(0, 0), overheatedAt: T0 + 1_000, lastTick: T0 + 1_100 };
+    const cases: Array<[GameState, string, string]> = [
+      [heated(0, 0), 'cold', 'Холод'],
+      [heated(0.2, 0.45), 'normal', 'Норма'],
+      [heated(0.2, 1), 'normal', 'Норма'],
+      [heated(0.2, 1.3), 'hot', 'Жар'],
+      [heated(0.7, 0.45), 'hot', 'Жар'],
+      [stunned, 'overheat', 'Перегрев'],
+    ];
+    for (const [s, state, label] of cases) {
+      expect(thermalView(s).state).toBe(state);
+      expect(thermalView(s).stateLabel).toBe(label);
+    }
+    // Четыре состояния — четыре разных слова: иначе «различимо без цвета» ничего не значит.
+    expect(new Set(cases.map(([, , label]) => label)).size).toBe(4);
+  });
+
+  it('says in words that the income is falling while the stun lasts', () => {
+    const stunned = { ...heated(0, 0), overheatedAt: T0 + 1_000, lastTick: T0 + 1_100 };
+    expect(thermalView(stunned).risk).toBe('Доход падает');
+    expect(thermalView(stunned).riskHot).toBe(true);
+  });
+
   it('tells what the player risks at this heat', () => {
     expect(thermalView(heated(0, 0)).risk).toBe('риска нет');
     expect(thermalView(heated(0.2, 1)).risk).toMatch(/^галлюцинации \d+\/мин$/);
