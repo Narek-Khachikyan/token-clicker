@@ -2,6 +2,7 @@ import React from 'react';
 import { useGameStore, useStateSlice } from '../store/useGameStore';
 import { thermalView } from '../store/selectors';
 import { TEMP_MAX, overloadShare } from '../economy/thermal';
+import { Num } from './Num';
 import { ThermalSparks } from './ThermalSparks';
 
 /**
@@ -209,7 +210,7 @@ export const ThermalDial: React.FC = () => {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
         <span>
-          Доход ×<span className="pixel-font">{view.mult}</span>
+          Доход ×<Num>{view.mult}</Num>
         </span>
         <span style={{ color: view.riskHot ? 'var(--thermal-hot)' : 'var(--text-muted)' }}>
           {view.risk}

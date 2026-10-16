@@ -63,10 +63,17 @@ components/    presentation: reads state, calls actions
   already exist — `NewsTicker`'s news rotation, the rAF counters in `ClickColumn` and
   `PrestigeOverlay`, `music.ts`'s note scheduler — are exceptions, not patterns to copy.
 - **Numbers reach the screen only through `formatNumber`, `formatCount` and `formatDuration`**; a
-  bare number renders through `Num`, in `pixel-font` (ADR-0003).
+  bare number renders through `Num`, which picks no font of its own (ADR-0009): it inherits
+  Departure Mono on a pixel step and is Nunito everywhere else.
 - **`src/layout.ts` holds every layout number**; `THREE_COL_MIN` is the desktop/mobile switch.
 - **Content tables move in pairs:** a new Лаборатория edits the `LabId` union and `LABS` together;
   `data/glossary.ts` timings are asserted against the code constants, so change both.
+- **Type is two faces and three steps** (ADR-0009). Departure Mono — headings, tabs, buttons,
+  labels, numbers — only through `pixel-22`, `pixel-33` or `pixel-44`: the class sets family and size
+  together, and there is no other way to name the face. Everything under 22 px is Nunito, never
+  under 12 px; a caption inside a pixel node (a price line on a button) takes `body-font` back. Never
+  set `fontSize` inline on a node with a `pixel-*` class. The counter's reserve of characters lives in
+  `layout.ts` beside the column minima, because the face is wider than Nunito.
 - **Components** style with inline `style` objects, the CSS variables and `pixel-*` classes from
   `index.css`, where keyframes live too. Dialogs trap focus through `useDialogFocus.ts`. Over a
   Сцена, every readable label sits off the artwork or on a darkened HUD band of its own (ADR-0002).
@@ -107,12 +114,15 @@ components/    presentation: reads state, calls actions
   touches, named after the behaviour the player gets — not after the issue number. The issue
   number belongs in the PR (`Closes #N`).
 - Assert values and contracts, not markup snapshots, wiring, or the text of the source. A regex
-  over a `.tsx` passes on code that is broken and fails on code that is fine. The two exceptions
+  over a `.tsx` passes on code that is broken and fails on code that is fine. The three exceptions
   read `index.css` through `readFileSync`: `src/index.test.ts` checks the file's structure
-  (balanced braces, no `@keyframes` inside `@media`), and `src/palette.test.ts` reads the `:root`
+  (balanced braces, no `@keyframes` inside `@media`), `src/palette.test.ts` reads the `:root`
   palette, the `color-mix` shares in `.app-root` and the eight accents from `generations.ts`, and
   asserts the ADR-0007 pairs at 4.5:1 — change a surface or a fill and it tells you which pair
-  fell. There is no `@types/node`: extend `src/node-fs.d.ts` rather than adding the package.
+  fell — and `src/typography.test.ts` reads `index.css`, `index.html` and the woff2 files
+  themselves: no network font, Departure Mono only on a rule with a step size, every letter of
+  the Russian alphabet, digit and sign present in each file, one advance width across the
+  monospace face. There is no `@types/node`: extend `src/node-fs.d.ts` rather than adding the package.
 - Use the real pure functions of `src/economy/` in store tests; mock only what node cannot run
   (audio). A mock that re-implements a rule asserts the mock, not the game.
 - Assert over the **whole catalog**, not one hand-picked Поколение; a test that shrinks its loop is
@@ -131,6 +141,9 @@ port in a fresh browser context, so no real save is read or overwritten; for a h
 `:active` state, send real input (`mouse.down`/`keyboard.press`), since a synthetic DOM event
 doesn't trigger CSS `:active`. Screenshots go to the PR, not into git.
 
+- Every text node on screen: a DOM walk over `getComputedStyle` — Departure Mono only at 22, 33
+  or 44 px with every character in the font's `cmap`, no node in a third face. A rule elsewhere
+  in `index.css` can overwrite the size of a `pixel-*` node, and only the browser sees that.
 - Every layout band from `src/layout.ts`: three columns at or above `THREE_COL_MIN`, one tab at a
   time below it, and the compressed header at or below `NARROW_MAX`, where the footer's AA
   attribution must still show.
