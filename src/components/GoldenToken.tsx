@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useGameStore } from '../store/useGameStore';
+import { useGameStore, useStateSlice } from '../store/useGameStore';
 import { MODEL_BY_ID } from '../economy/catalog';
 import { activeSpec, type EventSpec } from '../economy/events';
 import type { RedSpec } from '../economy/glitches';
@@ -101,16 +101,22 @@ const effectLine = (spec: Spec, red: boolean, notation: Notation): React.ReactNo
 };
 
 export const GoldenToken: React.FC = () => {
-  const state = useGameStore((s) => s.state);
+  // Карточка читает пять полей и на тике перерисовывается сознательно: её пульс, остаток окна и
+  // толчок от поимки считаются из `lastTick`. Остальное состояние ей не нужно.
+  //
+  // Поле `red` живёт в событии, а вид и его числа — в таблице, поэтому подпись читает и то и
+  // другое и обязана спросить оба: по одному виду неизвестно, обычное это событие или красное.
+  const { event, lastTick, heat, notation, spec } = useStateSlice((s) => ({
+    event: s.event,
+    lastTick: s.lastTick,
+    heat: s.heat,
+    notation: s.settings.notation,
+    spec: activeSpec(s),
+  }));
   const caught = useGameStore((s) => s.eventCaught);
   const crashArmedAt = useGameStore((s) => s.crashArmedAt);
   const catchEvent = useGameStore((s) => s.catchEvent);
   const motion = useMotionAllowed();
-
-  // Поле `red` живёт в событии, а вид и его числа — в таблице, поэтому подпись читает и то и
-  // другое и обязана спросить оба: по одному виду неизвестно, обычное это событие или красное.
-  const spec = activeSpec(state);
-  const event = state.event;
 
   const armed = Boolean(event && !caught && crashArmedAt === event.startedAt);
   const punchNonce = event ? `${event.startedAt}:${caught}:${armed}` : '';
@@ -121,9 +127,8 @@ export const GoldenToken: React.FC = () => {
 
   if (!spec || !event) return null;
 
-  const notation = state.settings.notation;
-  const leftMs = Math.max(0, event.startedAt + spec.durationMs - state.lastTick);
-  const windowAge = Math.max(0, state.lastTick - event.startedAt);
+  const leftMs = Math.max(0, event.startedAt + spec.durationMs - lastTick);
+  const windowAge = Math.max(0, lastTick - event.startedAt);
 
   const costsTokens = event.red && spec.kind === 'grant';
   const costPct = costsTokens ? Math.round(spec.share * 100) : 0;
@@ -139,11 +144,10 @@ export const GoldenToken: React.FC = () => {
   // Фаза пульса — возраст окна, поэтому он не нулевой уже на первом кадре и не «прыгает» при
   // перезагрузке страницы посреди окна. Период сокращается с перегревом: на горячем офисе
   // Токен зовёт клик заметно настойчивее.
-  const heat = state.heat;
   const period = 1600 - Math.round(Math.min(1, Math.max(0, heat)) * 700);
   const wave = Math.sin((windowAge % period) / period * Math.PI * 2);
 
-  const punchAge = state.lastTick - punchedAt;
+  const punchAge = lastTick - punchedAt;
   const punch = punchAge >= 0 && punchAge < PUNCH_MS ? Math.sin((punchAge / PUNCH_MS) * Math.PI) : 0;
 
   // Пойманное окно больше не зовёт: Токен тускнеет, кнопка говорит «Поймано». Тускнение — это
@@ -161,27 +165,29 @@ export const GoldenToken: React.FC = () => {
       style={{
         width: '100%',
         flexShrink: 0,
-        padding: '10px 12px 8px',
+        padding: 'var(--space-2) var(--space-3) var(--space-2)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '8px',
+        gap: 'var(--space-2)',
         // Рамка идёт от золота к белому калу тем же перегревом, что и ореол: карточка события
         // греется вместе со Сценой, иначе жар читался бы только на краю и по шкале.
-        border: `2px solid ${mixVar(accent, accentHot, heat)}`,
+        border: `var(--frame-w) solid ${mixVar(accent, accentHot, heat)}`,
         backgroundColor: 'var(--bg-card)',
         boxShadow: [
-          '0 4px 12px var(--tint-strong)',
-          // Ореол слабеет на холоде до полного нуля: постоянный ореол означал бы, что событие
-          // всегда «горит», и перегрев перестал бы быть новостью.
-          heat > 0.02
-            ? `0 0 ${Math.round(6 + heat * 16)}px ${Math.round(heat * 3)}px ${mixVar(accent, accentHot, heat, 0.45)}`
+          'var(--edge-panel)',
+          '0 var(--drop) 0 var(--bg-void)',
+          // Жар — жёсткое кольцо вокруг рамки (ADR-0008), а не размытый ореол: толщина целое
+          // число пикселей арта и растёт ступенями 0, 2, 4 px. Кольца нет на холоде: постоянное
+          // означало бы, что событие всегда «горит», и перегрев перестал бы быть новостью.
+          heat > 0.02 && Math.round(heat * 2) > 0
+            ? `0 0 0 ${Math.round(heat * 2) * 2}px ${mixVar(accent, accentHot, heat, 0.45)}`
             : '',
         ]
           .filter(Boolean)
           .join(', '),
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
         <div
           style={{
             position: 'relative',
@@ -236,7 +242,7 @@ export const GoldenToken: React.FC = () => {
             id={EFFECT_ID}
             // Подпись об уроне не тонет среди нейтральных: красным она читается как цена,
             // а не как ещё одна строка описания.
-            style={{ fontSize: '0.8rem', color: costsTokens ? 'var(--red)' : 'var(--text-main)' }}
+            style={{ fontSize: 'var(--text-sm)', color: costsTokens ? 'var(--red)' : 'var(--text-main)' }}
           >
             {effectLine(spec, event.red, notation)}
             {/* У «Прорыва» бонус получает одна Модель, и без её названия игрок не понимает,
@@ -278,9 +284,8 @@ export const GoldenToken: React.FC = () => {
           className={`pixel-btn ${caught || armed ? '' : 'pixel-btn-gold'}`}
           style={{
             flexShrink: 0,
-            padding: '8px 14px',
+            padding: 'var(--space-2) var(--space-3)',
             fontSize: '0.9rem',
-            borderRadius: 999,
             ...(armed ? { backgroundColor: 'var(--red-solid)', borderColor: 'var(--red)' } : undefined),
           }}
         >
@@ -297,7 +302,6 @@ export const GoldenToken: React.FC = () => {
         style={{
           height: '4px',
           backgroundColor: 'var(--bg-void)',
-          borderRadius: 999,
           overflow: 'hidden',
         }}
       >

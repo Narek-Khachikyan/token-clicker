@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SAVE_INTERVAL_MS, useGameStore } from './useGameStore';
+import { effectAllowed, SAVE_INTERVAL_MS, SCENE_MOMENT_MS, useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
-import { CHALLENGES } from '../economy/challenges';
 import { QUIPS } from '../data/quips';
 import { pickQuip } from '../economy/quips';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
 import { ACHIEVEMENTS } from '../economy/achievements';
 import {
+  BASE_OFFLINE_HOURS,
+  buyAgents as engineBuyAgents,
   canPrestige,
   clickValue,
   computeShortfall,
@@ -15,8 +16,8 @@ import {
   totalIncome,
 } from '../economy/engine';
 import { EVENT_TABLES, grantAmount } from '../economy/events';
+import { HOLD_CLICK_MAX_PER_SEC } from '../economy/streak';
 import { RED_TABLES } from '../economy/glitches';
-import { formatNumber } from '../economy/format';
 import {
   GLITCH_CLICKS,
   glitchPayout,
@@ -66,6 +67,7 @@ vi.mock('../audio/sound', () => ({
   playUpgradeSound: vi.fn(),
   playVoice: vi.fn(),
   audioBus: vi.fn(() => null),
+  setAudioHidden: vi.fn(),
 }));
 
 /** Сигналы sfx.ts и приглушение музыки — тоже стороны действий стора, которые здесь проверяются. */
@@ -92,6 +94,9 @@ const first = g0.models[0];
 
 const store = () => useGameStore.getState();
 const state = () => store().state;
+/** Тосты не о Достижениях: пачка Достижений, выданная теми же переходами, к ним не относится. */
+const otherToasts = () =>
+  store().toasts.filter((t) => t.title !== 'Достижение разблокировано!' && !/^\+\d+ Достижени/.test(t.title));
 const rich = (s: GameState, tokens: number): GameState => ({ ...s, tokens, runTokens: tokens });
 
 /**
@@ -164,18 +169,18 @@ describe('glitch schedule', () => {
     expect(state().glitches).toHaveLength(1);
   });
 
-  it('says who arrived, but only for the first glitch of the run', () => {
+  it('spawns glitches without a single toast, the scene shows them', () => {
     reachedGeneration(2);
     hire(CATALOG[2].models[0].id);
     tick();
     useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick } });
     tick();
-    expect(store().toasts.map((t) => t.title)).toContain('Паразит в офисе');
-    // Молчаливый спавн паразита читался бы как ошибка, но объяснять каждый — как извинение.
+    expect(state().glitchSeq).toBe(1);
+    expect(otherToasts()).toEqual([]);
     useGameStore.setState({ state: { ...state(), nextGlitchAt: state().lastTick } });
     useGameStore.setState({ toasts: [] });
     tick();
-    expect(store().toasts).toEqual([]);
+    expect(otherToasts()).toEqual([]);
   });
 
   it('has no schedule at all on the first screen', () => {
@@ -191,12 +196,11 @@ describe('uprising', () => {
     // Флагман Поколения 0 — первый экран: стадия 0, и сплошь красные события на нём не выдаются.
     hire(CATALOG[0].flagship.id, 1);
     expect(state().uprising).toBe(0);
-    expect(store().toasts.filter((t) => t.title === 'Восстание моделей')).toEqual([]);
     store().triggerPrestige();
     // Флагман Поколения 1 — порог стадии 1.
     hire(CATALOG[1].flagship.id, 1);
     expect(state().uprising).toBe(1);
-    expect(store().toasts.map((t) => t.title)).toContain('Восстание моделей');
+    expect(store().toasts.filter((t) => t.title !== 'Достижение разблокировано!' && !t.title.startsWith('+'))).toEqual([]);
   });
 
   it('raises once per generation and never twice for the same flagship', () => {
@@ -204,13 +208,11 @@ describe('uprising', () => {
     expect(state().uprising).toBe(1);
     hire(CATALOG[2].flagship.id, 1);
     expect(state().uprising).toBe(2);
-    const raised = store().toasts.filter((t) => t.title === 'Восстание моделей').length;
     // Второй Агент того же Флагмана и обычная Модель того же Поколения стадию не двигают:
-    // переход возвращает тот же объект, и ни тост, ни звук не срабатывают.
+    // переход возвращает тот же объект.
     hire(CATALOG[2].flagship.id, 1);
     hire(CATALOG[2].models[0].id);
     expect(state().uprising).toBe(2);
-    expect(store().toasts.filter((t) => t.title === 'Восстание моделей')).toHaveLength(raised);
   });
 });
 
@@ -262,8 +264,8 @@ describe('catching an event', () => {
     expect(state().tokens).toBe(before.tokens);
     expect(state().eventCaughtAt).toBe(0);
     expect(store().crashArmedAt).toBe(before.event!.startedAt);
-    // Сумма названа: игрок должен знать, во что он соглашается, до того как согласится.
-    expect(store().toasts.map((t) => t.title)).toContain('Крах');
+    // Взвод назван на самой карточке события (подпись «Списать −N%»), а не тостом.
+    expect(otherToasts()).toEqual([]);
     // Ушёл — окно ушло, кошелёк цел: единственная кнопка так и не стала списанием. Доход за время
     // ожидания честно капает в плюс, поэтому сравнение идёт с ним, а не с нулём.
     tick(RED_TABLES.grant.durationMs / 1000 + 1);
@@ -333,7 +335,8 @@ describe('catching an event', () => {
     store().catchEvent();
     expect(state().tokens).toBe(before.tokens);
     expect(state().event).toEqual(before.event);
-    expect(store().toasts.map((t) => t.title)).toContain('Событие поймано');
+    expect(store().eventCaught).toBe(true);
+    expect(otherToasts()).toEqual([]);
   });
 
   it('does nothing without a live event', () => {
@@ -480,10 +483,8 @@ describe('collecting a rumor', () => {
     expect(state().tokens - before.tokens).toBeCloseTo(wanted, 6);
     expect(state().runTokens - before.runTokens).toBeCloseTo(wanted, 6);
     expect(state().totalTokens - before.totalTokens).toBeCloseTo(wanted, 6);
-    // Выплата обязана быть названа: лента обещает разовые Токены, и одной прибавки мало.
-    expect(store().toasts.find((t) => t.title === 'Слух пойман')?.desc).toBe(
-      `+${formatNumber(wanted, state().settings.notation)} Токенов`,
-    );
+    // Тостов о Слухах нет: выплату видно в счётчике, а клик отвечает звуком.
+    expect(otherToasts()).toEqual([]);
     expect(vi.mocked(playBuySound)).toHaveBeenCalledTimes(1);
     // Тот же слух второй раз: ни Токенов, ни тоста, ни звука, и состояние остаётся тем же объектом.
     const paid = state();
@@ -528,9 +529,7 @@ describe('collecting a rumor', () => {
     // сломанная кнопка.
     expect(vi.mocked(playBuySound)).not.toHaveBeenCalled();
     expect(vi.mocked(playClickSound)).toHaveBeenCalledTimes(1);
-    expect(store().toasts.find((t) => t.title === 'Слух пойман')?.desc).toBe(
-      'В этот раз никто ничего не принёс.',
-    );
+    expect(store().toasts).toEqual([]);
     // Забор ставится и на пустой выплате: тот же слух второй раз всё равно молчит.
     expect(store().collectedRumorId).toBe(1);
   });
@@ -642,8 +641,8 @@ describe('pledge and license', () => {
     expect((state().totalTokens - before.totalTokens) / payout).toBeCloseTo(1, 6);
     // Глюки, снимавшие долю Дохода, исчезли, и остаётся ровно налог за «Лицензию».
     expect(totalIncome(state()) / income).toBeCloseTo(1 - LICENSE_INCOME_TAX, 6);
-    // Выплата обязана быть сказана: Глюков на экране больше нет, иначе она видна только в счётчике.
-    expect(store().toasts.map((t) => t.title)).toContain('Лицензия куплена');
+    // Тостов о Глюках нет, в том числе о «Лицензии».
+    expect(otherToasts()).toEqual([]);
   });
 
   it('charges for the revoke and gives the taxed income back', () => {
@@ -745,32 +744,27 @@ describe('event window', () => {
     event: { kind, startedAt, red: false },
   });
 
-  it('announces a window the player has not seen, and does not announce it twice', () => {
+  it('notes a window the player has not seen once, and never with a toast', () => {
     reachedGeneration(2);
     useGameStore.setState({ state: liveEvent(), toasts: [] });
     tick();
     expect(store().eventWindowAt).toBe(state().event?.startedAt);
-    expect(store().toasts.map((t) => t.title)).toContain('Событие');
-    useGameStore.setState({ toasts: [] });
+    expect(otherToasts()).toEqual([]);
     tick();
-    expect(store().toasts).toEqual([]);
+    expect(otherToasts()).toEqual([]);
   });
 
-  it('reports a window that expired uncaught, once', () => {
+  it('lets a window expire uncaught without a farewell toast', () => {
     reachedGeneration(2);
     useGameStore.setState({ state: liveEvent(), toasts: [] });
     tick();
-    useGameStore.setState({ toasts: [] });
     // Активными шагами, а не одним длинным тиком: короткий тик идёт через обычный Доход, и
     // проверка не зависит от оффлайн-ветки.
     for (let i = 0; i < 5; i++) tick(5);
-    expect(store().toasts.map((t) => t.title)).toContain('Событие ушло');
-    useGameStore.setState({ toasts: [] });
-    tick();
-    expect(store().toasts).toEqual([]);
+    expect(otherToasts()).toEqual([]);
   });
 
-  it('stays silent on a single long tick and announces the fresh window on the next active one', () => {
+  it('makes no toasts on a single long tick, and notes the fresh window on the next active one', () => {
     freshStore();
     // Окно назрело, но его ещё нет: длинный тик создаст его в самом конце интервала.
     useGameStore.setState({
@@ -779,18 +773,19 @@ describe('event window', () => {
     });
     // Один тик через ветку простоя: окно, покрытое им целиком, игрок не видел.
     tick(3600);
-    const titles = store().toasts.map((t) => t.title);
-    expect(titles).not.toContain('Событие');
-    expect(titles).not.toContain('Событие ушло');
-    // Окно при этом создалось и ждёт объявления, а отметка «уже говорили» не сдвинута.
+    expect(store().toasts.filter((t) => t.title === 'Достижение разблокировано!' || t.title.startsWith('+'))).toHaveLength(
+      store().toasts.length,
+    );
+    expect(store().toasts.length).toBeLessThanOrEqual(1);
+    // Окно при этом создалось и ждёт замечания, а отметка «уже говорили» не сдвинута.
     expect(state().event).not.toBeNull();
     expect(store().eventWindowAt).not.toBe(state().event?.startedAt);
-    // Следующий активный тик объявляет ещё живое окно обычным порядком.
+    // Следующий активный тик замечает ещё живое окно обычным порядком.
     tick();
-    expect(store().toasts.map((t) => t.title)).toContain('Событие');
+    expect(store().eventWindowAt).toBe(state().event?.startedAt);
   });
 
-  it('covers a whole live window in one long tick without a farewell, then says it on the next active tick', () => {
+  it('covers a whole live window in one long tick without a toast pair, the player was not there', () => {
     freshStore();
     const started = state().lastTick;
     // «Грант» живёт 15 с, а следующее окно далеко: длинный тик накроет окно целиком
@@ -800,36 +795,30 @@ describe('event window', () => {
       toasts: [],
     });
     tick();
-    expect(store().toasts.map((t) => t.title)).toContain('Событие');
     useGameStore.setState({ toasts: [] });
     tick(60);
-    const titles = store().toasts.map((t) => t.title);
-    expect(titles).not.toContain('Событие');
-    expect(titles).not.toContain('Событие ушло');
-    // Прощание не потеряно, а отложено до присутствия игрока: окно было увидено,
-    // и следующий активный тик о нём сообщает.
     tick();
-    expect(store().toasts.map((t) => t.title)).toContain('Событие ушло');
+    tick();
+    const events = store().toasts.filter((t) => t.title.startsWith('Событие'));
+    expect(events).toEqual([]);
   });
 
-  it('folds several milestones claimed in one tick into a single toast', () => {
+  it('claims several milestones in one tick without any toast', () => {
     freshStore();
     store().clickPrompt(100, 100);
     hire(first.id, 10);
-    // Четвёртая веха подряд требует жара: без него забралась бы только первая,
-    // и пачки, которую надо сворачивать, не получилось бы.
+    // Четвёртая веха подряд требует жара: без него забралась бы только первая.
     useGameStore.setState({ state: { ...state(), temp: 0.8 }, toasts: [] });
     tick();
-    const milestoneToasts = store().toasts.filter((t) => t.title.startsWith('Вех'));
-    expect(milestoneToasts).toHaveLength(1);
-    expect(milestoneToasts[0].title).toBe('Вехи выполнены: 4');
+    expect(state().milestones.length).toBeGreaterThan(1);
+    expect(store().toasts.filter((t) => t.title.startsWith('Вех'))).toEqual([]);
   });
 
   it('keeps the alert a perk instead of a base feature', () => {
     reachedGeneration(2);
     useGameStore.setState({ state: liveEvent(), toasts: [] });
     tick();
-    expect(store().toasts.map((t) => t.title)).toContain('Событие');
+    expect(store().eventWindowAt).toBe(state().event?.startedAt);
     expect(vi.mocked(playEventAlertSound)).not.toHaveBeenCalled();
 
     // Следующее окно: стор о нём ещё не говорил, а Перк уже куплен — сигнал обязан прозвучать.
@@ -916,6 +905,53 @@ describe('achievement awards', () => {
     expect(store().burst?.kind).toBe('achievement');
   });
 
+  it('folds a batch of achievements from one tick into a single toast with the right plural', () => {
+    reachedGeneration(2);
+    hire(first.id, 100);
+    // Достижения сняты, а условия остались выполненными: следующий тик выдаёт их пачкой.
+    useGameStore.setState({ state: { ...state(), achievements: [], clicks: 10000 }, toasts: [] });
+    const before = state();
+    vi.mocked(playAchievementSound).mockClear();
+    tick();
+    const awarded = ACHIEVEMENTS.filter((a) => state().achievements.includes(a.id) && !before.achievements.includes(a.id));
+    expect(awarded.length).toBeGreaterThan(1);
+    // Одна карточка на пачку и один звук, а не стена карточек.
+    expect(store().toasts).toHaveLength(1);
+    expect(vi.mocked(playAchievementSound)).toHaveBeenCalledTimes(1);
+    const toast = store().toasts[0];
+    const n = awarded.length;
+    const word = n % 10 === 1 && n % 100 !== 11 ? 'Достижение' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'Достижения' : 'Достижений';
+    expect(toast.title).toBe(`+${n} ${word}`);
+    // Названия урезаны до трёх, остальное — счётом: карточка обязана помещаться на 320 px.
+    expect(toast.name.split(' · ')).toHaveLength(Math.min(n, 3));
+    expect(toast.name.split(' · ')[0]).toBe(awarded[0].name);
+    expect(toast.desc).toBe(n > 3 ? `и ещё ${n - 3}` : '');
+  });
+
+  it('keeps one achievement as its own card and joins a long tick batch into at most one toast', () => {
+    reachedGeneration(2);
+    hire(first.id, 100);
+    useGameStore.setState({ state: { ...state(), achievements: [], clicks: 10000 }, toasts: [] });
+    // Длинный тик (простой) тоже выдаёт пачку, но не стену карточек.
+    tick(3600);
+    expect(store().toasts.length).toBeLessThanOrEqual(1);
+    expect(store().toasts.every((t) => t.title === 'Достижение разблокировано!' || t.title.startsWith('+'))).toBe(true);
+  });
+
+  it('makes toasts for achievements only, whatever else the player does', () => {
+    reachedGeneration(2);
+    hire(first.id, 10);
+    useGameStore.setState({ toasts: [] });
+    for (let i = 0; i < 30; i++) tick(1);
+    store().clickPrompt(10, 10);
+    store().buyLicense();
+    store().shatterCrystal();
+    store().collectRumor(1);
+    store().catchEvent();
+    const ok = (t: { title: string }) => t.title === 'Достижение разблокировано!' || /^\+\d+ Достижени/.test(t.title);
+    expect(store().toasts.filter((t) => !ok(t))).toEqual([]);
+  });
+
   it('keeps a shadow that was the only award, because the state still has to reach the save', () => {
     // Все Перки куплены, а Токенов и Агентов нет: тик не приносит ничего, лестница заработка не
     // мешает, и закрывается ровно тень «Всё куплено». Обычное «Инвестор» отмечено заранее —
@@ -973,12 +1009,117 @@ describe('return report', () => {
     expect(snapshot.state.crystals).toBe(1);
   });
 
+  it('on load, says how much of the absence was credited and where it came from', async () => {
+    const now = Date.now();
+    const away = 30 * HOUR;
+    const s: GameState = { ...newGame(now - away), tokens: 1e50, totalTokens: 1e9, lastTick: now - away, temp: 0, heat: 0 };
+    const staffed = engineBuyAgents(s, g0.models[0].id, 5);
+    const snapshot = await reloadWith(serialize({ ...staffed, lastTick: now - away }));
+    const report = snapshot.offlineReport!;
+    expect(report.seconds).toBe(BASE_OFFLINE_HOURS * 3600);
+    expect(Math.abs(report.elapsed - away / 1000)).toBeLessThan(2);
+    expect(report.rows.length).toBeGreaterThan(0);
+    expect(Math.abs(report.rows.reduce((a, r) => a + r.earned, 0) - report.earned)).toBeLessThanOrEqual(report.earned * 1e-9);
+  });
+
   it('says nothing when the absence brought nothing', async () => {
     const now = Date.now();
     const snapshot = await reloadWith(
       serialize({ ...newGame(now - HOUR), tokens: 0, totalTokens: 1e9, lastTick: now - HOUR }),
     );
     expect(snapshot.offlineReport).toBeNull();
+  });
+});
+
+describe('return report from a long tick', () => {
+  const sumRows = () => (store().offlineReport?.rows ?? []).reduce((a, r) => a + r.earned, 0);
+  /** Агенты в двух Лабораториях: разбивке есть что делить. */
+  const staff = (): void => {
+    for (const m of g0.models.slice(0, 3)) hire(m.id, 10);
+  };
+
+  it('breaks the pay down by source and counts how much of the absence was credited', () => {
+    staff();
+    const before = state().totalTokens;
+    tick(3 * 3600);
+    const report = store().offlineReport;
+    expect(report).not.toBeNull();
+    expect(report!.seconds).toBe(3 * 3600);
+    expect(report!.elapsed).toBe(3 * 3600);
+    // Сумма строк — это начисленное, а начисленное — это то, что реально легло в кошелёк.
+    expect(report!.earned).toBeGreaterThan(0);
+    expect(state().totalTokens - before).toBeCloseTo(report!.earned, -Math.floor(Math.log10(report!.earned)) + 6);
+    expect(Math.abs(sumRows() - report!.earned)).toBeLessThanOrEqual(report!.earned * 1e-9);
+  });
+
+  it('says "credited 8 of 100 hours" when the absence hit the cap', () => {
+    staff();
+    tick(100 * 3600);
+    const report = store().offlineReport!;
+    expect(report.seconds).toBe(BASE_OFFLINE_HOURS * 3600);
+    expect(report.elapsed).toBe(100 * 3600);
+    expect(Math.abs(sumRows() - report.earned)).toBeLessThanOrEqual(report.earned * 1e-9);
+  });
+
+  it('opens nothing for a short pause', () => {
+    staff();
+    tick(5);
+    expect(store().offlineReport).toBeNull();
+  });
+
+  it('does not open the screen when the tab is hidden and shown quickly', () => {
+    staff();
+    for (let i = 0; i < 5; i++) {
+      store().setTabHidden(true);
+      tick(1);
+      store().setTabHidden(false);
+    }
+    expect(store().offlineReport).toBeNull();
+  });
+
+  it('opens one screen when the player returns, and never a second one on later switches', () => {
+    staff();
+    store().setTabHidden(true);
+    // Скрытая вкладка просыпается раз в минуту: каждый такой тик — длинный.
+    for (let i = 0; i < 3; i++) tick(60);
+    expect(store().offlineReport).toBeNull();
+    store().setTabHidden(false);
+    const report = store().offlineReport;
+    expect(report).not.toBeNull();
+    expect(report!.elapsed).toBe(180);
+    expect(Math.abs(sumRows() - report!.earned)).toBeLessThanOrEqual(report!.earned * 1e-9);
+
+    store().dismissOfflineReport();
+    for (let i = 0; i < 4; i++) {
+      store().setTabHidden(true);
+      store().setTabHidden(false);
+    }
+    expect(store().offlineReport).toBeNull();
+  });
+
+  it('adds a second long pause to the open screen instead of opening another', () => {
+    staff();
+    tick(3600);
+    const first = store().offlineReport!.earned;
+    tick(3600);
+    expect(store().offlineReport!.elapsed).toBe(7200);
+    expect(store().offlineReport!.earned).toBeGreaterThan(first);
+  });
+
+  it('keeps the shown-screen flag out of the save', () => {
+    staff();
+    tick(3600);
+    expect(store().offlineReport).not.toBeNull();
+    expect(Object.keys(state()).sort()).toEqual(Object.keys(newGame(T0)).sort());
+  });
+
+  it('forgets a pending absence when the run is reset', () => {
+    staff();
+    store().setTabHidden(true);
+    tick(600);
+    store().resetGame();
+    store().setTabHidden(false);
+    expect(store().offlineReport).toBeNull();
   });
 });
 
@@ -1015,17 +1156,14 @@ describe('quips', () => {
 });
 
 describe('starting a challenge', () => {
-  it('sets the challenge on a fresh run, toasts its desc and sounds the upgrade', () => {
+  it('sets the challenge on a fresh run and sounds the upgrade', () => {
     freshStore();
     expect(state().activeChallenge).toBeNull();
     vi.mocked(playUpgradeSound).mockClear();
     store().startChallenge('no-synergy');
     expect(state().activeChallenge).toBe('no-synergy');
-    // Испытание — не Достижение: тост называет его словами из таблицы ядра, а не id.
-    const def = CHALLENGES.find((c) => c.id === 'no-synergy');
-    const toast = store().toasts.find((t) => t.title === 'Испытание принято');
-    expect(toast?.name).toBe(def?.name);
-    expect(toast?.desc).toBe(def?.desc);
+    // Испытание — не Достижение: тоста нет.
+    expect(store().toasts).toEqual([]);
     expect(vi.mocked(playUpgradeSound)).toHaveBeenCalledTimes(1);
   });
 
@@ -1047,6 +1185,115 @@ describe('starting a challenge', () => {
     expect(state()).toBe(before);
     expect(store().toasts).toEqual([]);
     expect(vi.mocked(playUpgradeSound)).not.toHaveBeenCalled();
+  });
+});
+
+describe('reward moments on the scene', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('announces the first Agent of a new Лаборатория and nothing for the second one', () => {
+    freshStore();
+    expect(store().sceneMoment).toBeNull();
+    hire(first.id, 1);
+    expect(store().sceneMoment).toMatchObject({ lab: first.lab, entry: true, flagship: false });
+    const nonce = store().sceneMoment?.nonce;
+    hire(first.id, 1);
+    // Второй Агент той же Модели — обычная покупка: момент остаётся тем же, нового нет.
+    expect(store().sceneMoment?.nonce).toBe(nonce);
+  });
+
+  it('gives every new Лаборатория its own moment', () => {
+    freshStore();
+    hire(first.id, 1);
+    const firstNonce = store().sceneMoment?.nonce ?? 0;
+    const newcomer = g0.models.find((m) => m.lab !== first.lab && m.id !== g0.flagship.id);
+    if (!newcomer) throw new Error('в Поколении 0 одна Лаборатория');
+    hire(newcomer.id, 1);
+    expect(store().sceneMoment).toMatchObject({ lab: newcomer.lab, entry: true });
+    expect(store().sceneMoment?.nonce).toBeGreaterThan(firstNonce);
+  });
+
+  it('celebrates the first Флагман once, and a second Агент of it is just a purchase', () => {
+    freshStore();
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment).toMatchObject({ lab: g0.flagship.lab, flagship: true });
+    const nonce = store().sceneMoment?.nonce;
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment?.nonce).toBe(nonce);
+  });
+
+  it('raises no moment for a purchase that did not go through', () => {
+    freshStore();
+    useGameStore.setState({ state: { ...state(), tokens: 0 } });
+    store().buyAgents(g0.flagship.id);
+    expect(store().sceneMoment).toBeNull();
+  });
+
+  it('is not part of the save', () => {
+    freshStore();
+    hire(g0.flagship.id, 1);
+    expect(JSON.stringify(state())).not.toContain('sceneMoment');
+  });
+
+  it('lets go of the moment after its dwell, but only its own', () => {
+    vi.useFakeTimers();
+    freshStore();
+    hire(first.id, 1);
+    const old = store().sceneMoment?.nonce;
+    vi.advanceTimersByTime(SCENE_MOMENT_MS - 100);
+    const newcomer = g0.models.find((m) => m.lab !== first.lab);
+    if (!newcomer) throw new Error('в Поколении 0 одна Лаборатория');
+    hire(newcomer.id, 1);
+    expect(store().sceneMoment?.nonce).not.toBe(old);
+    // Срок первого момента вышел, но на сцене уже второй: первый таймер его не гасит.
+    vi.advanceTimersByTime(150);
+    expect(store().sceneMoment).not.toBeNull();
+    vi.advanceTimersByTime(SCENE_MOMENT_MS);
+    expect(store().sceneMoment).toBeNull();
+  });
+
+  it('is gone after a new run', () => {
+    freshStore();
+    hire(first.id, 1);
+    store().resetGame();
+    expect(store().sceneMoment).toBeNull();
+  });
+
+  it('is gone after a Престиж, so the new Поколение does not inherit the old celebration', () => {
+    freshStore();
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment?.flagship).toBe(true);
+    store().triggerPrestige();
+    expect(store().sceneMoment).toBeNull();
+  });
+
+  it('is gone after an import, which replaces the run instead of buying into it', () => {
+    freshStore();
+    const exported = exportSave(state());
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment).not.toBeNull();
+    expect(store().importSaveData(exported)).toBe(true);
+    expect(store().sceneMoment).toBeNull();
+  });
+});
+
+describe('the prestige tab section', () => {
+  beforeEach(() => useGameStore.setState({ prestigeSection: 'prestige' }));
+
+  it('opens on «Престиж» and remembers the section the player picked, whatever tab comes between', () => {
+    expect(store().prestigeSection).toBe('prestige');
+    store().setPrestigeSection('legacy');
+    store().setActiveTab('click');
+    store().setActiveTab('prestige');
+    expect(store().prestigeSection).toBe('legacy');
+    store().setPrestigeSection('perks');
+    expect(store().prestigeSection).toBe('perks');
+  });
+
+  it('does not touch the game state or the save, since the section is only where the player looks', () => {
+    const before = state();
+    store().setPrestigeSection('perks');
+    expect(state()).toBe(before);
   });
 });
 
@@ -1078,6 +1325,135 @@ describe('the volume setting', () => {
   });
 });
 
+describe('the channel volume settings', () => {
+  // Каналы музыки и эффектов лежат поверх общей громкости: общая остаётся мастером, а границы,
+  // как и у неё, держит стор — значение приходит из ползунка и из импортируемого файла.
+  it('takes a level the player chose for each channel without touching the other or the master', () => {
+    freshStore();
+    const master = state().settings.volume;
+    store().setChannelVolume('music', 0.3);
+    expect(state().settings.musicVolume).toBe(0.3);
+    expect(state().settings.sfxVolume).toBe(1);
+    store().setChannelVolume('sfx', 0.7);
+    expect(state().settings.sfxVolume).toBe(0.7);
+    expect(state().settings.musicVolume).toBe(0.3);
+    expect(state().settings.volume).toBe(master);
+  });
+
+  it('fences off junk from a slider or an imported file', () => {
+    freshStore();
+    store().setChannelVolume('music', 9999);
+    expect(state().settings.musicVolume).toBe(1);
+    store().setChannelVolume('music', -5);
+    expect(state().settings.musicVolume).toBe(0);
+    store().setChannelVolume('sfx', 0.4);
+    store().setChannelVolume('sfx', Number.NaN);
+    // Не число — оставляем то, что уже стояло: сбросить канал вслепую значило бы громче или тише.
+    expect(state().settings.sfxVolume).toBe(0.4);
+  });
+
+  it('keeps zero as a deliberate silence of its own channel, not a mute', () => {
+    freshStore();
+    store().setChannelVolume('music', 0);
+    expect(state().settings.musicVolume).toBe(0);
+    expect(state().settings.muted).toBe(false);
+    expect(state().settings.sfxVolume).toBe(1);
+  });
+});
+
+describe('the effect switches', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('starts with every effect on', () => {
+    freshStore();
+    expect(state().settings).toMatchObject({ particles: true, floaters: true, shake: true, ticker: true });
+  });
+
+  it('flips one effect and leaves the others', () => {
+    freshStore();
+    store().setEffect('shake', false);
+    expect(state().settings).toMatchObject({ particles: true, floaters: true, shake: false, ticker: true });
+    store().setEffect('shake', true);
+    expect(state().settings.shake).toBe(true);
+  });
+
+  /** Числа в воздухе от прошлых тестов не сбрасывает ни `resetGame`, ни `freshStore`: они живут 900 мс. */
+  const freshAir = (): void => {
+    freshStore();
+    useGameStore.setState({ floaters: [] });
+  };
+
+  it('does not leave a floating number after a Клик while floaters are off, and does while they are on', () => {
+    vi.useFakeTimers();
+    freshAir();
+    store().clickPrompt(10, 20);
+    expect(store().floaters).toHaveLength(1);
+    expect(store().floaters[0]).toMatchObject({ x: 10, y: 20 });
+    vi.advanceTimersByTime(1000);
+    expect(store().floaters).toHaveLength(0);
+
+    store().setEffect('floaters', false);
+    store().clickPrompt(10, 20);
+    expect(store().floaters).toHaveLength(0);
+    // Клик при этом засчитан: выключатель гасит число, а не отклик игры.
+    expect(state().clicks).toBe(2);
+  });
+
+  it('takes away a floating number already in the air when the player switches floaters off', () => {
+    vi.useFakeTimers();
+    freshAir();
+    store().clickPrompt(10, 20);
+    store().clickPrompt(10, 20);
+    expect(store().floaters).toHaveLength(2);
+    store().setEffect('floaters', false);
+    expect(store().floaters).toHaveLength(0);
+  });
+
+  describe('which effects may be made', () => {
+    /** Система сообщает о движении так же, как браузер: через matchMedia. */
+    const systemReduces = (reduce: boolean): void => {
+      vi.stubGlobal('window', { matchMedia: (media: string) => ({ matches: reduce, media }) });
+    };
+
+    it('makes particles and shake while they are on and motion is allowed', () => {
+      freshStore();
+      systemReduces(false);
+      expect(effectAllowed('particles')).toBe(true);
+      expect(effectAllowed('shake')).toBe(true);
+    });
+
+    it('makes only what is switched on', () => {
+      freshStore();
+      systemReduces(false);
+      store().setEffect('particles', false);
+      expect(effectAllowed('particles')).toBe(false);
+      expect(effectAllowed('shake')).toBe(true);
+      store().setEffect('particles', true);
+      store().setEffect('shake', false);
+      expect(effectAllowed('particles')).toBe(true);
+      expect(effectAllowed('shake')).toBe(false);
+    });
+
+    it('makes neither under less animation, whatever the switches say', () => {
+      freshStore();
+      systemReduces(false);
+      store().setReducedMotion(true);
+      expect(effectAllowed('particles')).toBe(false);
+      expect(effectAllowed('shake')).toBe(false);
+    });
+
+    it('makes neither when the system asks for less motion, even with both switched on', () => {
+      freshStore();
+      systemReduces(true);
+      expect(effectAllowed('particles')).toBe(false);
+      expect(effectAllowed('shake')).toBe(false);
+    });
+  });
+});
+
 describe('the finale screen flag', () => {
   // Регрессия: комментарий обещал, что рестарт вернёт флаг, а код этого не делал — второе
   // прохождение до последнего Поколения встречало игрока молчащим финалом.
@@ -1099,7 +1475,7 @@ describe('the finale screen flag', () => {
 });
 
 describe('shattering a crystal', () => {
-  it('pays the gain into the wallet, names the sum and sounds the achievement', () => {
+  it('pays the gain into the wallet and sounds the achievement', () => {
     freshStore();
     // Без Агентов Дохода нет, и впрыск — 15% кошелька: 150 из 1000.
     useGameStore.setState({ state: { ...state(), crystals: 2, tokens: 1000 } });
@@ -1110,11 +1486,7 @@ describe('shattering a crystal', () => {
     expect(state().tokens - before.tokens).toBe(150);
     expect(state().runTokens - before.runTokens).toBe(150);
     expect(state().totalTokens - before.totalTokens).toBe(150);
-    // Сумма обязана быть названа: кристалл стоит +1% Дохода навсегда, и молчаливый размен
-    // читался бы как пропавший кристалл.
-    expect(store().toasts.find((t) => t.title === 'Кристалл разбит')?.desc).toBe(
-      `+${formatNumber(150, state().settings.notation)} Токенов`,
-    );
+    expect(store().toasts).toEqual([]);
     expect(vi.mocked(playAchievementSound)).toHaveBeenCalledTimes(1);
   });
 
@@ -1247,6 +1619,23 @@ describe('the save', () => {
     expect(w.saved()?.settings.muted).toBe(true);
   });
 
+  it('has the effect switches and the channel levels in the save the moment they are touched', async () => {
+    const w = await windowed();
+    w.store.getState().setEffect('particles', false);
+    w.store.getState().setEffect('ticker', false);
+    w.store.getState().setChannelVolume('music', 0);
+    w.store.getState().setChannelVolume('sfx', 0.35);
+    // Переключатель, не доехавший до localStorage, откатился бы с закрытой вкладкой.
+    expect(w.saved()?.settings).toMatchObject({
+      particles: false,
+      floaters: true,
+      shake: true,
+      ticker: false,
+      musicVolume: 0,
+      sfxVolume: 0.35,
+    });
+  });
+
   it('has the imported run in the save, so a reload cannot undo the import', async () => {
     const w = await windowed();
     const other: GameState = { ...newGame(T0), generation: 1, maxGeneration: 1, totalTokens: 5e9 };
@@ -1348,6 +1737,171 @@ describe('the save', () => {
 });
 
 /**
+ * Фоновая вкладка: число Токенов в заголовке и тишина, пока страница скрыта.
+ *
+ * Модуль магазина перезагружается тем же приёмом, что и в «the save»: подписка на видимость
+ * ставится при загрузке, поэтому документ-подделка обязана существовать до импорта.
+ */
+describe('the background tab', () => {
+  const BASE_TITLE = 'Token Clicker';
+
+  interface Tab {
+    store: typeof useGameStore;
+    /** Что сейчас в заголовке вкладки. */
+    title: () => string;
+    /** Игрок ушёл с вкладки или вернулся на неё. */
+    show: (visible: boolean) => void;
+    /** Вызовы, которыми магазин просил звук замолчать или вернуться. */
+    silence: () => ReturnType<typeof vi.fn>;
+  }
+
+  /** Каждое присваивание заголовка, в том числе повторное тем же текстом. */
+  const assigned: string[] = [];
+
+  const openTab = async (visibility: 'visible' | 'hidden' = 'visible'): Promise<Tab> => {
+    const listeners: (() => void)[] = [];
+    let title = BASE_TITLE;
+    const doc = {
+      get title() {
+        return title;
+      },
+      set title(next: string) {
+        assigned.push(next);
+        title = next;
+      },
+      visibilityState: visibility as DocumentVisibilityState,
+      addEventListener: (type: string, fn: () => void) => {
+        if (type === 'visibilitychange') listeners.push(fn);
+      },
+      removeEventListener: () => {},
+    };
+    vi.stubGlobal('window', { innerWidth: 800, innerHeight: 600, addEventListener: () => {}, removeEventListener: () => {} });
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+    vi.resetModules();
+    // Звуковой модуль берётся из того же реестра, что и магазин: после resetModules у них общая
+    // подделка, а не та, что импортирована в начале файла.
+    const sound = await import('../audio/sound');
+    const mod = await import('./useGameStore');
+    return {
+      store: mod.useGameStore,
+      silence: () => vi.mocked(sound.setAudioHidden),
+      title: () => doc.title,
+      show: (visible) => {
+        doc.visibilityState = visible ? 'visible' : 'hidden';
+        for (const fn of listeners) fn();
+      },
+    };
+  };
+
+  /** Кошелёк под рукой: Доход без Агентов нулевой, и тик Токены не двигает. */
+  const holding = (tab: Tab, tokens: number): void => {
+    tab.store.setState({ state: { ...tab.store.getState().state, tokens, temp: 0, heat: 0 } });
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    assigned.length = 0;
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('shows the Tokens in the tab title in the notation the player chose', async () => {
+    const tab = await openTab();
+    holding(tab, 1.5e6);
+    tab.store.getState().tick(0.05);
+    expect(tab.title()).toBe('1,50 M · Token Clicker');
+
+    tab.store.getState().setNotation('sci');
+    vi.advanceTimersByTime(1000);
+    tab.store.getState().tick(0.05);
+    expect(tab.title()).toBe('1.50e6 · Token Clicker');
+  });
+
+  it('rewrites the title at most once a second, however often the tick runs', async () => {
+    const tab = await openTab();
+    const writes: string[] = [];
+    const seen = (): void => {
+      if (writes.at(-1) !== tab.title()) writes.push(tab.title());
+    };
+    holding(tab, 1000);
+    tab.store.getState().tick(0.05);
+    seen();
+
+    // Двадцать тиков за секунду, и Токены растут на каждом: заголовок не должен поспевать за ними.
+    for (let i = 1; i < 20; i += 1) {
+      vi.advanceTimersByTime(50);
+      holding(tab, 1000 * (i + 1));
+      tab.store.getState().tick(0.05);
+      seen();
+    }
+    expect(writes).toEqual(['1,00 K · Token Clicker']);
+
+    vi.advanceTimersByTime(50);
+    tab.store.getState().tick(0.05);
+    seen();
+    expect(writes).toEqual(['1,00 K · Token Clicker', '20,00 K · Token Clicker']);
+  });
+
+  it('does not touch the title when the number reads the same, so the tab strip stays still', async () => {
+    const tab = await openTab();
+    holding(tab, 1.5e6);
+    tab.store.getState().tick(0.05);
+    for (let i = 0; i < 5; i += 1) {
+      vi.advanceTimersByTime(1000);
+      tab.store.getState().tick(0.05);
+    }
+    // Токены не двигались, а пять секунд прошло: заголовок остался тем же и писался один раз.
+    expect(assigned).toEqual(['1,50 M · Token Clicker']);
+  });
+
+  it('silences the sound while the page is hidden and gives it back with the settings it had', async () => {
+    const tab = await openTab();
+    tab.store.getState().setVolume(0.4);
+    const settings = tab.store.getState().state.settings;
+    expect(tab.silence()).not.toHaveBeenCalledWith(true, expect.anything());
+
+    tab.show(false);
+    expect(tab.silence()).toHaveBeenLastCalledWith(true, settings);
+    // Тишина — не настройка: ползунок и мьют игрока остаются там, где он их оставил, поэтому
+    // возвращение не может прозвучать иначе, чем он выбрал.
+    expect(tab.store.getState().state.settings).toEqual(settings);
+
+    tab.show(true);
+    expect(tab.silence()).toHaveBeenLastCalledWith(false, settings);
+    expect(tab.store.getState().state.settings).toEqual(settings);
+    expect(tab.store.getState().state.settings.volume).toBe(0.4);
+  });
+
+  it('hands over the settings the player has at the moment he leaves, not the ones from load', async () => {
+    const tab = await openTab();
+    tab.store.getState().toggleMute();
+    tab.show(false);
+    // Мьют, поставленный до ухода, должен пережить возвращение: тишина не снимает его за игрока.
+    expect(tab.silence()).toHaveBeenLastCalledWith(true, expect.objectContaining({ muted: true }));
+    tab.show(true);
+    expect(tab.silence()).toHaveBeenLastCalledWith(false, expect.objectContaining({ muted: true }));
+  });
+
+  it('starts silent when the page is opened in the background', async () => {
+    const tab = await openTab('hidden');
+    expect(tab.silence()).toHaveBeenCalledWith(true, tab.store.getState().state.settings);
+  });
+
+  it('does not ask the sound twice for a visibility that has not changed', async () => {
+    const tab = await openTab();
+    tab.show(true);
+    expect(tab.silence()).not.toHaveBeenCalled();
+    tab.show(false);
+    tab.show(false);
+    expect(tab.silence()).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
  * Битое сохранение при загрузке.
  *
  * Перезагрузка модуля — тем же приёмом, что и выше: загрузка читается один раз при создании
@@ -1410,5 +1964,201 @@ describe('corrupt save on load', () => {
     expect(cell.get(CORRUPT_SAVE_KEY)).toBeUndefined();
     expect(snapshot.toasts).toEqual([]);
     expect(snapshot.state.totalTokens).toBe(5);
+  });
+});
+
+describe('the Серия and holding a key down', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  /** Свежая игра без чисел и искр в воздухе и без Кликов в окне Серии. */
+  const freshRun = (): void => {
+    // Система движение разрешает; запрос о нём нужен стору при каждом решении об искрах.
+    vi.stubGlobal('window', { matchMedia: (media: string) => ({ matches: false, media }) });
+    freshStore();
+    useGameStore.setState({ floaters: [], clickSparks: [] });
+  };
+
+  it('pays the same Токены for every Клик at any level of the Серия', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    const price = clickValue(state());
+    const paid: number[] = [];
+    const levels: number[] = [];
+    for (let i = 0; i < 25; i += 1) {
+      const before = state().tokens;
+      store().clickPrompt(10, 10);
+      paid.push(state().tokens - before);
+      levels.push(store().floaters[store().floaters.length - 1].level);
+      vi.advanceTimersByTime(80);
+    }
+    // Тест охватывает и покой, и высший уровень Серии, иначе равенство ничего не доказывало бы.
+    expect(levels[0]).toBe(0);
+    expect(levels[levels.length - 1]).toBeGreaterThan(2);
+    for (const p of paid) expect(p).toBe(price);
+  });
+
+  it('plays the Клик sound one level higher as the Серия grows, and back down after a pause', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    vi.mocked(playClickSound).mockClear();
+    for (let i = 0; i < 15; i += 1) {
+      store().clickPrompt(10, 10);
+      vi.advanceTimersByTime(80);
+    }
+    const levels = vi.mocked(playClickSound).mock.calls.map((c) => c[1]);
+    expect(levels[0]).toBe(0);
+    expect(levels[levels.length - 1]).toBeGreaterThan(levels[0] ?? 0);
+    vi.advanceTimersByTime(5000);
+    store().clickPrompt(10, 10);
+    expect(vi.mocked(playClickSound).mock.calls.at(-1)?.[1]).toBe(0);
+  });
+
+  it('shows more sparks and a bigger +N at a higher level, none of them with the switches off', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    for (let i = 0; i < 15; i += 1) {
+      store().clickPrompt(10, 10);
+      vi.advanceTimersByTime(80);
+    }
+    const sparks = store().clickSparks;
+    expect(sparks.length).toBeGreaterThan(0);
+    expect(sparks[sparks.length - 1].level).toBeGreaterThan(sparks[0]?.level ?? 0);
+    expect(store().floaters[store().floaters.length - 1].level).toBeGreaterThan(2);
+
+    store().setEffect('particles', false);
+    expect(store().clickSparks).toEqual([]);
+    store().clickPrompt(10, 10);
+    expect(store().clickSparks).toEqual([]);
+    expect(store().floaters.length).toBeGreaterThan(0);
+
+    store().setEffect('floaters', false);
+    store().clickPrompt(10, 10);
+    expect(store().floaters).toEqual([]);
+  });
+
+  it('makes no sparks under less animation, and the Клик still counts', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    vi.stubGlobal('window', { matchMedia: (media: string) => ({ matches: true, media }) });
+    for (let i = 0; i < 10; i += 1) store().clickPrompt(10, 10);
+    expect(store().clickSparks).toEqual([]);
+    expect(state().clicks).toBe(10);
+  });
+
+  it('clears the sparks from the air once they have flown', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    for (let i = 0; i < 10; i += 1) {
+      store().clickPrompt(10, 10);
+      vi.advanceTimersByTime(60);
+    }
+    vi.advanceTimersByTime(2000);
+    expect(store().clickSparks).toEqual([]);
+  });
+
+  it('holding a key gives no more Кликов per second than the ceiling, however often the key repeats', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    const accepted: number[] = [];
+    // Автоповтор клавиши шлёт десятки нажатий в секунду; повторяем его шагом в 8 мс на три секунды.
+    for (let t = 0; t < 3000; t += 8) {
+      vi.setSystemTime(T0 + t);
+      if (store().holdClick(10, 10)) accepted.push(t);
+    }
+    expect(state().clicks).toBe(accepted.length);
+    expect(accepted.length).toBeGreaterThan(20);
+    for (const at of accepted) {
+      const inSecond = accepted.filter((other) => other > at - 1000 && other <= at).length;
+      expect(inSecond).toBeLessThanOrEqual(HOLD_CLICK_MAX_PER_SEC);
+    }
+  });
+
+  it('a held key pays the ordinary price of a Клик', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    const price = clickValue(state());
+    const before = state().tokens;
+    expect(store().holdClick(10, 10)).toBe(true);
+    expect(state().tokens - before).toBe(price);
+  });
+});
+
+describe('горячие клавиши в сторе', () => {
+  beforeEach(() => {
+    freshStore();
+    useGameStore.setState({ shopTab: 'models', helpOpen: false, activeTab: 'click' });
+  });
+
+  it('1, 2 and 3 open the Models, Upgrades and Prestige tabs of the shop', () => {
+    store().runHotkey({ kind: 'shopTab', tab: 'upgrades' });
+    expect(store().shopTab).toBe('upgrades');
+    store().runHotkey({ kind: 'shopTab', tab: 'prestige' });
+    expect(store().shopTab).toBe('prestige');
+    store().runHotkey({ kind: 'shopTab', tab: 'models' });
+    expect(store().shopTab).toBe('models');
+  });
+
+  it('a tab key also brings the shop to the screen on a phone, where one column shows at a time', () => {
+    useGameStore.setState({ activeTab: 'click' });
+    store().runHotkey({ kind: 'shopTab', tab: 'upgrades' });
+    expect(store().activeTab).toBe('shop');
+  });
+
+  it('? opens the key card and a second ? closes it', () => {
+    store().runHotkey({ kind: 'help' });
+    expect(store().helpOpen).toBe(true);
+    store().runHotkey({ kind: 'help' });
+    expect(store().helpOpen).toBe(false);
+  });
+
+  it('a hotkey never touches the run: no Токены, no Агенты, nothing to save', () => {
+    const before = state();
+    store().runHotkey({ kind: 'shopTab', tab: 'prestige' });
+    store().runHotkey({ kind: 'help' });
+    expect(state()).toBe(before);
+  });
+});
+
+describe('покупка с модификатором', () => {
+  beforeEach(() => {
+    freshStore();
+    withTokens(1e30);
+  });
+
+  it('buys exactly the requested amount and leaves the chosen ×N alone', () => {
+    store().buyAgents(first.id, 10);
+    expect(state().agents[first.id]).toBe(10);
+    expect(store().buyAmount).toBe(1);
+  });
+
+  it('with no amount it buys what the buttons chose, as before', () => {
+    useGameStore.setState({ buyAmount: 10 });
+    store().buyAgents(first.id);
+    expect(state().agents[first.id]).toBe(10);
+  });
+
+  it('Max spends what Max spends: the same purchase as choosing Max by button', () => {
+    const viaButton = engineBuyAgents(state(), first.id, 'max');
+    store().buyAgents(first.id, 'max');
+    expect(state().agents[first.id]).toBe(viaButton.agents[first.id]);
+    expect(state().tokens).toBe(viaButton.tokens);
+  });
+
+  it('a modifier on a sale sells that amount, capped at what is owned', () => {
+    store().buyAgents(first.id, 100);
+    store().sellAgents(first.id, 10);
+    expect(state().agents[first.id]).toBe(90);
+    store().sellAgents(first.id, 'max');
+    expect(state().agents[first.id] ?? 0).toBe(0);
   });
 });

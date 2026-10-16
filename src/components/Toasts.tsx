@@ -1,24 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { motionAllowed, useGameStore, type ToastMessage } from '../store/useGameStore';
-import { TOAST_MARGIN, toastStackWidth } from '../layout';
+import { effectAllowed, motionAllowed, useGameStore, type ToastMessage } from '../store/useGameStore';
+import {
+  pinnedToastAnchors,
+  TOAST_GAP,
+  TOAST_MARGIN,
+  TOAST_QUEUE_H,
+  TOAST_VISIBLE_MAX,
+  toastStackBand,
+  toastStackWidth,
+} from '../layout';
 import { Icon } from './Icon';
 import { Num } from './Num';
 
 const TOAST_MS = 4000;
 
-// Стопка растёт вверх от кнопки Клика, поэтому девять Достижений разом занимали
-// весь левый столбец и накрывали логотип, счётчик Токенов и кнопку Клика —
-// то есть ровно те элементы, ради которых игрок смотрит на уведомление.
-// Показываем только свежие, а длину очереди передаём счётчиком: молча выбрасывать
-// Достижения нельзя, они остаются в модальном окне и в счётчике в шапке, но игрок
+// Тосты — только о Достижениях (единственное исключение — «Сохранение повреждено» при загрузке:
+// больше игроку не от кого узнать, что Забег начат заново не по его вине), а пачку из одного тика стор склеивает в одну карточку «+N
+// Достижения». Показываем только свежие, а длину очереди (тики подряд) передаём счётчиком:
+// молча выбрасывать их нельзя — они остаются в окне «Достижения» и в счётчике в шапке, но игрок
 // должен видеть, что список не кончился.
-//
-// Верхняя граница: сколько карточек вообще имеет смысл показывать. Реальное количество
-// считается из измеренной полосы (см. `useStackBand`) и почти всегда оказывается меньше.
-const VISIBLE_TOASTS = 2;
-
-/** Зазор между стопкой и её нижней границей, полосой Клика и зазором между карточками. */
-const TOAST_GAP = 8;
+// Сколько карточек влезает и где стоять стопке, решает `toastStackBand` из модуля раскладки.
 
 // 24 искры вокруг Достижения. Угол и дальность разводит золотой угол: по равномерной сетке
 // веер встаёт в правильную розетку и читается как гирлянда, а не как вспышка.
@@ -111,15 +112,12 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
       onAnimationEnd={onAnimationEnd}
       className={`pixel-card toast-card${leaving ? ' toast-card--out' : ''}`}
       style={{
-        padding: '12px 14px',
+        padding: 'var(--space-3)',
         backgroundColor: 'var(--bg-card)',
-        border: '2px solid var(--gold)',
-        // Тень остаётся литералом и вдвое гуще карточной: тост висит поверх живой игры,
-        // а --tint-strong у .pixel-card рассчитан на фон, лежащий сразу под панелью.
-        boxShadow: '0 4px 14px rgba(0,0,0,0.5)',
+        border: 'var(--frame-w) solid var(--gold)',
         display: 'flex',
         alignItems: 'center',
-        gap: '10px',
+        gap: 'var(--space-2)',
         cursor: 'pointer',
         // Карточка не шире стека: сам стек уже ограничен расчётом колонок
         // (см. `toastStackWidth`), а здесь предел — доля, а не пиксели, иначе на
@@ -133,11 +131,11 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
     >
       <Icon name="trophy" size={22} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>{toast.title}</div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--gold)' }}>{toast.title}</div>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)', fontWeight: 600 }}>
           {toast.name}
         </div>
-        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{toast.desc}</div>
+        {toast.desc && <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{toast.desc}</div>}
       </div>
       {/* Видимая кнопка закрытия: автозакрытие и клик по карточке остаются, но ждать четыре
           секунды, чтобы убрать тост, игрок не обязан. stopPropagation обязателен — иначе нажатие
@@ -148,10 +146,10 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
           e.stopPropagation();
           dismiss();
         }}
-        className="pixel-btn"
+        className="pixel-btn toast-close"
         aria-label="Закрыть уведомление"
         title="Закрыть"
-        style={{ padding: '2px 6px', fontSize: '0.8rem', flexShrink: 0 }}
+        style={{ padding: 'var(--space-0) var(--space-1)', fontSize: 'var(--text-sm)', flexShrink: 0 }}
       >
         ✕
       </button>
@@ -160,61 +158,74 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
 };
 
 /**
- * Где стопке стоять и сколько в неё влезает.
+ * Где стопке стоять и сколько в неё влезает — измерение, а не расчёт: расчёт (`toastStackBand`)
+ * живёт в модуле раскладки и покрыт тестом, а здесь только читаются края колонки Клика.
  *
- * Раньше здесь стояло число в CSS (`bottom: 380px`), и оно перестало совпадать с колонкой:
- * при высоте окна 900 нижний край стопки оказывался на 25 px ВНУТРИ кнопки Клика, а сама
- * стопка закрывала две трети шкалы Температуры. Магическое число не может быть правильным на
- * всех раскладках — их четыре, и колонка растёт вместе с полосой Вех.
- *
- * Полоса, в которой стопка имеет право жить, — от низа счётчика Токенов до верха шкалы
- * Температуры. Верх полосы — именно низ счётчика, а не его верх: стопка, начинавшаяся ровно
- * на счётчике, перекрывала число Токенов и Доход целиком, а комментарий при этом объяснял
- * размещение заботой о магазине — то есть перекрытие задумано не было. Счётчик занимает
- * 93 px (число, подпись «Токенов», Доход и подсказка), карточка с трёхстрочным описанием —
- * 117 px, счётчик очереди — 32, зазоры — 8: две карточки в полосу не влезают, а одна
- * влезает с запасом. Поэтому количество видимых считается из полосы, а не задаётся: полоса
- * меняется вместе с раскладкой, длиной описания и появлением полосы Вех.
+ * Стопка стоит под колонкой Клика и никогда не лежит на числе Токенов, Доходе, кнопке Клика и
+ * шкале Температуры: раньше она начиналась ровно на счётчике и перекрывала его целиком, а её
+ * размещение объясняли заботой о магазине — то есть перекрытие числа не было задумано ни как
+ * цена, ни как правило. Колонка идёт в порядке главного действия (счётчик, Клик, Температура,
+ * Вехи), поэтому полосы «между счётчиком и шкалой» больше нет: между ними стоит сама кнопка.
  *
  * Измеряется по событиям раскладки — `ResizeObserver` и изменение окна, — а не по таймеру:
  * собственный таймер здесь означал бы шестое место, где что-то перерисовывается двадцать раз
  * в секунду.
  */
-const CARD_BUDGET = 128;
-
-function useStackBand(): { top: number; slots: number; width: number } {
+function useStackBand(count: number): { top: number; slots: number; width: number } {
   const measure = React.useCallback((): { top: number; slots: number; width: number } | null => {
     const counter = document.querySelector<HTMLElement>('.click-counter');
-    // Шкала — нижняя граница полосы. Если её нет (например, вкладка без колонки Клика),
-    // нижней границей становится сама кнопка: накрывать её тоже нельзя.
-    const floor = document.querySelector<HTMLElement>('[role="slider"]') ?? document.querySelector<HTMLElement>('.click-btn');
     if (!counter) return null;
-    // Низ счётчика, а не верх: стопка живёт ПОД числом Токенов и Доходом, а не поверх них.
-    const rect = counter.getBoundingClientRect();
-    const top = Math.round(rect.bottom + TOAST_GAP);
-    const floorTop = floor ? Math.round(floor.getBoundingClientRect().top) : window.innerHeight - 80;
+    const bottomOf = (el: Element | null): number | null => (el ? el.getBoundingClientRect().bottom : null);
+    const counterBottom = counter.getBoundingClientRect().bottom;
+    // Линия перегрева под шкалой — черта, выше которой тост не заходит: она часть шкалы, и
+    // прятать её в момент Достижения нельзя, как и ручку; без неё (вкладка без колонки Клика) её
+    // роль берёт кнопка Клика: накрывать её тоже нельзя.
+    const keepVisibleBottom =
+      bottomOf(document.querySelector('[role="progressbar"][aria-label="Перегрев"]')) ??
+      bottomOf(document.querySelector('[role="slider"]')) ?? bottomOf(document.querySelector('.click-btn')) ?? counterBottom;
+    const contentBottom = bottomOf(document.querySelector('.milestone-strip')) ?? keepVisibleBottom;
+    // Нижние полосы оболочки: их высоту App.tsx меряет и кладёт в --toast-bottom.
+    const root = document.querySelector('.app-root');
+    const bottomBand = (root && parseFloat(getComputedStyle(root).getPropertyValue('--toast-bottom'))) || 0;
+    const limit = window.innerHeight - bottomBand;
+    const cardHeight = document.querySelector('.toast-card')?.getBoundingClientRect().height;
+    // На телефоне Токены и Доход стоят в закреплённой полосе над вкладкой, а шкала Температуры и
+    // кнопка Клика — в причале у нижней полосы: «под шкалой» там нет места, и стек встаёт прямо
+    // под полосу (см. `pinnedToastAnchors`), а не на кнопку Клика.
+    const strip = document.querySelector('.status-strip');
+    const anchors = strip
+      ? pinnedToastAnchors({ stripBottom: strip.getBoundingClientRect().bottom, limit, cardHeight })
+      : { counterBottom, keepVisibleBottom, contentBottom, limit, cardHeight };
+    // Хвост очереди («ещё N») стоит в стопке под карточками и тоже должен поместиться в окно:
+    // сначала считаем без него, и если карточек больше, чем влезло, — пересчитываем с ним.
+    let band = toastStackBand(anchors);
+    if (count > Math.min(band.slots, TOAST_VISIBLE_MAX)) band = toastStackBand({ ...anchors, below: TOAST_QUEUE_H });
+    const { top, slots } = band;
     // Ширина — из расчёта колонок, а не замороженным числом: расчёт уже держит её в окне.
-    const width = Math.round(toastStackWidth(window.innerWidth));
-    return { top, slots: clamp(Math.floor((floorTop - top - TOAST_GAP) / CARD_BUDGET), 1, VISIBLE_TOASTS), width };
-  }, []);
+    return { top, slots, width: Math.round(toastStackWidth(window.innerWidth)) };
+  }, [count]);
 
   const [band, setBand] = useState<{ top: number; slots: number; width: number } | null>(null);
 
   useEffect(() => {
     const update = () => setBand(measure());
     update();
-    const counter = document.querySelector<HTMLElement>('.click-counter');
-    const floor = document.querySelector<HTMLElement>('[role="slider"]') ?? document.querySelector<HTMLElement>('.click-btn');
-    // Наблюдатель срабатывает и на изменение высоты окна, и на изменение высоты самой
-    // колонки, то есть на оба случая, когда счётчик или шкала уезжают.
+    const watched = [
+      document.querySelector<HTMLElement>('.click-counter'),
+      document.querySelector<HTMLElement>('[role="progressbar"][aria-label="Перегрев"]') ?? document.querySelector<HTMLElement>('.click-btn'),
+      document.querySelector<HTMLElement>('.milestone-strip'),
+    ];
+    // Наблюдатель срабатывает и на изменение высоты окна, и на изменение высоты самих блоков,
+    // то есть на оба случая, когда счётчик, шкала или Вехи уезжают.
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null;
     if (ro) {
       ro.observe(document.documentElement);
-      if (counter) ro.observe(counter);
-      if (floor) ro.observe(floor);
+      for (const el of watched) if (el) ro.observe(el);
     }
     window.addEventListener('resize', update);
     return () => { ro?.disconnect(); window.removeEventListener('resize', update) };
+  // `measure` зависит от числа тостов: вместе с ним эффект перепривязывает наблюдателя к тому, что
+  // стоит на экране сейчас, а вкладка или раскладка могли сменить узлы.
   }, [measure]);
 
   // До первого измерения показывается одна карточка: это самый осторожный выбор, и он же
@@ -223,15 +234,13 @@ function useStackBand(): { top: number; slots: number; width: number } {
   return band ?? { top: 0, slots: 1, width: Math.round(toastStackWidth(typeof window === 'undefined' ? 0 : window.innerWidth)) };
 }
 
-const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
-
 export const Toasts: React.FC = () => {
   const toasts = useGameStore((s) => s.toasts);
   const removeToast = useGameStore((s) => s.removeToast);
   const burst = useGameStore((s) => s.burst);
   const stackRef = useRef<HTMLDivElement>(null);
   const [fan, setFan] = useState<{ id: number; x: number; y: number } | null>(null);
-  const band = useStackBand();
+  const band = useStackBand(toasts.length);
 
   // Обрезаем хвост, а не начало: последний элемент — самый свежий, и именно он должен
   // остаться на виду. Порядок внутри оставшихся не трогаем: счётчик веера берёт последнюю
@@ -243,7 +252,7 @@ export const Toasts: React.FC = () => {
 
   useEffect(() => {
     if (burst?.kind !== 'achievement') return;
-    if (!motionAllowed()) return;
+    if (!effectAllowed('particles')) return;
     // Якорь — свежайшая карточка в стопке: она и есть отметка о Достижении, на неё и летят
     // искры. Именно карточка, а не последний узел: когда хвост очереди не пуст, последним
     // узлом стоит счётчик «ещё N», и веер вылетал бы из-под него, то есть из цифры, а не
@@ -280,17 +289,19 @@ export const Toasts: React.FC = () => {
         className="toast-stack"
         style={{
           position: 'fixed',
-          left: `${TOAST_MARGIN}px`,
+          // От безопасного края, а не от физического: вырез слева в альбомной ориентации.
+          left: `calc(${TOAST_MARGIN}px + var(--safe-left))`,
           // Ширина по левой колонке, а не во всю окно: тост, растянувшийся под магазин,
           // снова закрыл бы карточки, ради которых игрок его и читает. Число — из расчёта
           // колонок (см. `toastStackWidth`), а страховка держит стек в окне, даже если окно
           // успели сузить между измерением и кадром.
           width: `${band.width}px`,
-          maxWidth: `calc(100vw - ${TOAST_MARGIN * 2}px)`,
+          maxWidth: `calc(100vw - ${TOAST_MARGIN * 2}px - var(--safe-left) - var(--safe-right))`,
           top: band.top || undefined,
-          // `bottom` обязан быть снят: вместе с `top` оба бы растянули стопку на весь экран,
-          // и стопка накрыла бы всё, включая шкалу.
-          bottom: 'auto',
+          // `bottom` обязан быть снят, когда `top` измерен: вместе они растянули бы стопку на весь
+          // экран и накрыли бы шкалу. Без измерения (вкладка без колонки Клика) стопку держит
+          // `.toast-stack` в index.css — над нижними полосами.
+          bottom: band.top ? 'auto' : undefined,
           display: 'flex',
           flexDirection: 'column',
           gap: `${TOAST_GAP}px`,
@@ -310,9 +321,9 @@ export const Toasts: React.FC = () => {
             className="pixel-card"
             style={{
               alignSelf: 'flex-start',
-              padding: '6px 10px',
+              padding: 'var(--space-1) var(--space-2)',
               backgroundColor: 'var(--bg-card)',
-              fontSize: '0.8rem',
+              fontSize: 'var(--text-sm)',
               color: 'var(--text-muted)',
               cursor: 'pointer',
             }}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useGameStore } from '../store/useGameStore';
+import { useStateSlice } from '../store/useGameStore';
 import { coachStep } from '../economy/onboarding';
 
 /**
@@ -12,8 +12,8 @@ import { coachStep } from '../economy/onboarding';
  * игрок. Вход — только opacity через toast-fade, поэтому при reducedMotion картина та же.
  */
 export const OnboardingCoach: React.FC = () => {
-  const state = useGameStore((s) => s.state);
-  const step = coachStep(state);
+  // Шаг — запись из таблицы: у тика она та же самая, поэтому подсказка не перерисовывается.
+  const step = useStateSlice(coachStep);
 
   // Пройденный поток не занимает места: пустой шаг — это отсутствие карточки, а не пустая.
   if (!step) return null;
@@ -26,17 +26,17 @@ export const OnboardingCoach: React.FC = () => {
       aria-live="polite"
       style={{
         width: '100%',
-        padding: '10px 12px',
+        padding: 'var(--space-2) var(--space-3)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '2px',
+        gap: 'var(--space-0)',
         borderColor: 'var(--accent-color)',
         animation: 'toast-fade 0.2s ease-out',
       }}
     >
       <div
         style={{
-          fontSize: '0.72rem',
+          fontSize: 'var(--text-xs)',
           fontWeight: 700,
           letterSpacing: '0.5px',
           textTransform: 'uppercase',
@@ -45,7 +45,7 @@ export const OnboardingCoach: React.FC = () => {
       >
         {step.title}
       </div>
-      <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', lineHeight: 1.35 }}>{step.body}</div>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)', lineHeight: 1.35 }}>{step.body}</div>
     </div>
   );
 };

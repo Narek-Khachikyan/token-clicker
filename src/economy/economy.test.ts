@@ -14,7 +14,7 @@ import {
 import {
   advance, advanceTime, applyOffline, assistClickBonus, BASE_OFFLINE_HOURS, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click,
   clickValue, computeShortfall, datasetMult, datasetValue, discountMult, earnTokens, flagshipMult, generationBoostMult, incomeGain, isContentFinale,
-  labIncomeShare, maxAffordable, modelIncome, offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, prestigePreview,
+  labIncomeShare, maxAffordable, modelIncome, offlineBreakdown, offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, prestigePreview,
   progressToNextAgent, sellAgents, START_PRICE_MULT, totalIncome,
 } from './engine';
 import {
@@ -380,6 +380,13 @@ describe('income and click', () => {
     expect(incomeGain(s, CATALOG[1].models[0].id, 3)).toBe(0);
     expect(incomeGain(s, 'no-such-model', 3)).toBe(0);
   });
+  it('takes a total income the caller already has instead of counting it again', () => {
+    const s = buyAgents(rich(cold(newGame(T0))), first.id, 10);
+    const known = totalIncome(s);
+    expect(incomeGain(s, first.id, 5, s.lastTick, known)).toBe(incomeGain(s, first.id, 5));
+    // Подставленный итог — единственное, что вычитается: функция его не перепроверяет.
+    expect(incomeGain(s, first.id, 5, s.lastTick, 0)).toBeCloseTo(totalIncome(buyAgents(s, first.id, 5)));
+  });
   it('leaves the input state untouched when measuring a marginal income', () => {
     const s = buyAgents(rich(cold(newGame(T0))), first.id, 10);
     const before = { ...s.agents };
@@ -421,6 +428,11 @@ describe('lab readout', () => {
         expect(shares[LAB_IDS.indexOf(l)] > 0).toBe(inRoster);
       }
     }
+  });
+  it('takes a total income the caller already has for the lab share too', () => {
+    const meta = g0.models.filter((m) => m.lab === 'meta');
+    const s = buyAgents(buyAgents(rich(cold(newGame(T0))), meta[0].id, 5), g0.models[0].id, 5);
+    expect(labIncomeShare(s, 'meta', totalIncome(s))).toBe(labIncomeShare(s, 'meta'));
   });
   it('reads a lab without agents as zero rather than NaN', () => {
     const s = cold(newGame(T0));
@@ -548,6 +560,55 @@ describe('broken clocks and intervals', () => {
     expect(offline.seconds).toBe(0);
     expect(offline.state.lastTick).toBe(2000);
     expect(offline.state.tokens).toBe(100);
+  });
+});
+
+describe('offline breakdown', () => {
+  /** Состояние поздней стадии: по пять Агентов каждой Модели Поколения, чтобы каждая Лаборатория что-то платила. */
+  const staffed = (generation: number): GameState => {
+    let s = { ...cold(newGame(T0)), generation, lastTick: T0 };
+    for (const m of CATALOG[generation].models) s = buyAgents(rich(s, 1e300), m.id, 5);
+    return { ...s, lastTick: T0 };
+  };
+
+  it('adds up to what the absence paid, in every Поколение', () => {
+    for (let g = 0; g < CATALOG.length; g++) {
+      const s = staffed(g);
+      for (const hours of [1, 8, 100]) {
+        const { earned } = applyOffline(s, T0 + hours * HOUR);
+        const rows = offlineBreakdown(s, earned);
+        expect(rows.length).toBeGreaterThan(0);
+        const sum = rows.reduce((a, r) => a + r.earned, 0);
+        expect(Math.abs(sum - earned)).toBeLessThanOrEqual(earned * 1e-9);
+      }
+    }
+  });
+
+  it('still adds up while an event and a glitch boost or eat the live income', () => {
+    // Живой Доход под событием ×7 и Глюком другой, чем оффлайновый; доли по нему разошлись бы с выплатой.
+    const s = staffed(0);
+    const busy: GameState = {
+      ...s,
+      event: { kind: 'hype', startedAt: T0, red: false },
+      glitches: [{ id: 1, stolen: 0.5, clicks: 0 }],
+    };
+    const { earned } = applyOffline(busy, T0 + HOUR);
+    const sum = offlineBreakdown(busy, earned).reduce((a, r) => a + r.earned, 0);
+    expect(Math.abs(sum - earned)).toBeLessThanOrEqual(earned * 1e-9);
+  });
+
+  it('lists only Лаборатории with Агенты, richest first', () => {
+    const one = buyAgents(rich(cold(newGame(T0)), 1e6), first.id, 1);
+    const rows = offlineBreakdown(one, 100);
+    expect(rows.map((r) => r.lab)).toEqual([first.lab]);
+    expect(rows[0].earned).toBeCloseTo(100);
+    const many = offlineBreakdown(staffed(0), 1000);
+    for (let i = 1; i < many.length; i++) expect(many[i - 1].earned).toBeGreaterThanOrEqual(many[i].earned);
+  });
+
+  it('is empty when nothing was earned', () => {
+    expect(offlineBreakdown(cold(newGame(T0)), 0)).toEqual([]);
+    expect(offlineBreakdown(staffed(0), 0)).toEqual([]);
   });
 });
 
@@ -1621,7 +1682,18 @@ describe('save', () => {
       T0,
     );
     expect(s.version).toBe(SAVE_VERSION);
-    expect(s.settings).toEqual({ notation: 'sci', muted: true, reducedMotion: false, volume: DEFAULT_VOLUME });
+    expect(s.settings).toEqual({
+      notation: 'sci',
+      muted: true,
+      reducedMotion: false,
+      volume: DEFAULT_VOLUME,
+      particles: true,
+      floaters: true,
+      shake: true,
+      ticker: true,
+      musicVolume: 1,
+      sfxVolume: 1,
+    });
     expect(s.tokens).toBe(1234);
     expect(s.totalTokens).toBe(5678);
     expect(s.agents).toEqual({ [first.id]: 7 });

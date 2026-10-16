@@ -7,19 +7,19 @@ export interface CoachStep {
   body: string;
 }
 
-const STEP_FIRST_CLICK: CoachStep = {
+export const STEP_FIRST_CLICK: CoachStep = {
   id: "first-click",
   title: "Первый Клик",
   body: "Нажми «Отправить промпт»: каждый Клик генерирует первые Токены.",
 };
 
-const STEP_FIRST_AGENT: CoachStep = {
+export const STEP_FIRST_AGENT: CoachStep = {
   id: "first-agent",
   title: "Первый Агент",
   body: "Найми первую Модель в магазине: Агенты автоматически приносят Доход в Токенах каждую секунду.",
 };
 
-const STEP_FIRST_EVENT: CoachStep = {
+export const STEP_FIRST_EVENT: CoachStep = {
   id: "first-event",
   title: "Апгрейды и События",
   body: "Покупай Апгрейды в магазине для ускорения Дохода и жди Золотой Токен, чтобы поймать первое Событие.",

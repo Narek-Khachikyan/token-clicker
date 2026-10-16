@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { motionAllowed, useGameStore } from '../store/useGameStore';
+import { effectAllowed, motionAllowed, useGameStore } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { formatNumber } from '../economy/format';
 import { Num } from './Num';
@@ -10,8 +10,8 @@ const EXIT_MS = 220;
 /** Тиканье Compute стартует на ударе и идёт чуть дольше секунды. */
 const TICK_DELAY_MS = 450;
 const TICK_MS = 1200;
-/** Частиц немного и только при разрешённом движении: CSS-гейт умеет остановить
- *  анимацию, но не убрать элемент, поэтому моты создаются лишь сюда. */
+/** Частиц немного и только при разрешённом движении и включённых частицах: CSS-гейт умеет
+ *  остановить анимацию, но не убрать элемент, поэтому моты создаются лишь сюда. */
 const MOTES = 14;
 
 /**
@@ -27,6 +27,7 @@ export const PrestigeOverlay: React.FC = () => {
   const [shown, setShown] = useState<{ generation: number; computeGain: number } | null>(null);
   const [exiting, setExiting] = useState(false);
   const [withMotion, setWithMotion] = useState(false);
+  const [withMotes, setWithMotes] = useState(false);
   const gainRef = useRef<HTMLSpanElement>(null);
   const doneRef = useRef(0);
 
@@ -48,10 +49,10 @@ export const PrestigeOverlay: React.FC = () => {
     setShown(payload);
     setExiting(false);
     setWithMotion(motion);
+    // Моты — частицы, и выключатель игрока гасит их, не трогая тиканье Compute и масштаб карточки.
+    setWithMotes(effectAllowed('particles'));
     // Счётчик пишет прямо в DOM-ноду, как счётчик Токенов: ре-рендер на каждый кадр не нужен.
-    // Письмо идёт в textContent, поэтому класс pixel-font обязан стоять на самой этой ноде —
-    // на обёртке он остался бы в Nunito, и число меняло бы начертание в момент старта
-    // тиканья, то есть ровно тогда, когда игрок на него смотрит.
+    // Письмо идёт прямо в textContent этой ноды: React не должен знать о каждом кадре счёта.
     let raf = 0;
     if (motion && payload.computeGain > 0) {
       const t0 = performance.now() + TICK_DELAY_MS;
@@ -93,7 +94,7 @@ export const PrestigeOverlay: React.FC = () => {
         cursor: 'pointer',
       }}
     >
-      {withMotion &&
+      {withMotes &&
         Array.from({ length: MOTES }, (_, i) => (
           <span
             key={i}
@@ -104,10 +105,10 @@ export const PrestigeOverlay: React.FC = () => {
             }}
           />
         ))}
-      <div className="prestige-card pixel-card" style={{ textAlign: 'center', padding: '28px 36px' }}>
+      <div className="prestige-card pixel-card" style={{ textAlign: 'center', padding: 'var(--space-5) var(--space-6)' }}>
         <div
           style={{
-            fontSize: '0.85rem',
+            fontSize: 'var(--text-sm)',
             color: 'var(--text-muted)',
             letterSpacing: '4px',
             // Отступ первой строки равен межбуквенному: последняя буква разрядки тоже занимает
@@ -117,15 +118,14 @@ export const PrestigeOverlay: React.FC = () => {
         >
           ПРЕСТИЖ
         </div>
-        {/* Строка названия Поколения — в Nunito: слово «Поколение» кириллическое, а в
-            Pixelify Sans её нет (ADR-0003), и в пиксельном начертании она молча уходила в
-            фолбэк — слово обычным шрифтом рядом с пиксельным номером на одной строке.
-            Пиксельным остаётся только число, ради которого этот приём и существует. */}
-        <div style={{ fontSize: '1.6rem', color: 'var(--accent-color)' }}>
+        {/* Название Поколения — Departure Mono на ступени 33 px, число Compute — на 22 (ADR-0009).
+            Шрифт покрывает «О» и «П», поэтому слово и число стоят в одном начертании, и строку
+            больше не надо разбирать на части. */}
+        <div className="pixel-33" style={{ color: 'var(--accent-color)' }}>
           Поколение <Num>{shown.generation + 1}</Num>: {gen.name}
         </div>
-        <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
-          +<span ref={gainRef} className="pixel-font">
+        <div className="pixel-22" style={{ color: 'var(--text-main)' }}>
+          +<span ref={gainRef}>
             {withMotion ? 0 : formatNumber(shown.computeGain, notation)}
           </span>{' '}
           Compute навсегда
