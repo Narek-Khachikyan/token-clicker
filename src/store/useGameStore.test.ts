@@ -324,15 +324,19 @@ describe('catching an event', () => {
     expect(state().catchUpPaid).toBeCloseTo(room);
   });
 
-  it('counts a temporary event without paying it, because its multiplier is already ticking', () => {
+  it('switches a temporary event on at the catch, and pays nothing lump-sum', () => {
     freshStore();
     hire(first.id, 1);
     withVisibleWallet();
     useGameStore.setState({ state: withEvent('hype') });
     const before = state();
+    // Пока Золотой Токен не пойман, Волна хайпа не платит: Доход прежний.
+    expect(totalIncome(before)).toBeCloseTo(totalIncome({ ...before, event: null }));
     store().catchEvent();
+    // Разовой выплаты нет: Токены те же, событие то же, а множитель включился.
     expect(state().tokens).toBe(before.tokens);
     expect(state().event).toEqual(before.event);
+    expect(totalIncome(state())).toBeCloseTo(totalIncome({ ...before, event: null }) * EVENT_TABLES.hype.incomeMult);
     expect(store().toasts.map((t) => t.title)).toContain('Событие поймано');
   });
 

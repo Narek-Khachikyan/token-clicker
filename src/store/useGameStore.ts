@@ -24,7 +24,7 @@ import {
   awardAchievements,
   awardShadowAchievements,
 } from '../economy/achievements';
-import { activeSpec, grantAmount, isEventActive } from '../economy/events';
+import { activeSpec, grantAmount, isEventActive, isEventCaught } from '../economy/events';
 import { formatNumber } from '../economy/format';
 import { buyCrystalUpgrade as engineBuyCrystalUpgrade } from '../economy/crystal';
 import { CHALLENGES, startChallenge as engineStartChallenge, type ChallengeDef } from '../economy/challenges';
@@ -170,17 +170,6 @@ const UPRISING_LINES: readonly string[] = [
  * такое событие неотличимым от уже показанного — оно осталось бы без объявления и без отклика.
  */
 const NO_EVENT_WINDOW = -1;
-
-/**
- * Поймано ли окно, в котором лежит `state.event`.
- *
- * Отметка лежит в состоянии и сверяется с началом окна, а не с её флагом: событие переживает
- * перезагрузку, и забор в памяти вкладки обнулялся бы вместе с ней — тот же клик платил бы или
- * списывал за одно окно дважды. Ноль приходится отсекать отдельно: у события из битого сохранения
- * `startedAt` равен нулю, и без этой проверки такое окно считалось бы уже пойманным.
- */
-const caughtWindow = (state: GameState): boolean =>
-  state.eventCaughtAt > 0 && !!state.event && state.event.startedAt === state.eventCaughtAt;
 
 interface GameStore {
   state: GameState;
@@ -653,7 +642,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     const { eventWindowAt } = get();
     // Зеркало для кнопки, а не забор: оно читается из состояния на каждом тике, поэтому перезагрузка
     // и импорт не оставляют на экране «Поймать» для окна, которое уже поймано.
-    const eventCaught = caughtWindow(state);
+    const eventCaught = isEventCaught(state);
     // Невиденное окно не уведомляется: отметка «уже говорили» не двигается, и следующий активный
     // тик либо объявит ещё живое окно, либо молча пропустит уже истёкшее.
     if (silent) return { eventWindowAt, eventCaught };
@@ -708,7 +697,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     lastBoughtModelId: null,
     burst: null,
     eventWindowAt: NO_EVENT_WINDOW,
-    eventCaught: caughtWindow(initial.state),
+    eventCaught: isEventCaught(initial.state),
     crashArmedAt: 0,
     collectedRumorId: 0,
 
@@ -981,7 +970,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // и системное время отставало бы от него на тик — ровно на том тике, где ловля ещё должна
       // быть разрешена. Забор читает состояние, а не поле UI-слоя: тот обнулялся перезагрузкой.
       const now = state.lastTick;
-      if (!event || caughtWindow(state) || !isEventActive(event, now)) return;
+      if (!event || isEventCaught(state) || !isEventActive(event, now)) return;
       const spec = activeSpec(state, now);
       // Разовый вид платит сразу и только через earnTokens — так сумма попадает во все три
       // счётчика, как обычный доход. Временному виду платить нечего: его множитель уже тикает,
@@ -1229,7 +1218,7 @@ toggleMute: () => {
         state: imported,
         news: pickNews(imported),
         eventWindowAt: NO_EVENT_WINDOW,
-        eventCaught: caughtWindow(imported),
+        eventCaught: isEventCaught(imported),
         crashArmedAt: 0,
         collectedRumorId: 0,
         // Голос прошлого забега не переживает импорт: отметка указывает на Модель,
