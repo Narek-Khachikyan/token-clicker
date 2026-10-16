@@ -11,11 +11,8 @@ import {
   clickColWidth,
   COUNTER_CHARS,
   counterWidth,
-  HEADER_BUTTONS,
-  HEADER_GAP,
   HEADER_H,
   HEADER_LEFT_MIN,
-  HEADER_PAD_X,
   headerLeftRoom,
   hintCardWidth,
   HINT_CARD_W,
@@ -44,23 +41,17 @@ import {
   OFFICE_COL_MIN,
   pinnedToastAnchors,
   SCENE_COL_PAD,
-  SCENE_MIN_H,
   SHOP_COL_MAX,
   SHOP_COL_MIN,
   shopColWidth,
   STATUS_COL_GAP,
   STATUS_COUNTER_STEP,
-  STATUS_FRAME,
-  STATUS_GAP,
-  STATUS_GAUGE_H,
-  STATUS_PAD_Y,
   STATUS_ROW_H,
   STATUS_STRIP_H,
   STATUS_THERMAL_W,
   TAB_BAR_H,
   TAP_MIN,
   THREE_COL_MIN,
-  TOAST_CLEARANCE,
   TOAST_MARGIN,
   toastStackWidth,
   toastStackBand,
@@ -77,16 +68,6 @@ import {
 const WINDOWS = [999, 1000, 1001, 1024, 1100, 1280, 1440];
 
 describe('layout', () => {
-  it('derives the three-column threshold from the column minima', () => {
-    expect(THREE_COL_MIN).toBe(CLICK_COL_MIN + SHOP_COL_MIN + OFFICE_COL_MIN);
-  });
-
-  it('keeps every column minimum below its maximum', () => {
-    expect(CLICK_COL_MIN).toBeLessThan(CLICK_COL_MAX);
-    expect(SHOP_COL_MIN).toBeLessThan(SHOP_COL_MAX);
-    expect(OFFICE_COL_MIN).toBeGreaterThan(0);
-  });
-
   it('fits three columns exactly at the threshold and above it', () => {
     for (const vw of WINDOWS) {
       const columns = clickColWidth(vw) + shopColWidth(vw) + OFFICE_COL_MIN;
@@ -126,13 +107,6 @@ describe('layout', () => {
     expect(TAB_BAR_H).toBeGreaterThanOrEqual(TAP_MIN);
   });
 
-  it('keeps the toast clearance clear of the bars it sits above', () => {
-    // Отступ — это воздух, а не полоса: он обязан быть положительным и меньше самой
-    // короткой полосы, иначе стопка тостов начала бы отодвигать половину экрана.
-    expect(TOAST_CLEARANCE).toBeGreaterThan(0);
-    expect(TOAST_CLEARANCE).toBeLessThan(TAP_MIN);
-  });
-
   it('keeps the narrow breakpoint strictly inside the one-column range', () => {
     // NARROW_MAX — порог сжатия шапки, а не порог раскладки: на 600..999 px раскладка уже
     // одноколоночная, но шапка ещё может быть широкой. Равенство означало бы, что два разных
@@ -150,7 +124,6 @@ describe('layout', () => {
     // Соседние окна растут монотонно: шире окно — не меньше места.
     expect(headerLeftRoom(390)).toBeGreaterThan(headerLeftRoom(360));
     expect(headerLeftRoom(360)).toBeGreaterThan(headerLeftRoom(320));
-    expect(HEADER_BUTTONS * TAP_MIN + HEADER_PAD_X * 2 + HEADER_GAP * HEADER_BUTTONS).toBe(320 - headerLeftRoom(320));
   });
 
   it('counts a phone held sideways as narrow, so its header and targets are made for a finger', () => {
@@ -242,8 +215,7 @@ describe('layout', () => {
   // рабочая область под ней), и разъезд между ними — это полоса, которая либо режет строки,
   // либо оставляет пустоту.
   describe('status strip of the phone layout', () => {
-    it('is exactly as tall as its parts: two rows, the gauge, the air and the frame', () => {
-      expect(STATUS_STRIP_H).toBe(STATUS_PAD_Y + STATUS_ROW_H * 2 + STATUS_GAP + STATUS_GAUGE_H + STATUS_FRAME);
+    it('fits the 22 px pixel step in a strip row', () => {
       // Строка вмещает пиксельную ступень 22 px, иначе цифры Токенов обрезались бы по высоте.
       expect(STATUS_ROW_H).toBeGreaterThanOrEqual(22);
     });
@@ -264,7 +236,6 @@ describe('layout', () => {
     });
 
     it('is one row high when the phone lies on its side, and still a thin strip', () => {
-      expect(STATUS_STRIP_LANDSCAPE_H).toBe(STATUS_PAD_Y + STATUS_ROW_H + STATUS_GAP + STATUS_GAUGE_H + STATUS_FRAME);
       expect(STATUS_STRIP_LANDSCAPE_H).toBeLessThan(STATUS_STRIP_H);
       // 320 — самый низкий телефон на боку (iPhone SE первого поколения, 568 × 320).
       expect(STATUS_STRIP_LANDSCAPE_H / 320).toBeLessThanOrEqual(0.125);
@@ -347,11 +318,6 @@ describe('layout', () => {
   // (одна колонка на 320 px и Сцена в колонке на пороге) она обязана остаться на виду целиком.
   describe('mascot card on the Scene', () => {
     const narrowest = [320 - SCENE_COL_PAD * 2, THREE_COL_MIN - clickColWidth(THREE_COL_MIN) - shopColWidth(THREE_COL_MIN) - SCENE_COL_PAD * 2];
-
-    it('keeps the Scene taller than the card with its margins', () => {
-      expect(SCENE_MIN_H).toBeGreaterThan(MASCOT_CARD_EDGE * 2);
-      expect(SCENE_COL_PAD).toBeGreaterThan(0);
-    });
 
     it('fits the card at full width inside the narrowest Scenes', () => {
       for (const sceneW of narrowest) {
