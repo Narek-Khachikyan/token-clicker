@@ -22,7 +22,8 @@ this file disagrees with it, fix this file in the same change.
    (`buildCatalog`, `GEN_SCALE`, `MOD_SPREAD`, `PRESTIGE_DIVISOR_UNITS`). Before changing the
    ladder, run `tools/sim.ts`: the real engine with no renderer, printing when each milestone
    lands; its header gives the flags, and it runs under `npx tsx`, which is not a declared
-   dependency.
+   dependency. Its player is `tools/greedyPolicy.ts`, which `src/economy/pace.test.ts` also
+   drives: the first Престиж on that policy must land inside the window of `src/data/paceCurve.ts`.
 4. **AA data.** The snapshot is public (see Снимок in `CONTEXT.md`). `npm run sync:aa` is
    maintainer-only and takes the key inline or from a gitignored `.env`. Vite hands only
    `VITE_`-prefixed variables to the bundle, so the key stays unprefixed and out of `index.html`.
