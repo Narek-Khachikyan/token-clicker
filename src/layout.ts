@@ -140,6 +140,33 @@ export const mascotCardLeft = (centerX: number, sceneW: number): number => {
 export const mascotCardBottom = (bottom: number, cardH: number, sceneH: number): number =>
   Math.max(MASCOT_CARD_EDGE, Math.min(bottom, sceneH - MASCOT_CARD_EDGE - cardH));
 
+/* Реплика Модели — пузырь над Маскотом, который говорит. Тот же вопрос, что у карточки (не выйти
+   за рамку Сцены), поэтому поле от края то же, а вертикаль считает та же `mascotCardBottom`. Новое
+   здесь одно: хвостик пузыря обязан смотреть на говорящего, даже когда сам пузырь прижат к краю. */
+
+/** Ширина пузыря реплики на Сцене, px: три строки Nunito 14 px для самой длинной реплики. */
+export const QUIP_BUBBLE_W = 320;
+
+/** Зазор между низом пузыря и верхом места Маскота, px: хвостик (8) и воздух над головой Маскота. */
+export const QUIP_BUBBLE_GAP = 12;
+
+/** Отступ хвостика от угла пузыря, px: ближе хвост вылезал бы за скошенный угол рамки. */
+export const QUIP_TAIL_EDGE = 16;
+
+/** Ширина пузыря реплики на Сцене шириной `sceneW`: полная, пока влезает с двумя полями. */
+export const quipBubbleWidth = (sceneW: number): number =>
+  Math.max(0, Math.min(QUIP_BUBBLE_W, sceneW - MASCOT_CARD_EDGE * 2));
+
+/** Левый край пузыря, px от левого края Сцены: по центру Маскота (`centerX`), но внутри Сцены. */
+export const quipBubbleLeft = (centerX: number, sceneW: number): number => {
+  const width = quipBubbleWidth(sceneW);
+  return clamp(centerX - width / 2, MASCOT_CARD_EDGE, Math.max(MASCOT_CARD_EDGE, sceneW - MASCOT_CARD_EDGE - width));
+};
+
+/** Где хвостик, px от левого края пузыря: под Маскотом, но не ближе `QUIP_TAIL_EDGE` к углам. */
+export const quipTailLeft = (centerX: number, left: number, width: number): number =>
+  clamp(centerX - left, QUIP_TAIL_EDGE, Math.max(QUIP_TAIL_EDGE, width - QUIP_TAIL_EDGE));
+
 /* ── Вертикальный ритм оболочки ────────────────────────────────────────────────────
    Полосы оболочки (шапка, лента, рабочая область, панель вкладок, подвал) стоят вплотную,
    поэтому ритм держат не зазоры между полосами, а высоты самих полос и отступы внутри них.

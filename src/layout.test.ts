@@ -14,6 +14,11 @@ import {
   mascotCardLeft,
   mascotCardWidth,
   NARROW_MAX,
+  QUIP_BUBBLE_W,
+  QUIP_TAIL_EDGE,
+  quipBubbleLeft,
+  quipBubbleWidth,
+  quipTailLeft,
   OFFICE_COL_MIN,
   SCENE_COL_PAD,
   SCENE_MIN_H,
@@ -218,6 +223,55 @@ describe('layout', () => {
     it('presses the card to the edge over the first and last Mascot', () => {
       expect(mascotCardLeft(30, 500)).toBe(MASCOT_CARD_EDGE);
       expect(mascotCardLeft(470, 500)).toBe(500 - MASCOT_CARD_EDGE - MASCOT_CARD_W);
+    });
+  });
+
+  // Реплика Модели — пузырь над её Маскотом: тот же вопрос, что у карточки (не выйти за Сцену), но
+  // хвостик обязан смотреть на Маскота, даже когда сам пузырь прижат к краю.
+  describe('quip bubble over a Mascot', () => {
+    const narrowest = [320 - SCENE_COL_PAD * 2, THREE_COL_MIN - clickColWidth(THREE_COL_MIN) - shopColWidth(THREE_COL_MIN) - SCENE_COL_PAD * 2];
+
+    it('keeps full width on the narrowest Scenes and shrinks only below it', () => {
+      for (const sceneW of narrowest) expect(quipBubbleWidth(sceneW)).toBeLessThanOrEqual(QUIP_BUBBLE_W);
+      expect(quipBubbleWidth(1000)).toBe(QUIP_BUBBLE_W);
+      expect(quipBubbleWidth(200)).toBe(200 - MASCOT_CARD_EDGE * 2);
+      expect(quipBubbleWidth(4)).toBe(0);
+    });
+
+    it('never lets the bubble leave the Scene, whichever Mascot speaks', () => {
+      for (let sceneW = 120; sceneW <= 1200; sceneW += 13) {
+        const width = quipBubbleWidth(sceneW);
+        for (let center = -40; center <= sceneW + 40; center += 11) {
+          const left = quipBubbleLeft(center, sceneW);
+          expect(left).toBeGreaterThanOrEqual(MASCOT_CARD_EDGE);
+          if (sceneW >= width + MASCOT_CARD_EDGE * 2) {
+            expect(left + width).toBeLessThanOrEqual(sceneW - MASCOT_CARD_EDGE);
+          }
+        }
+      }
+    });
+
+    it('points the tail at the speaker, centred when the bubble is not pressed to an edge', () => {
+      const left = quipBubbleLeft(500, 1000);
+      expect(left).toBe(500 - QUIP_BUBBLE_W / 2);
+      expect(quipTailLeft(500, left, QUIP_BUBBLE_W)).toBe(QUIP_BUBBLE_W / 2);
+    });
+
+    it('slides the tail toward the speaker when the bubble is pressed to an edge', () => {
+      const left = quipBubbleLeft(30, 600);
+      expect(left).toBe(MASCOT_CARD_EDGE);
+      expect(quipTailLeft(30, left, QUIP_BUBBLE_W)).toBe(30 - MASCOT_CARD_EDGE);
+    });
+
+    it('keeps the tail on the bubble, away from its corners, for every speaker', () => {
+      for (let sceneW = 280; sceneW <= 1200; sceneW += 17) {
+        const width = quipBubbleWidth(sceneW);
+        for (let center = 0; center <= sceneW; center += 9) {
+          const tail = quipTailLeft(center, quipBubbleLeft(center, sceneW), width);
+          expect(tail).toBeGreaterThanOrEqual(QUIP_TAIL_EDGE);
+          expect(tail).toBeLessThanOrEqual(width - QUIP_TAIL_EDGE);
+        }
+      }
     });
   });
 });

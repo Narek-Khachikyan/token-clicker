@@ -790,40 +790,6 @@ body {
   animation: none;
 }
 
-/* Чат. Реплика игрока падает сверху, ответ модели поднимается снизу: они стартуют одновременно,
-   поэтому ответ не задерживается, но глаз всё равно различает, кто первый заговорил. */
-@keyframes chat-prompt-in {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes chat-reply-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Пустое правило: появление реплики живёт под гейтом движения */
-.chat-prompt--in {
-  /* Пустое правило: появление реплики живёт под гейтом движения, см. ниже. */
-}
-
-/* Пустое правило: появление реплики живёт под гейтом движения */
-.chat-reply--in {
-  /* Пустое правило: появление реплики живёт под гейтом движения, см. ниже. */
-}
-
 /* Живой фон Сцены. Пыль держится на 50% непрозрачности и дрейфует вверх на 6–9 с: медленнее
    примерно в шесть раз, чем граница частоты мерцания, поэтому ряд точек не читается как
    мигание. Точек 18–36, и число растёт вместе с офисом, но период у каждой точки один и тот
@@ -1773,14 +1739,6 @@ body {
     animation: prestige-mote-rise 1.5s steps(14) forwards;
   }
 
-  .chat-prompt--in {
-    animation: chat-prompt-in 0.24s ease-out;
-  }
-
-  .chat-reply--in {
-    animation: chat-reply-in 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
-  }
-
   .mote {
     display: block;
     animation: mote-drift var(--mote-dur) ease-in-out var(--mote-delay) infinite alternate;
@@ -1947,11 +1905,6 @@ body {
    Селектор составной, а не нисходящий: data-motion и app-root--shake — два атрибута одного и
    того же корневого элемента, а .app-root--shake — единственный класс движения на нём. */
 [data-motion='reduced'].app-root--shake {
-  animation: none;
-}
-
-[data-motion='reduced'] .chat-prompt--in,
-[data-motion='reduced'] .chat-reply--in {
   animation: none;
 }
 
@@ -2291,32 +2244,25 @@ body {
   font-size: var(--text-sm);
 }
 
-/* Пузырь реплики говорящей Модели. Вход — pop пружиной 0.25с (opacity+scale),
-   уход — fade 0.18с с задержкой 4.32с: стор гасит lastQuip через 4.5с, и fade видно
-   целиком. Хвостик — статичный треугольник, а не движение, поэтому при reducedMotion
-   остаётся. При выключенном движении вход — тот же opacity-кадр, что у слухов
-   (rumor-in): scale там запрещён, fade вестибулярно нейтрален. */
+/* Пузырь реплики говорящей Модели. Вход — pop пружиной 0.25с (opacity+scale), уход — fade 0.18с с
+   задержкой 4.32с: стор гасит lastQuip через 4.5с, и fade видно целиком. Положение пузыря ставит
+   разметка в пикселях Сцены, а transform остаётся за анимацией: scale растёт из хвостика, то есть
+   из точки под говорящим Маскотом (`--quip-tail`). Хвостик — статичная ступенька, а не движение,
+   поэтому при reducedMotion остаётся. При выключенном движении вход — тот же opacity-кадр, что у
+   слухов (rumor-in): scale там запрещён, fade вестибулярно нейтрален. */
 @keyframes quip-pop {
   from {
     opacity: 0;
-    transform: translateX(-50%) scale(0.7);
+    transform: scale(0.7);
   }
   to {
     opacity: 1;
-    transform: translateX(-50%) scale(1);
-  }
-}
-
-@keyframes quip-fade {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
+    transform: scale(1);
   }
 }
 
 .quip-bubble {
+  transform-origin: var(--quip-tail, 50%) 100%;
   animation:
     toast-fade 0.25s ease-out,
     float-fade 0.18s ease-in 4.32s forwards;
@@ -2324,12 +2270,14 @@ body {
 
 .quip-bubble::after {
   content: '';
+  /* Нет говорящего на Сцене — указывать не на кого, и хвостика нет. */
+  display: var(--quip-tail-show, block);
   position: absolute;
-  left: 50%;
+  left: var(--quip-tail, 50%);
   bottom: -8px;
   width: 8px;
   height: 8px;
-  margin-left: -4px;
+  margin-left: -6px;
   background-color: inherit;
   /* Хвостик — квадратная ступенька без поворота (ADR-0008): верх открыт, чтобы нижняя рамка
      пузыря не перечёркивала его, а три остальные стороны продолжают рамку. */

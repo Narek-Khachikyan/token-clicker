@@ -10,7 +10,7 @@ import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { STATION_SURFACE_ROW, WorkstationSprite } from './WorkstationSprite';
-import { QuipBubble, QuipLogModal } from './QuipBubble';
+import { QuipLogModal, SceneQuipBubble } from './QuipBubble';
 import { SceneDrone, SceneGlitchBand } from './SceneEvents';
 import { GLITCH_CLICKS } from '../economy/glitches';
 import { GlitchPopSprite, GlitchSprite } from './EventSprites';
@@ -785,10 +785,10 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           <SceneGlitchBand />
         </div>
 
-        {/* Пузырь реплики говорящей Модели: поверх Сцены (zIndex 4 — выше HUD-полосы и
-            Маскотов), но вне HUD-обёртки, чтобы не ломать её скрим из ADR-0002. Клики
-            не перехватывает, поэтому Глюки и Золотой Токен ловятся сквозь него. */}
-        <QuipBubble />
+        {/* Пузырь реплики стоит над Маскотом говорящей Лаборатории, на своей подложке: поверх Сцены
+            (zIndex 4 — выше HUD-полосы и Маскотов), но вне HUD-обёртки, чтобы не ломать её скрим
+            из ADR-0002. Клики не перехватывает, поэтому Глюки и Золотой Токен ловятся сквозь него. */}
+        <SceneQuipBubble sceneRef={sceneRef} yieldToCard={card !== null} />
 
         {/* Маскоты стоят на общей линии у нижнего края Сцены, а подписи Лабораторий живут
             в карточке над Маскотом — на её собственной подложке, где контраст не зависит от Сцены. */}
@@ -822,6 +822,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               key={labId}
               type="button"
               className="scene__booth"
+              data-lab={labId}
               aria-label={boothLabels[LAB_IDS.indexOf(labId)]}
               onPointerEnter={(e) => showCard(labId, e.currentTarget)}
               onPointerLeave={() => hideCard(labId)}
