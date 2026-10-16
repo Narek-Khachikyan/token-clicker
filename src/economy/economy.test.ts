@@ -9,7 +9,7 @@ import {
 } from './catalog';
 import {
   advance, advanceTime, applyOffline, assistClickBonus, BASE_OFFLINE_HOURS, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click,
-  clickValue, computeBonusDrop, computeShortfall, perkBonusLoss, datasetMult, datasetValue, discountMult, earnTokens, flagshipMult, generationBoostMult, incomeGain, isContentFinale,
+  clickValue, computeBonusDrop, computeShortfall, perkBonusLoss, datasetMult, datasetValue, discountMult, earnTokens, flagshipMult, incomeGain, isContentFinale,
   labIncomeShare, maxAffordable, modelIncome, offlineBreakdown, offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, prestigePreview,
   progressToNextAgent, sellAgents, START_PRICE_MULT, totalIncome,
 } from './engine';
@@ -29,7 +29,7 @@ import {
   isPledgeActive, LICENSE_FLAGSHIP_MULT, LICENSE_INCOME_TAX, PLEDGE_GROWTH, PLEDGE_MAX, PLEDGE_UNITS, pledgeCost, popGlitch,
   licenseCost, redEventChance, RED_TABLES, REVOKE_FLAGSHIP_MULT, revokeCost, revokeLicense, spawnGlitch, uprisingStage,
 } from './glitches';
-import { GEN_PERK_BASE_COST, GEN_PERK_STEP_COST, genPerkId, isGenPerkId, PERK_BY_ID, type PerkEffect } from './perks';
+import { PERK_BY_ID, type PerkEffect } from './perks';
 import { DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState } from './state';
 import { exportSave, importSave, migrate } from './save';
 import { newsPool, pickNews, tickerLine } from './news';
@@ -2404,130 +2404,6 @@ describe('pair synergy', () => {
       expect(incomes[i], `${g0.models[i].name} против ${g0.models[i - 1].name}`).toBeGreaterThan(
         incomes[i - 1],
       );
-    }
-  });
-});
-
-describe('generation perks', () => {
-  // Забег Поколения `gen` в точке Престижа: флагман куплен, Compute хватает на особые Перки.
-  const flagged = (gen: number, compute = 100): GameState => ({
-    ...cold(newGame(T0)),
-    generation: gen,
-    maxGeneration: gen,
-    compute,
-    agents: { [CATALOG[gen].flagship.id]: 1 },
-  });
-  const allGenPerks = CATALOG.map((_, i) => genPerkId(i));
-
-  // Лестница цен держится числами, а не константами: тест обязан ломаться, если цена поедет.
-  const priceOfNth = (n: number) => GEN_PERK_BASE_COST + GEN_PERK_STEP_COST * n;
-
-  it('опознаёт особый Перк по id формата gen_<N> и отбрасывает чужое', () => {
-    expect(isGenPerkId(genPerkId(0))).toBe(true);
-    expect(isGenPerkId(genPerkId(CATALOG.length - 1))).toBe(true);
-    // Поколение вне каталога — не особый Перк: его эффекта нет, а покупка прошла бы как обычная.
-    expect(isGenPerkId(`gen_${CATALOG.length}`)).toBe(false);
-    expect(isGenPerkId('gen_-1')).toBe(false);
-    expect(isGenPerkId('gen_x')).toBe(false);
-    expect(isGenPerkId('click_x2')).toBe(false);
-  });
-
-  it('продаётся в своём и прошлых поколениях, флагман нужен только в текущем', () => {
-    const s = flagged(0);
-    // Будущее Поколение — отказ тем же объектом, Compute не тронут.
-    expect(buyPerk(s, 'gen_1')).toBe(s);
-    expect(buyPerk(s, 'gen_7')).toBe(s);
-    // Своё Поколение без флагмана — тоже отказ: Престиж делается не отсюда.
-    const noFlag: GameState = { ...s, agents: {} };
-    expect(buyPerk(noFlag, 'gen_0')).toBe(noFlag);
-    // А в точке Престижа покупка проходит и переживает сам Престиж.
-    const bought = buyPerk(s, 'gen_0');
-    expect(bought.perks).toEqual(['gen_0']);
-    expect(prestige(bought, T0 + 1).perks).toEqual(['gen_0']);
-  });
-  it('докупает прошлый перк в позднем поколении без флагмана, будущее не даёт', () => {
-    // Поздний Забег без флагмана: упущенный gen_0 покупается как обычный.
-    const late: GameState = { ...cold(newGame(T0)), generation: 3, maxGeneration: 3, compute: 100, agents: {} };
-    const bought = buyPerk(late, 'gen_0');
-    expect(bought).not.toBe(late);
-    expect(bought.perks).toEqual(['gen_0']);
-    expect(bought.computeSpent).toBe(priceOfNth(0));
-    // Будущий перк в том же Забеге — отказ тем же объектом.
-    expect(buyPerk(late, 'gen_4')).toBe(late);
-    expect(buyPerk(late, 'gen_7')).toBe(late);
-    // Прошлый перк в текущем Поколении с флагманом — тоже проходит.
-    const current = flagged(2);
-    expect(buyPerk(current, 'gen_0').perks).toEqual(['gen_0']);
-  });
-  it('берёт 10 Compute за первый особый и +5 за каждый следующий', () => {
-    let s = flagged(0);
-    s = buyPerk(s, 'gen_0');
-    expect(s.computeSpent).toBe(priceOfNth(0));
-    // Второе и третье Поколения: особые стоят уже 15 и 20.
-    s = { ...s, generation: 1, maxGeneration: 1, agents: { [CATALOG[1].flagship.id]: 1 } };
-    s = buyPerk(s, 'gen_1');
-    expect(s.computeSpent).toBe(priceOfNth(1) + priceOfNth(0));
-    s = { ...s, generation: 2, maxGeneration: 2, agents: { [CATALOG[2].flagship.id]: 1 } };
-    s = buyPerk(s, 'gen_2');
-    expect(s.computeSpent).toBe(priceOfNth(2) + priceOfNth(1) + priceOfNth(0));
-    expect(s.perks).toEqual(['gen_0', 'gen_1', 'gen_2']);
-    // Повторная покупка и нехватка свободного Compute — отказ тем же объектом.
-    expect(buyPerk(s, 'gen_2')).toBe(s);
-    const poor = flagged(3, 5);
-    expect(buyPerk(poor, 'gen_3')).toBe(poor);
-  });
-  it('считает цену по всем купленным особым, включая докупленные позже', () => {
-    // gen_1 пропущен в своём Поколении — докупаем позже без флагмана, цена та же 10.
-    let s: GameState = { ...cold(newGame(T0)), generation: 3, maxGeneration: 3, compute: 100, agents: {} };
-    s = buyPerk(s, 'gen_1');
-    expect(s.computeSpent).toBe(priceOfNth(0));
-    // Следующий особый (текущего Поколения, но флагман уже нанят) стоит 15:
-    // счёт идёт по всем купленным особым, а не по Поколению.
-    s = { ...s, agents: { [CATALOG[3].flagship.id]: 1 } };
-    s = buyPerk(s, 'gen_3');
-    expect(s.computeSpent).toBe(priceOfNth(1) + priceOfNth(0));
-    expect(s.perks).toEqual(['gen_1', 'gen_3']);
-  });
-  it('усиливает на +10% только модели своего поколения', () => {
-    const model = CATALOG[0].models[0];
-    const s = buyAgents(rich(cold(newGame(T0)), 1e6), model.id, 10);
-    const bare = totalIncome(s);
-    // Чужой особый Перк доход не меняет (подставлен напрямую: купить его вне поколения нельзя).
-    expect(totalIncome({ ...s, perks: ['gen_1'] })).toBeCloseTo(bare);
-    // Свой даёт ровно +10% и только своим моделям.
-    expect(totalIncome({ ...s, perks: ['gen_0'] })).toBeCloseTo(bare * 1.1);
-    expect(modelIncome({ ...s, perks: ['gen_0'] }, model)).toBeCloseTo(model.baseIncome * 10 * 1.1);
-    // А модель чужого Поколения свой Перк не разгоняет: gen_0 молчит в Поколении 1.
-    const g1model = CATALOG[1].models[0];
-    const s1 = buyAgents(rich({ ...cold(newGame(T0)), generation: 1, maxGeneration: 1 }, 1e6), g1model.id, 10);
-    expect(modelIncome({ ...s1, perks: ['gen_0'] }, g1model)).toBeCloseTo(modelIncome(s1, g1model));
-  });
-  it('режет суммарный бонус хард-капом ×2', () => {
-    // Синтетическая пачка эффектов одного Поколения: кап обязан сработать раньше +200%.
-    const many: PerkEffect[] = [];
-    for (let i = 0; i < 20; i++) many.push({ kind: 'generationBoost', generation: 0, pct: 0.1 });
-    expect(generationBoostMult(many, 0)).toBe(2);
-    expect(generationBoostMult(many, 1)).toBe(1);
-    // Реальный предел: все 8 особых куплены — в своём Поколении ×1.1, то есть влезли в кап.
-    const model = CATALOG[3].models[2];
-    const s = buyAgents(rich({ ...cold(newGame(T0)), generation: 3, maxGeneration: 3 }, 1e6), model.id, 5);
-    const bare = modelIncome(s, model);
-    const perked = modelIncome({ ...s, perks: allGenPerks }, model);
-    expect(perked).toBeCloseTo(bare * 1.1);
-    expect(perked).toBeLessThanOrEqual(bare * 2);
-  });
-  it('держит топ N с капом ниже базы N+1 на каждом переходе', () => {
-    for (let n = 0; n < CATALOG.length - 1; n++) {
-      const top = CATALOG[n].flagship;
-      const next = CATALOG[n + 1].flagship;
-      // Топ-сетап Поколения: 1 Агент флагмана при всех 8 особых (свой даёт ×1.1, чужие — 0).
-      const s: GameState = { ...cold(newGame(T0)), generation: n, perks: allGenPerks, agents: { [top.id]: 1 } };
-      const withPerks = modelIncome(s, top);
-      // Тот же сетап, но с бонусом, разогнанным до капа ×2: худший случай, покрытый инвариантом.
-      expect((withPerks / 1.1) * 2).toBeLessThan(next.baseIncome);
-      // Перк не может перевернуть и базовый порядок: с ним Поколение либо всё ещё слабее
-      // следующего, либо, если каталог когда-то снова развернётся, не станет сильнее.
-      expect(withPerks < next.baseIncome).toBe(top.baseIncome < next.baseIncome);
     }
   });
 });

@@ -8,7 +8,7 @@ this file disagrees with it, fix this file in the same change.
 
 1. **Save.** Read `src/economy/state.ts` (`GameState`, `newGame(now)`, `SAVE_VERSION`) and
    `save.ts` (`migrate`, `MIGRATIONS`, import/export, the `CORRUPT_SAVE_KEY` quarantine) together.
-   `migrate` silently drops model, upgrade and perk ids that have left the catalog; `importSave`
+   `migrate` silently drops model, upgrade and perk ids that have left the catalog (the one exception is the v9→v10 step, which turns the dropped `gen_*` perks back into Compute through `computeSpent`); `importSave`
    rejects a whole export over one bad `generation`; a `SAVE_VERSION` bump with no matching
    `MIGRATIONS` entry rewrites old saves. Nothing in the repo recovers a lost run, so the migration
    and its test land in the same commit as the change.

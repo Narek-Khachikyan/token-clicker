@@ -3,7 +3,7 @@ import { useGameStore, useStateSlice, type EffectSwitch, type OfflineReport } fr
 import { ACHIEVEMENTS, nonShadowCount, shadowEarned } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
 import { ThermalSection } from './ThermalSection';
-import { PERKS } from '../economy/perks';
+import { MAX_OWNED_PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import { CATALOG } from '../economy/catalog';
@@ -711,7 +711,7 @@ const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
         <Num>{formatNumber(computeBonus(freeCompute(state)) * 100, notation)}</Num>% к доходу)
       </>,
     ],
-    ['Перков открыто', `${state.perks.length} / ${PERKS.length}`],
+    ['Перков открыто', `${state.perks.length} / ${MAX_OWNED_PERKS}`],
     ['Compute в час: этот Забег (с простоями)', perHour(runRate)],
     ['Compute в час: время до Забега (с простоями)', perHour(pastRate)],
     [
