@@ -63,7 +63,7 @@ export const ThermalDial: React.FC = () => {
 
   return (
     <div
-      style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}
+      style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}
       data-thermal={view.tone}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -77,7 +77,7 @@ export const ThermalDial: React.FC = () => {
 
       {/* Дорожка: сама ручка и вся зона нагрева. Полоса перегрева лежит СНАРУЖИ шкалы, а не
           поверх неё, потому что это две разные величины — жар и его последствие. */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
         {/* Искры жара живут ПОВЕРХ дорожки и выходят за её пределы: офис должен выглядеть
             горящим, а не «штриховым». Слой не обрезается — обрезка съела бы половину жеста. */}
         <div style={{ position: 'relative' }}>
@@ -100,7 +100,7 @@ export const ThermalDial: React.FC = () => {
             position: 'relative',
             height: '26px',
             backgroundColor: 'var(--bg-void)',
-            border: '1px solid var(--border-strong)',
+            border: 'var(--frame-w) solid var(--border-strong)',
             // Курсор-решётка, а не стрелка: шкала тянут мышью, и это главный жест.
             cursor: 'ew-resize',
             touchAction: 'none',
@@ -139,7 +139,7 @@ export const ThermalDial: React.FC = () => {
               left: `calc(${pct}% - 3px)`,
               width: '6px',
               backgroundColor: 'var(--bg-void)',
-              boxShadow: '0 0 0 1px var(--text-main)',
+              boxShadow: '0 0 0 var(--frame-w) var(--text-main)',
             }}
           />
           {/* Зона перегруза. Заливка читается как «здесь жарче всего», а не как «сломанная
@@ -155,7 +155,7 @@ export const ThermalDial: React.FC = () => {
               right: 0,
               background:
                 'repeating-linear-gradient(135deg, color-mix(in srgb, var(--thermal-hot) 22%, transparent) 0 4px, transparent 4px 8px)',
-              borderLeft: '1px dashed var(--thermal-hot)',
+              borderLeft: 'var(--frame-w) dashed var(--thermal-hot)',
               pointerEvents: 'none',
             }}
           />
@@ -191,7 +191,7 @@ export const ThermalDial: React.FC = () => {
             position: 'relative',
             height: '6px',
             backgroundColor: 'var(--bg-void)',
-            border: '1px solid var(--border)',
+            border: 'var(--frame-w) solid var(--border)',
             overflow: 'hidden',
           }}
         >

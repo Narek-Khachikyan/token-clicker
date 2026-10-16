@@ -88,11 +88,10 @@ const AchievementCard: React.FC<{
       style={{
         backgroundColor: background,
         border,
-        borderRadius: '6px',
-        padding: '8px 10px',
+        padding: 'var(--space-2)',
         display: 'flex',
         alignItems: 'flex-start',
-        gap: '10px',
+        gap: 'var(--space-2)',
         listStyle: 'none',
       }}
     >
@@ -103,7 +102,7 @@ const AchievementCard: React.FC<{
         aria-hidden="true"
         style={{
           display: 'flex',
-          marginTop: '3px',
+          marginTop: 'var(--space-0)',
           color: unlocked ? 'var(--gold)' : 'var(--text-muted)',
         }}
       >
@@ -160,11 +159,11 @@ const SETTING_ROW: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  gap: '10px',
+  gap: 'var(--space-2)',
   flexWrap: 'wrap',
 };
 const SETTING_CONTROL: React.CSSProperties = {
-  padding: '6px 12px',
+  padding: 'var(--space-1) var(--space-3)',
   fontSize: '0.85rem',
   whiteSpace: 'nowrap',
   flexShrink: 0,
@@ -173,7 +172,7 @@ const SETTING_CONTROL: React.CSSProperties = {
 // У пары кнопок наружным элементом управления считается группа, поэтому прижимать к правому
 // краю надо её, а не каждую кнопку: auto-отступ внутри группы всегда ноль, потому что
 // свободного места в ней нет.
-const SETTING_GROUP: React.CSSProperties = { display: 'flex', gap: '6px', flexShrink: 0, marginLeft: 'auto' };
+const SETTING_GROUP: React.CSSProperties = { display: 'flex', gap: 'var(--space-1)', flexShrink: 0, marginLeft: 'auto' };
 
 /**
  * Ползунок громкости: подпись, процент и сам ползунок. Общая громкость и оба канала выглядят и
@@ -187,9 +186,9 @@ const VolumeSlider: React.FC<{
   value: number;
   onChange: (value: number) => void;
 }> = ({ id, label, hint, value, onChange }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-      <label htmlFor={id} style={{ fontWeight: 600, display: 'flex', gap: '6px' }}>
+      <label htmlFor={id} style={{ fontWeight: 600, display: 'flex', gap: 'var(--space-1)' }}>
         {label}
       </label>
       <span style={{ color: 'var(--text-main)' }}>
@@ -288,8 +287,8 @@ function useModalExit(
 // игрок переучивался расположению крестика при каждом переходе.
 const MODAL_MAX_WIDTH = 520;
 const MODAL_MAX_HEIGHT = '85vh';
-const MODAL_PAD = 20;
-const MODAL_GAP = 14;
+const MODAL_PAD = 'var(--space-4)';
+const MODAL_GAP = 'var(--space-3)';
 
 /** Слой окон. Тосты живут на 100 (см. useDialogFocus: тост о Достижении обязан пережить
  *  открытое окно), оверлей Престижа — на 40, поэтому единого 50 хватает всем окнам. Бывшие
@@ -306,14 +305,26 @@ const MODAL_Z = 50;
  */
 type ModalTone = 'plain' | 'gold' | 'accent';
 
-const TONE_BORDER: Record<ModalTone, string> = {
-  plain: '2px solid var(--border)',
-  gold: '2px solid var(--gold)',
-  accent: '2px solid var(--accent-color)',
+/**
+ * Рамка окна по тону. Нейтральному окну рамку не задаём: её даёт `.pixel-card` — рамка и
+ * полоса по верху цвета текущего Поколения (ADR-0008). Золото и акцент перекрашивают рамку
+ * целиком, поэтому задают её сами.
+ */
+const TONE_BORDER: Record<ModalTone, string | undefined> = {
+  plain: undefined,
+  gold: 'var(--frame-w) solid var(--gold)',
+  accent: 'var(--frame-w) solid var(--accent-color)',
 };
 
+/** Заголовок и линия под ним одного цвета: шапка раздела (ADR-0008) красится тоном окна. */
 const TONE_TITLE: Record<ModalTone, string> = {
-  plain: 'var(--text-main)',
+  plain: 'var(--accent-color)',
+  gold: 'var(--gold)',
+  accent: 'var(--accent-color)',
+};
+
+const TONE_RULE: Record<ModalTone, string> = {
+  plain: 'var(--accent-frame)',
   gold: 'var(--gold)',
   accent: 'var(--accent-color)',
 };
@@ -400,7 +411,7 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: MODAL_Z,
-        padding: '16px',
+        padding: 'var(--space-4)',
         animation: fade,
       }}
       onClick={dismissible ? requestClose : undefined}
@@ -431,8 +442,10 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '10px',
+            gap: 'var(--space-2)',
             flexShrink: 0,
+            paddingBottom: 'var(--space-2)',
+            borderBottom: `var(--frame-w) solid ${TONE_RULE[tone]}`,
           }}
         >
           {/* Настоящий заголовок, а не крупный текст: h1 в игре один (логотип в шапке),
@@ -443,7 +456,7 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: 'var(--space-2)',
               // Узкий экран: заголовок с длинным счётчиком переносится, а не выдавливает
               // крестик, поэтому minWidth 0 плюс перенос, а не жёсткое nowrap.
               flexWrap: 'wrap',
@@ -463,7 +476,7 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
               onClick={requestClose}
               aria-label="Закрыть"
               title="Закрыть"
-              style={{ padding: '4px 10px', flexShrink: 0 }}
+              style={{ padding: 'var(--space-1) var(--space-2)', flexShrink: 0 }}
             >
               <Icon name="close" />
             </button>
@@ -477,7 +490,7 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
             overflowY: 'auto',
             display: 'flex',
             flexDirection: 'column',
-            gap: '10px',
+            gap: 'var(--space-2)',
             // Растягивание по умолчанию нужно строкам статистики, а центрированному окну —
             // по центру: иначе иконка-молния и кубок уехали бы в левый край вместо середины.
             alignItems: centered ? 'center' : 'stretch',
@@ -488,7 +501,7 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
         </div>
 
         {footer && (
-          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>{footer}</div>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', flexShrink: 0 }}>{footer}</div>
         )}
       </div>
     </div>
@@ -545,7 +558,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
           // auto-fill вместо фиксированного числа колонок: на широком окне карточки идут
           // в две, на узком — в одну, и пересчитывать вручную по ширине не нужно.
           gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-          gap: '8px',
+          gap: 'var(--space-2)',
           margin: 0,
           padding: 0,
         }}
@@ -568,10 +581,10 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          gap: '8px',
-          marginTop: '4px',
-          paddingTop: '10px',
-          borderTop: '1px solid var(--border)',
+          gap: 'var(--space-2)',
+          marginTop: 'var(--space-1)',
+          paddingTop: 'var(--space-2)',
+          borderTop: 'var(--frame-w) solid var(--border)',
         }}
       >
         {/* Подпись рядом есть, поэтому значок луны скрыт от скринридера. */}
@@ -579,7 +592,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
           style={{
             display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: 'var(--space-1)',
             fontSize: '0.95rem',
             color: 'var(--text-main)',
           }}
@@ -600,7 +613,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-          gap: '8px',
+          gap: 'var(--space-2)',
           margin: 0,
           padding: 0,
         }}
@@ -728,10 +741,9 @@ const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
       {(runRate !== null || pastRate !== null) && (
         <div
           style={{
-            padding: '8px 10px',
+            padding: 'var(--space-2)',
             backgroundColor: 'var(--tint-gold)',
-            border: '1px solid var(--gold)',
-            borderRadius: '4px',
+            border: 'var(--frame-w) solid var(--gold)',
             fontSize: '0.85rem',
             color: 'var(--text-main)',
           }}
@@ -765,9 +777,8 @@ const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
           style={{
             display: 'flex',
             justifyContent: 'space-between',
-            padding: '6px 8px',
+            padding: 'var(--space-1) var(--space-2)',
             backgroundColor: 'var(--bg-card)',
-            borderRadius: '4px',
             fontSize: '0.85rem',
           }}
         >
@@ -782,25 +793,24 @@ const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
       {/* Справка по словарю игры. Формулировки сверены с CONTEXT.md — он источник
           правды для словаря, а не этот файл. Живёт в том же прокручиваемом теле,
           чтобы окно не переполнялось на маленьком экране. */}
-      <div style={{ marginTop: '2px' }}>
+      <div style={{ marginTop: 'var(--space-0)' }}>
         {/* Заголовок раздела — тоже заголовок: без него скринридер читает СПРАВКУ
             как ещё одну строку статистики, а не как вложенный раздел. */}
-        <h3 style={{ fontSize: '0.95rem', color: 'var(--text-main)', marginBottom: '6px' }}>
+        <h3 className="section-head" style={{ fontSize: '0.95rem', marginBottom: 'var(--space-2)' }}>
           СПРАВКА
         </h3>
-        <dl style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: 0 }}>
+        <dl style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', margin: 0 }}>
           {GLOSSARY.map((g) => (
             <div
               key={g.term}
               style={{
-                padding: '6px 8px',
+                padding: 'var(--space-1) var(--space-2)',
                 backgroundColor: 'var(--bg-card)',
-                borderRadius: '4px',
                 fontSize: '0.85rem',
               }}
             >
               <dt style={{ color: 'var(--text-main)', fontWeight: 600 }}>{g.term}</dt>
-              <dd style={{ color: 'var(--text-muted)', margin: '2px 0 0' }}>{g.text}</dd>
+              <dd style={{ color: 'var(--text-muted)', margin: 'var(--space-0) 0 0' }}>{g.text}</dd>
             </div>
           ))}
 </dl>
@@ -922,7 +932,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       icon={<Icon name="settings" />}
       title="Настройки"
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
         {/* Настройка нотации чисел */}
         <div style={SETTING_ROW}>
           <div style={{ minWidth: 0 }}>
@@ -935,14 +945,14 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             <button
               onClick={() => setNotation('short')}
               className={`pixel-btn ${settings.notation === 'short' ? 'pixel-btn-accent' : ''}`}
-              style={{ padding: '6px 10px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
             >
               Буквы (M, B)
             </button>
             <button
               onClick={() => setNotation('sci')}
               className={`pixel-btn ${settings.notation === 'sci' ? 'pixel-btn-accent' : ''}`}
-              style={{ padding: '6px 10px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
             >
               1e6
             </button>
@@ -1029,7 +1039,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         <EffectRow effect="ticker" title="Новостная лента" hint="Бегущая строка с шуточными новостями." />
 
         {/* Экспорт и Импорт */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div style={{ fontWeight: 600 }}>Сохранение данных</div>
 
           <button onClick={handleExport} className="pixel-btn" style={{ width: '100%' }}>
@@ -1040,16 +1050,16 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: '4px',
+              gap: 'var(--space-1)',
               flex: 1,
               minWidth: 0,
-              marginTop: '4px',
+              marginTop: 'var(--space-1)',
             }}
           >
             <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
               Вставь код сохранения
             </span>
-            <div style={{ display: 'flex', gap: '6px' }}>
+            <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
               <input
                 type="text"
                 value={importCode}
@@ -1063,21 +1073,20 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                   flex: 1,
                   minWidth: 0,
                   backgroundColor: 'var(--bg-card)',
-                  border: '1px solid var(--border)',
+                  border: 'var(--frame-w) solid var(--border)',
                   color: 'var(--text-main)',
-                  padding: '8px',
-                  borderRadius: '4px',
+                  padding: 'var(--space-2)',
                   fontSize: '0.85rem',
                 }}
               />
-              <button onClick={handleImport} className="pixel-btn pixel-btn-accent" style={{ padding: '8px 12px' }}>
+              <button onClick={handleImport} className="pixel-btn pixel-btn-accent" style={{ padding: 'var(--space-2) var(--space-3)' }}>
                 Импорт
               </button>
             </div>
             {/* Второе нажатие подтверждает замену забега — тем же двухшаговым
                 подтверждением, что и сброс выше, а не системным диалогом. */}
             {confirmImport && (
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '6px' }}>
+              <div style={{ display: 'flex', gap: 'var(--space-1)', alignItems: 'center', marginTop: 'var(--space-1)' }}>
                 <span style={{ flex: 1, minWidth: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                   Текущий Забег и весь прогресс будут полностью заменены.
                 </span>
@@ -1088,7 +1097,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                     backgroundColor: 'var(--red-solid)',
                     borderColor: 'var(--red)',
                     color: 'var(--text-main)',
-                    padding: '8px 12px',
+                    padding: 'var(--space-2) var(--space-3)',
                     whiteSpace: 'nowrap',
                   }}
                 >
@@ -1097,7 +1106,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 <button
                   onClick={() => setConfirmImport(false)}
                   className="pixel-btn"
-                  style={{ padding: '8px 12px' }}
+                  style={{ padding: 'var(--space-2) var(--space-3)' }}
                 >
                   Отмена
                 </button>
@@ -1108,15 +1117,14 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             <div
               role="alert"
               style={{
-                marginTop: '6px',
-                padding: '8px 10px',
+                marginTop: 'var(--space-1)',
+                padding: 'var(--space-2)',
                 backgroundColor: 'var(--tint-red)',
-                border: '1px solid var(--red)',
-                borderRadius: '4px',
+                border: 'var(--frame-w) solid var(--red)',
                 fontSize: '0.8rem',
                 color: '#fca5a5',
                 display: 'flex',
-                gap: '6px',
+                gap: 'var(--space-1)',
                 alignItems: 'center',
               }}
             >
@@ -1128,11 +1136,11 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         {/* Чистый сброс в отдельной опасной зоне */}
         <div
           style={{
-            borderTop: '1px solid var(--border)',
-            paddingTop: '12px',
+            borderTop: 'var(--frame-w) solid var(--border)',
+            paddingTop: 'var(--space-3)',
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px',
+            gap: 'var(--space-2)',
           }}
         >
           <div
@@ -1141,7 +1149,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               color: 'var(--red)',
               fontSize: '0.9rem',
               display: 'flex',
-              gap: '6px',
+              gap: 'var(--space-1)',
               alignItems: 'center',
             }}
           >
@@ -1151,7 +1159,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             Сброс удалит Токены, Агентов, Апгрейды и Compute навсегда. Начнётся новая чистая игра с первого Забега.
           </div>
           {confirmReset ? (
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
               <button
                 onClick={handleReset}
                 className="pixel-btn"
@@ -1160,10 +1168,10 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                   backgroundColor: 'var(--red-solid)',
                   borderColor: 'var(--red)',
                   color: 'var(--text-main)',
-                  padding: '8px',
+                  padding: 'var(--space-2)',
                   fontSize: '0.85rem',
                   display: 'flex',
-                  gap: '6px',
+                  gap: 'var(--space-1)',
                   justifyContent: 'center',
                   alignItems: 'center',
                 }}
@@ -1173,7 +1181,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               <button
                 onClick={() => setConfirmReset(false)}
                 className="pixel-btn"
-                style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                style={{ padding: 'var(--space-2) var(--space-3)', fontSize: '0.85rem' }}
               >
                 Отмена
               </button>
@@ -1187,10 +1195,10 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 backgroundColor: 'var(--tint-red)',
                 borderColor: 'var(--red)',
                 color: 'var(--red-text)',
-                padding: '8px',
+                padding: 'var(--space-2)',
                 fontSize: '0.85rem',
                 display: 'flex',
-                gap: '6px',
+                gap: 'var(--space-1)',
                 justifyContent: 'center',
                 alignItems: 'center',
               }}
@@ -1280,7 +1288,7 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
         <button
           onClick={requestClose}
           className="pixel-btn pixel-btn-accent pixel-22"
-          style={{ flex: 1, padding: '12px' }}
+          style={{ flex: 1, padding: 'var(--space-3)' }}
         >
           Забрать Токены!
         </button>
@@ -1304,9 +1312,8 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
             fontSize: '0.8rem',
             color: 'var(--gold)',
             backgroundColor: 'var(--tint-gold)',
-            border: '1px solid var(--gold)',
-            borderRadius: '4px',
-            padding: '6px 10px',
+            border: 'var(--frame-w) solid var(--gold)',
+            padding: 'var(--space-1) var(--space-2)',
             maxWidth: '420px',
             alignSelf: 'center',
           }}
@@ -1355,12 +1362,12 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
           width: '100%',
           display: 'flex',
           flexDirection: 'column',
-          gap: '12px',
+          gap: 'var(--space-3)',
           textAlign: 'left',
         }}
       >
         {labRows.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
             <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Кто заработал</div>
             {labRows.map((row) => (
               <div
@@ -1368,10 +1375,9 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  padding: '6px 8px',
+                  gap: 'var(--space-2)',
+                  padding: 'var(--space-1) var(--space-2)',
                   backgroundColor: 'var(--bg-card)',
-                  borderRadius: '4px',
                   fontSize: '0.85rem',
                 }}
               >
@@ -1389,16 +1395,15 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
           <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Теперь доступно</div>
 
           {bestModel && (
             <div
               style={{
-                padding: '8px',
+                padding: 'var(--space-2)',
                 backgroundColor: 'var(--tint-gold)',
-                border: '1px solid var(--gold)',
-                borderRadius: '4px',
+                border: 'var(--frame-w) solid var(--gold)',
                 fontSize: '0.85rem',
               }}
             >
@@ -1423,10 +1428,9 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                padding: '8px',
+                gap: 'var(--space-2)',
+                padding: 'var(--space-2)',
                 backgroundColor: 'var(--bg-card)',
-                borderRadius: '4px',
                 fontSize: '0.85rem',
               }}
             >
@@ -1540,14 +1544,14 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
       title="Престиж"
       footer={
         <>
-          <button className="pixel-btn" onClick={requestClose} style={{ flex: 1, padding: '12px' }}>
+          <button className="pixel-btn" onClick={requestClose} style={{ flex: 1, padding: 'var(--space-3)' }}>
             Отмена
           </button>
           <button
             onClick={handleConfirm}
             disabled={preview.blocked && !finale}
             className="pixel-btn pixel-btn-gold"
-            style={{ flex: 2, padding: '12px' }}
+            style={{ flex: 2, padding: 'var(--space-3)' }}
           >
             {finale
               ? 'Экран финала'
@@ -1558,7 +1562,7 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
         </>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
         <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
           Сейчас Поколение {gen.id}: {gen.name}.
           {!preview.blocked && (
@@ -1575,9 +1579,8 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
           <div
             style={{
               backgroundColor: 'var(--tint-red)',
-              border: '1px solid var(--red)',
-              borderRadius: '4px',
-              padding: '10px 12px',
+              border: 'var(--frame-w) solid var(--red)',
+              padding: 'var(--space-2) var(--space-3)',
               fontSize: '0.9rem',
               // Светлее --red намеренно: на собственной красной подложке --red тонет в
               // заливке, а причина отказа обязана читаться.
@@ -1591,13 +1594,12 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
             <div
               style={{
                 backgroundColor: 'var(--tint-gold)',
-                border: '1px solid var(--gold)',
-                borderRadius: '4px',
-                padding: '10px 12px',
+                border: 'var(--frame-w) solid var(--gold)',
+                padding: 'var(--space-2) var(--space-3)',
                 display: 'flex',
                 alignItems: 'baseline',
                 justifyContent: 'space-between',
-                gap: '10px',
+                gap: 'var(--space-2)',
               }}
             >
               <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
@@ -1609,17 +1611,16 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
             </div>
 
             <div style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>Сгорит:</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
               {burns.map(([label, value]) => (
                 <div
                   key={label}
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
-                    gap: '10px',
-                    padding: '6px 8px',
+                    gap: 'var(--space-2)',
+                    padding: 'var(--space-1) var(--space-2)',
                     backgroundColor: 'var(--bg-card)',
-                    borderRadius: '4px',
                     fontSize: '0.85rem',
                   }}
                 >
@@ -1720,7 +1721,7 @@ const FinaleBody: React.FC<
             className={`pixel-btn ${confirmReset ? '' : 'pixel-btn-accent'}`}
             style={{
               flex: 1,
-              padding: '10px 14px',
+              padding: 'var(--space-2) var(--space-3)',
               fontSize: '0.95rem',
               ...(confirmReset
                 ? {
@@ -1740,7 +1741,7 @@ const FinaleBody: React.FC<
             <button
               onClick={() => setConfirmReset(false)}
               className="pixel-btn"
-              style={{ padding: '10px 14px', fontSize: '0.95rem' }}
+              style={{ padding: 'var(--space-2) var(--space-3)', fontSize: '0.95rem' }}
             >
               Отмена
             </button>
@@ -1748,7 +1749,7 @@ const FinaleBody: React.FC<
             <button
               onClick={requestClose}
               className="pixel-btn"
-              style={{ padding: '10px 14px', fontSize: '0.95rem', color: 'var(--text-muted)' }}
+              style={{ padding: 'var(--space-2) var(--space-3)', fontSize: '0.95rem', color: 'var(--text-muted)' }}
             >
               Продолжить осмотр
             </button>
@@ -1765,7 +1766,7 @@ const FinaleBody: React.FC<
         <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
           Последнее Поколение пройдено, все Модели собраны!
         </div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
           Твоя империя искусственного интеллекта достигла вершины доступных технологий.
         </div>
       </div>
@@ -1774,10 +1775,9 @@ const FinaleBody: React.FC<
       <div
         style={{
           width: '100%',
-          padding: '8px 12px',
+          padding: 'var(--space-2) var(--space-3)',
           backgroundColor: 'var(--tint-gold)',
-          border: '1px solid var(--gold)',
-          borderRadius: '4px',
+          border: 'var(--frame-w) solid var(--gold)',
           fontSize: '0.85rem',
           color: 'var(--gold)',
           textAlign: 'center',
@@ -1792,39 +1792,39 @@ const FinaleBody: React.FC<
           width: '100%',
           display: 'grid',
           gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: '8px',
+          gap: 'var(--space-2)',
           textAlign: 'left',
         }}
       >
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Поколение</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
             Поколение <Num>{summary.generation + 1}</Num>: {gen.name}
           </div>
         </div>
 
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Престижей за всё время</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
             <Num>{summary.prestiges}</Num>
           </div>
         </div>
 
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Токенов всего</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--green)' }}>
             <Num>{summary.totalTokens}</Num>
           </div>
         </div>
 
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Compute в запасе</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
             <Num>{summary.compute}</Num>
           </div>
         </div>
 
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Достижений</div>
           {/* Числитель — nonShadowCount, а не achievements.length: id теневых лежат в том же
               списке, и прямой длиной счётчик на экране финала показывал «25 / 21». */}
@@ -1833,7 +1833,7 @@ const FinaleBody: React.FC<
           </div>
         </div>
 
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Реплик в Переписке</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
             <Num>{summary.quips}</Num>

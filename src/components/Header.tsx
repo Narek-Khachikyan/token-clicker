@@ -56,11 +56,11 @@ const HeaderView: React.FC<HeaderProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '10px 16px',
+        padding: 'var(--space-2) var(--space-4)',
         backgroundColor: 'var(--bg-panel)',
-        borderBottom: '2px solid var(--border)',
+        borderBottom: 'var(--frame-w) solid var(--border)',
         flexWrap: 'wrap',
-        gap: '10px',
+        gap: 'var(--space-2)',
         // minWidth: 0 обязателен обеим группам: флекс-элемент иначе не сожмётся ниже
         // содержимого, и на узком экране бейдж Поколения распирал бы строку вместо того,
         // чтобы уступить её соседу. Прокрутка полосы не участвует — шапка обязана помещаться
@@ -68,7 +68,7 @@ const HeaderView: React.FC<HeaderProps> = ({
         minWidth: 0,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0, flexWrap: 'wrap' }}>
         {/* Логотип набран Departure Mono на ступени 22 px, как и остальные заголовки (ADR-0009):
             «TOKEN CLICKER» — 13 знаков по 14 px, 182 px, и на 390 px он стоит в одну строку. */}
         <h1
@@ -93,10 +93,9 @@ const HeaderView: React.FC<HeaderProps> = ({
           key={generation}
           style={{
             backgroundColor: 'var(--tint-accent)',
-            border: '1px solid var(--border-strong)',
+            border: 'var(--frame-w) solid var(--border-strong)',
             color: 'var(--text-main)',
-            padding: '2px 8px',
-            borderRadius: '4px',
+            padding: 'var(--space-0) var(--space-2)',
             animation: 'toast-fade 0.15s ease-out',
             maxWidth: '100%',
             overflow: 'hidden',
@@ -118,10 +117,9 @@ const HeaderView: React.FC<HeaderProps> = ({
             className="pixel-22"
             style={{
               backgroundColor: 'var(--tint-gold)',
-              border: '1px solid var(--gold)',
+              border: 'var(--frame-w) solid var(--gold)',
               color: 'var(--gold)',
-              padding: '2px 8px',
-              borderRadius: '4px',
+              padding: 'var(--space-0) var(--space-2)',
               // Появление при монтировании — только opacity через toast-fade: бейдж
               // возникает один раз, пульс ему не нужен.
               animation: 'toast-fade 0.15s ease-out',
@@ -134,7 +132,7 @@ const HeaderView: React.FC<HeaderProps> = ({
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0 }}>
         {/* Иконочные кнопки получают имя из aria-label: картинка помечена декоративной, и
             без подписи озвучка прочитала бы пустую кнопку. */}
         <button
@@ -142,7 +140,7 @@ const HeaderView: React.FC<HeaderProps> = ({
           onClick={toggleMute}
           title={isMuted ? 'Включить звук' : 'Выключить звук'}
           aria-label={isMuted ? 'Включить звук' : 'Выключить звук'}
-          style={{ padding: '6px 10px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
+          style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name={isMuted ? 'sound-off' : 'sound-on'} />
         </button>
@@ -155,7 +153,7 @@ const HeaderView: React.FC<HeaderProps> = ({
           // Без aria-label доступное имя кнопки — это «14 / 21», то есть два числа без
           // единого слова; озвучка читала бы их вслух и не называла, что открывается.
           aria-label={`Достижения: ${unlockedAchCount} из ${totalAchCount}`}
-          style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}
+          style={{ padding: 'var(--space-1) var(--space-3)', whiteSpace: 'nowrap' }}
         >
           <Icon name="trophy" />
           <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
@@ -165,7 +163,7 @@ const HeaderView: React.FC<HeaderProps> = ({
           className="pixel-btn pixel-22 pixel-wide"
           onClick={onOpenStats}
           title="Инфо"
-          style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}
+          style={{ padding: 'var(--space-1) var(--space-3)', whiteSpace: 'nowrap' }}
         >
           <Icon name="info" />
           Инфо
@@ -176,7 +174,7 @@ const HeaderView: React.FC<HeaderProps> = ({
           onClick={onOpenSettings}
           title="Настройки"
           aria-label="Настройки"
-          style={{ padding: '6px 12px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
+          style={{ padding: 'var(--space-1) var(--space-3)', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name="settings" />
         </button>

@@ -157,6 +157,19 @@ describe('palette contrast (ADR-0007)', () => {
   });
 
   describe.each(accents)('accent %s', (accent) => {
+    // Шапки разделов и подписи-капсы красятся акцентом Поколения прямо по базе (ADR-0008). На
+    // --bg-raised самый тёмный из восьми держит 3.93:1, поэтому шапка там не живёт и пары нет.
+    it.each(['bg-void', 'bg-primary', 'bg-panel', 'bg-card'])('accent text holds on --%s', (surface) => {
+      const r = ratio('var(--accent-color)', `var(--${surface})`, accent);
+      expect(r, `акцент ${accent} на --${surface}: ${r.toFixed(2)}:1`).toBeGreaterThanOrEqual(MIN_CONTRAST);
+    });
+
+    it('mixes the panel frame from the accent and the neutral frame', () => {
+      // Запасное значение и ветка color-mix: рамка панели обязана быть объявлена в обеих.
+      expect(declared('accent-frame')).toHaveLength(2);
+      for (const value of declared('accent-frame')) expect(() => resolve(value, accent)).not.toThrow();
+    });
+
     it.each(['accent-solid', 'accent-solid-hover'])('--text-main holds on --%s', (fill) => {
       const values = declared(fill);
       for (const value of values) {

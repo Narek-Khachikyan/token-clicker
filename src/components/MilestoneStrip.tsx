@@ -26,14 +26,14 @@ export const MilestoneStrip: React.FC = () => {
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
-        gap: '6px',
+        gap: 'var(--space-1)',
       }}
     >
       {/* Деления: одно на веху, заполненное — выполненное. Чистый пиксельный счётчик,
           читаемый боковым зрением, без цифр. Заполненное деление берёт акцент Поколения,
           а незаполненное — пустоту сцены: контраст между «сделано» и «ещё нет» должен быть
           виден на расстоянии вытянутой руки. */}
-      <div style={{ display: 'flex', gap: '2px', height: '10px' }} aria-hidden="true">
+      <div style={{ display: 'flex', gap: 'var(--space-0)', height: '10px' }} aria-hidden="true">
         {MILESTONES.map((m) => {
           const isDone = done.includes(m.id);
           return (
@@ -42,14 +42,14 @@ export const MilestoneStrip: React.FC = () => {
               style={{
                 flex: 1,
                 backgroundColor: isDone ? 'var(--accent-color)' : 'var(--bg-void)',
-                border: isDone ? '1px solid var(--accent-color)' : '1px solid var(--border)',
+                border: isDone ? 'var(--frame-w) solid var(--accent-color)' : 'var(--frame-w) solid var(--border)',
               }}
             />
           );
         })}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 'var(--space-2)' }}>
         <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{current.title}</span>
         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
           {done.length} / {MILESTONES.length}

@@ -75,7 +75,10 @@ components/    presentation: reads state, calls actions
   set `fontSize` inline on a node with a `pixel-*` class. The counter's reserve of characters lives in
   `layout.ts` beside the column minima, because the face is wider than Nunito.
 - **Components** style with inline `style` objects, the CSS variables and `pixel-*` classes from
-  `index.css`, where keyframes live too. Dialogs trap focus through `useDialogFocus.ts`. Over a
+  `index.css`, where keyframes live too. `gap`, `padding` and `margin` take a step of the
+  `--space-0…6` ladder (2/4/8/12/16/24/32 px) by name, borders are `var(--frame-w)`, and there is no
+  `borderRadius` or blurred shadow on a button, tab, card or panel — `index.test.ts` enforces the
+  CSS side (ADR-0008). A button is clipped by `clip-path`, so its rings go inside it. Dialogs trap focus through `useDialogFocus.ts`. Over a
   Сцена, every readable label sits off the artwork or on a darkened HUD band of its own (ADR-0002).
 - **Audio is synthesized** — no files, no asset pipeline. `AudioContext` resumes only after a user
   gesture, so silence before the first click is expected. `sound.ts` owns the one context and the

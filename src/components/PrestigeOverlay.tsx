@@ -105,7 +105,7 @@ export const PrestigeOverlay: React.FC = () => {
             }}
           />
         ))}
-      <div className="prestige-card pixel-card" style={{ textAlign: 'center', padding: '28px 36px' }}>
+      <div className="prestige-card pixel-card" style={{ textAlign: 'center', padding: 'var(--space-5) var(--space-6)' }}>
         <div
           style={{
             fontSize: '0.85rem',
