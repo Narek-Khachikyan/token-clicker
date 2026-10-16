@@ -17,7 +17,7 @@ import { onTabRowKeyDown } from './tabRow';
 const SECTIONS: readonly { id: PrestigeSection; label: string }[] = [
   { id: 'prestige', label: 'Престиж' },
   { id: 'perks', label: 'Перки' },
-  { id: 'legacy', label: 'Наследие и Кристаллы' },
+  { id: 'crystals', label: 'Кристаллы' },
 ];
 
 export const PrestigeSectionNav: React.FC = () => {

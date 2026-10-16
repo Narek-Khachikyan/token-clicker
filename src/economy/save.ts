@@ -132,7 +132,39 @@ export const MIGRATIONS: Record<number, Migration> = {
       },
     };
   },
+  // Дерево Перков появилось в v10 (ADR-0012). «Наследие» по Поколениям (`gen_0`…`gen_7`) ушло из
+  // каталога, и `idList` ниже отбросил бы его вместе с потраченным Compute: игрок остался бы без
+  // Перка и без цены. Поэтому шаг возвращает цену в Compute, уменьшая `computeSpent`; остальные id
+  // остались прежними и сохраняются как есть. Отметка сброса дерева — чистое добавление.
+  9: (raw) => {
+    const refund = removedPerksRefund(strList(raw.perks));
+    return {
+      ...raw,
+      version: 10,
+      computeSpent: Math.max(0, num(raw.computeSpent, 0) - refund),
+      perkResetUsed: raw.perkResetUsed ?? false,
+    };
+  },
 };
+
+/** Особых Перков Поколения в прошлых версиях: по числу Поколений тогдашнего каталога. */
+const LEGACY_GEN_PERKS = 8;
+const LEGACY_GEN_PERK = /^gen_(\d+)$/;
+
+/**
+ * Сколько Compute стоили Перки, ушедшие из каталога в v10. Особые Перки Поколения стоили 10, 15, 20…
+ * — по числу уже купленных, поэтому сумма зависит только от их количества `k`, а не от порядка
+ * покупки: 10k + 5·k(k−1)/2. Неизвестные id цены не имеют и ничего не возвращают.
+ */
+function removedPerksRefund(ids: string[]): number {
+  const gens = new Set<string>();
+  for (const id of ids) {
+    const m = LEGACY_GEN_PERK.exec(id);
+    if (m && Number(m[1]) < LEGACY_GEN_PERKS) gens.add(id);
+  }
+  const k = gens.size;
+  return 10 * k + (5 * k * (k - 1)) / 2;
+}
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
@@ -282,8 +314,11 @@ export function migrate(raw: unknown, now: number): GameState {
     agents,
     upgrades: idList(data.upgrades, UPGRADE_BY_ID),
     compute: Math.max(0, num(data.compute, 0)),
-    computeSpent: Math.max(0, num(data.computeSpent, 0)),
+    // «Потрачено» не больше «начислено»: иначе свободный Compute читался бы как ноль, а возврат
+    // за Перки при сбросе дерева создавал бы Compute из воздуха.
+    computeSpent: Math.min(Math.max(0, num(data.compute, 0)), Math.max(0, num(data.computeSpent, 0))),
     perks: idList(data.perks, PERK_BY_ID),
+    perkResetUsed: !!data.perkResetUsed,
     prestiges: num(data.prestiges, 0),
     achievements: [...new Set(strList(data.achievements))],
     // Кристаллы целые и неотрицательные: запас — это счётчик, а не Доли, дробный остаток в нём

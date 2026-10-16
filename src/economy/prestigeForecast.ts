@@ -98,6 +98,8 @@ export const PRESTIGE_BOOKKEEPING: readonly (keyof GameState)[] = [
   'clicks',
   'compute',
   'prestiges',
+  // Отметка «сброс дерева Перков использован» снимается Престижем: сброс снова доступен.
+  'perkResetUsed',
   'challengesDone',
   'catchUpPaid',
   'eventsSeen',

@@ -1,6 +1,6 @@
 import { TEMP_START } from './thermal';
 
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 
 /**
  * Громкость по умолчанию: 0.6, а не 1.
@@ -61,6 +61,8 @@ export interface GameState {
   compute: number;
   computeSpent: number;
   perks: string[];
+  /** Бесплатный сброс дерева Перков уже использован в этом Забеге (ADR-0012). Престиж снимает отметку. */
+  perkResetUsed: boolean;
   prestiges: number;
   achievements: string[];
   /** Целые Compute-кристаллы в запасе: копятся, а не тратятся автоматически. */
@@ -161,6 +163,7 @@ export function newGame(now: number): GameState {
     compute: 0,
     computeSpent: 0,
     perks: [],
+    perkResetUsed: false,
     prestiges: 0,
     achievements: [],
     crystals: 0,

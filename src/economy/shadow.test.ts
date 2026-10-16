@@ -20,7 +20,7 @@ import {
   prestige,
   totalIncome,
 } from './engine';
-import { GEN_PERK_BASE_COST, GEN_PERK_STEP_COST, isGenPerkId, PERKS } from './perks';
+import { PERKS } from './perks';
 import { migrate } from './save';
 import { newGame, SAVE_VERSION, type GameState } from './state';
 import { QUIPS } from '../data/quips';
@@ -54,21 +54,11 @@ const clickN = (s: GameState, n: number): GameState => {
 const idle = (s: GameState, tokens: number): GameState => advance(s, (tokens * 4) / totalIncome(s));
 
 /** Перк «Скрипт-автокликер» куплен и Клики идут со скоростью 1/сек. */
-const autoClicking = (s: GameState): GameState => buyPerk({ ...s, compute: 25 }, 'autoclick');
+// Автокликер в дереве стоит под «Чётким промптом»: сначала предшественник, потом он сам.
+const autoClicking = (s: GameState): GameState => buyPerk(buyPerk({ ...s, compute: 28 }, 'click_x2'), 'autoclick');
 
-/**
- * Compute на весь список Перков.
- *
- * У особых Перков Поколения цена в таблице — только базовая: настоящая растёт с числом уже
- * купленных, поэтому сумма берётся из тех же констант, что и движок, а не складывается из
- * `p.cost`. Иначе сумма была бы меньше нужной, и последний особый Перк просто не купился бы.
- */
-const ALL_PERKS_COMPUTE =
-  PERKS.filter((p) => !isGenPerkId(p.id)).reduce((n, p) => n + p.cost, 0) +
-  CATALOG.reduce(
-    (n, _g, i) => n + GEN_PERK_BASE_COST + GEN_PERK_STEP_COST * i,
-    0
-  );
+/** Compute на всё дерево: хватает с запасом, цены берутся из самой таблицы. */
+const ALL_PERKS_COMPUTE = PERKS.reduce((n, p) => n + p.cost, 0);
 
 /**
  * Все Поколения пройдены Престижами, Флагман каждого куплен по-настоящему.
@@ -127,8 +117,8 @@ const REACH: Record<string, () => GameState> = {
   shadow_one_model_1000: () => hireAll(prestigeToFrontier(), [last.models[0]], 1_000),
   shadow_flagship_500: () => hireAll(prestigeToFrontier(), [last.flagship], 500),
   shadow_swarm_10k: () => hireAll(prestigeToFrontier(), last.models, 2_000),
-  // Купить весь список: состояние берётся с последнего Поколения и с Флагманом, потому что
-  // особый Перк своего Поколения без canPrestige недоступен, а прошедшие Поколения открыты.
+  // Купить всё, что дерево пускает держать сразу: PERKS идёт сверху вниз, поэтому предшественник
+  // всегда куплен раньше зависимого, а верхние Перки чужих Ветвей отказывают сами.
   shadow_all_perks: () =>
     PERKS.reduce(
       (s, p) => buyPerk(s, p.id),

@@ -1,6 +1,6 @@
 import { CATALOG, computeGain, LAST_GENERATION } from './catalog';
 import { canPrestige, clickValue } from './engine';
-import { PERKS } from './perks';
+import { MAX_OWNED_PERKS } from './perks';
 import type { GameState } from './state';
 import type { LabId } from '../data/labs';
 import { QUIPS } from '../data/quips';
@@ -152,8 +152,9 @@ export const SHADOW_ACHIEVEMENTS: ShadowAchievement[] = [
     check: (s) => totalAgents(s) >= 10_000,
   },
   {
-    id: 'shadow_all_perks', name: 'Всё куплено', desc: 'Купить все Перки',
-    check: (s) => s.perks.length >= PERKS.length,
+    id: 'shadow_all_perks', name: 'Всё куплено', desc: 'Собрать дерево Перков: все Перки ствола и Ветвей, кроме верхних чужих Ветвей',
+    // Верхние Перки Ветвей взаимоисключающие (ADR-0012), поэтому «все» — это всё, что можно держать сразу.
+    check: (s) => s.perks.length >= MAX_OWNED_PERKS,
   },
   {
     // Перк «Скрипт-автокликер» даёт Клик в секунду, но Автоклик начисляется только пока
