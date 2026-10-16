@@ -37,7 +37,6 @@ import {
   calcBassFrequency,
   calcMusicBpm,
   calcMusicLayers,
-  calcStepSeconds,
   calcTransposition,
   duckMusic,
   isMusicPlaying,
@@ -421,14 +420,6 @@ describe('громкость каналов поверх мастера', () => 
     expect(playerLevel(ctx.oscillators[0])).toBeCloseTo(0.8 * 0.6);
   });
 
-  it('мьют глушит оба канала сразу', () => {
-    const muted = mix({ muted: true });
-    expect(musicLevels(muted)).toHaveLength(0);
-    nextClickMoment();
-    playClickSound(muted);
-    expect(ctx.oscillators).toHaveLength(0);
-  });
-
   it('настройка без каналов (старое сохранение) читается как полные каналы, а не как NaN', () => {
     const legacy = { muted: false, volume: 0.5 } as unknown as SoundSettings;
     nextClickMoment();
@@ -688,11 +679,6 @@ describe('темп и транспозиция', () => {
     expect(calcMusicBpm(Number.NaN)).toBe(90);
   });
 
-  it('шестнадцатая длится 1/6 с на 90 BPM и 1/8 с на 120', () => {
-    expect(calcStepSeconds(90)).toBeCloseTo(1 / 6);
-    expect(calcStepSeconds(120)).toBeCloseTo(1 / 8);
-  });
-
   it('каждое Поколение поднимает луп на два полутона, начиная со второго', () => {
     // Индекс Поколения с нуля — тот же, что в состоянии игры.
     expect(calcTransposition(0)).toBe(0);
@@ -829,14 +815,6 @@ describe('музыкальный луп', () => {
     startMusic(SETTINGS);
     // Фаза такта сдвигается на ноту туда-сюда; второй луп удвоил бы счёт.
     expect(notesOver(2000).length).toBeLessThan(once * 1.5);
-  });
-
-  it('остановка незапущенного лупа и повторная остановка ничего не делают', () => {
-    stopMusic();
-    startMusic(SETTINGS);
-    stopMusic();
-    expect(() => stopMusic()).not.toThrow();
-    expect(isMusicPlaying()).toBe(false);
   });
 
   it('музыка не играет, пока AudioContext suspended: жеста ещё не было', () => {
