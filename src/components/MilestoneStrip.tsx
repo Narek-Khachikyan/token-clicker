@@ -8,12 +8,14 @@ import { Num } from './Num';
  * Полоса вех: единственное место, где игрок видит, сколько шагов осталось до конца первого
  * получаса.
  *
- * Стоит под счётчиком Токенов, а не в магазине: веха — это цель, а магазин про покупки.
- * Игрок возвращается к цели после каждой выплаты, а до магазина идёт, когда уже знает, зачем.
+ * Стоит под Температурой, а не в магазине: веха — это цель, а магазин про покупки. Игрок
+ * возвращается к цели после каждой выплаты, а до магазина идёт, когда уже знает, зачем.
  *
- * Число «N / 10» и заполненные деления — единственные два факта, которые нужны. Подробный
- * список условий скрыт: десять строк текста на старте читаются как список дел и отпугивают,
- * а не помогают.
+ * Одна строка: десять делений, название цели и награда. Раньше полоса занимала пять строк
+ * (деления, название с «N / 10», подпись, награда) и вытесняла из невысокого окна Клик и
+ * шкалу Температуры — то, ради чего колонка и существует. «N / 10» читается по делениям и
+ * озвучивается в подписи группы, а подпись вехи («зачем это нужно») лежит в подсказке и в
+ * озвучке: название цели само говорит, что делать, а подпись только поясняет.
  */
 export const MilestoneStrip: React.FC = () => {
   const { current, hint, reward, done } = useStateSlice(milestoneView);
@@ -22,25 +24,29 @@ export const MilestoneStrip: React.FC = () => {
 
   return (
     <div
+      className="milestone-strip"
+      role="group"
+      aria-label={`Веха ${done.length + 1} из ${MILESTONES.length}: ${current.title}. ${hint}. Награда: ${reward} Токенов`}
+      title={hint}
       style={{
         width: '100%',
         display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-1)',
+        alignItems: 'center',
+        gap: 'var(--space-2)',
       }}
     >
       {/* Деления: одно на веху, заполненное — выполненное. Чистый пиксельный счётчик,
           читаемый боковым зрением, без цифр. Заполненное деление берёт акцент Поколения,
           а незаполненное — пустоту сцены: контраст между «сделано» и «ещё нет» должен быть
           виден на расстоянии вытянутой руки. */}
-      <div style={{ display: 'flex', gap: 'var(--space-0)', height: '10px' }} aria-hidden="true">
+      <div style={{ display: 'flex', gap: 'var(--space-0)', height: '12px', flexShrink: 0 }} aria-hidden="true">
         {MILESTONES.map((m) => {
           const isDone = done.includes(m.id);
           return (
             <div
               key={m.id}
               style={{
-                flex: 1,
+                width: '6px',
                 backgroundColor: isDone ? 'var(--accent-color)' : 'var(--bg-void)',
                 border: isDone ? 'var(--frame-w) solid var(--accent-color)' : 'var(--frame-w) solid var(--border)',
               }}
@@ -49,17 +55,23 @@ export const MilestoneStrip: React.FC = () => {
         })}
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 'var(--space-2)' }}>
-        <span style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>{current.title}</span>
-        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-          {done.length} / {MILESTONES.length}
-        </span>
-      </div>
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{hint}</div>
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          fontSize: '0.85rem',
+          color: 'var(--text-main)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {current.title}
+      </span>
       {/* Награда видна сразу, а не по факту: игрок должен видеть, ради чего тянуть. */}
-      <div style={{ fontSize: '0.75rem', color: 'var(--gold)' }}>
-        Награда: +<Num>{reward}</Num> Токенов
-      </div>
+      <span style={{ fontSize: '0.8rem', color: 'var(--gold)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+        +<Num>{reward}</Num>
+      </span>
     </div>
   );
 };

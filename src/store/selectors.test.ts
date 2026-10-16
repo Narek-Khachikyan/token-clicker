@@ -14,10 +14,10 @@ import {
   totalIncome,
 } from '../economy/engine';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
+import { LAB_IDS, LABS } from '../data/labs';
 import { canPrestige, isContentFinale, labIncomeShare, prestigeGain, shatterCrystal } from '../economy/engine';
 import { prestigeForecast } from '../economy/prestigeForecast';
 import { CHALLENGES, startChallenge } from '../economy/challenges';
-import { LAB_IDS } from '../data/labs';
 import { CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
 import {
   canLicense,
@@ -28,7 +28,7 @@ import {
   revokeCost,
 } from '../economy/glitches';
 import { newGame, type GameState } from '../economy/state';
-import { availableUpgrades } from '../economy/upgrades';
+import { availableUpgrades, labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
 import { OVERHEAT_STUN_SEC, TEMP_MAX, thermalRead } from '../economy/thermal';
 import { MILESTONES } from '../economy/milestones';
 import {
@@ -44,6 +44,8 @@ import {
   glitchBandView,
   glitchesOf,
   incomeView,
+  labBoothLabels,
+  labCardView,
   labShareView,
   milestoneView,
   modelView,
@@ -183,6 +185,30 @@ describe('temperature slices', () => {
     expect(thermalView(heated(0.8)).status).toBe('Почти перегрев');
     const stunned = { ...heated(0), overheatedAt: T0 + 1_000, lastTick: T0 + 2_000 };
     expect(thermalView(stunned).status).toBe('Перегрев: Доход падает');
+  });
+
+  it('names the scale state cold, normal, hot or overheat for every temperature and heat', () => {
+    const stunned = { ...heated(0, 0), overheatedAt: T0 + 1_000, lastTick: T0 + 1_100 };
+    const cases: Array<[GameState, string, string]> = [
+      [heated(0, 0), 'cold', 'Холод'],
+      [heated(0.2, 0.45), 'normal', 'Норма'],
+      [heated(0.2, 1), 'normal', 'Норма'],
+      [heated(0.2, 1.3), 'hot', 'Жар'],
+      [heated(0.7, 0.45), 'hot', 'Жар'],
+      [stunned, 'overheat', 'Перегрев'],
+    ];
+    for (const [s, state, label] of cases) {
+      expect(thermalView(s).state).toBe(state);
+      expect(thermalView(s).stateLabel).toBe(label);
+    }
+    // Четыре состояния — четыре разных слова: иначе «различимо без цвета» ничего не значит.
+    expect(new Set(cases.map(([, , label]) => label)).size).toBe(4);
+  });
+
+  it('says in words that the income is falling while the stun lasts', () => {
+    const stunned = { ...heated(0, 0), overheatedAt: T0 + 1_000, lastTick: T0 + 1_100 };
+    expect(thermalView(stunned).risk).toBe('Доход падает');
+    expect(thermalView(stunned).riskHot).toBe(true);
   });
 
   it('tells what the player risks at this heat', () => {
@@ -550,5 +576,65 @@ describe('roster slice', () => {
   it('keeps every lab share steady while a late run idles', () => {
     const states = idle(lateGame(), 50);
     for (const lab of LAB_IDS) expect(changes(states, (s) => labShareView(s, lab))).toBe(0);
+  });
+});
+
+describe('mascot card slice', () => {
+  it('says nothing about a lab that is not in the office', () => {
+    const empty = newGame(T0);
+    for (const lab of LAB_IDS) {
+      const view = labCardView(empty, lab, true);
+      expect(view.agents).toBe('0');
+      expect(view.work).toBe('');
+      expect(view.share).toBe(-1);
+      expect(view.synergy).toBe(-1);
+      expect(view.synergyText).toBe('');
+    }
+  });
+
+  it('counts a lab Agents and its Synergy from the whole catalog of the late run', () => {
+    const s = lateGame();
+    for (const lab of LAB_IDS) {
+      const count = labAgents(s, lab);
+      const view = labCardView(s, lab, true);
+      expect(view.agents).toBe(formatNumber(count, s.settings.notation));
+      expect(view.agentsWord).toBe(formatCount(count, 'Агент', 'Агента', 'Агентов', s.settings.notation));
+      expect(view.work).toBe(labWork(s, lab));
+      expect(view.share).toBe(labShareView(s, lab));
+      const bought = s.upgrades.includes(synergyUpgradeId(s.generation, lab));
+      expect(view.synergy).toBe(bought ? Math.round(count * SYNERGY_PER_AGENT * 100) : -1);
+    }
+    // Состав позднего Забега такой, что Синергия хотя бы у одной Лаборатории куплена.
+    expect(LAB_IDS.some((lab) => labCardView(s, lab, true).synergy > 0)).toBe(true);
+  });
+
+  it('hides the share when the card is asked for a lone lab', () => {
+    const s = lateGame();
+    for (const lab of LAB_IDS) expect(labCardView(s, lab, false).share).toBe(-1);
+  });
+
+  it('promises no Synergy while the no-synergy Challenge cancels it', () => {
+    const s = { ...lateGame(), activeChallenge: 'no-synergy' };
+    for (const lab of LAB_IDS) expect(labCardView(s, lab, true).synergy).toBe(-1);
+  });
+
+  it('keeps every lab card steady while a late run idles', () => {
+    const states = idle(lateGame(), 50);
+    for (const lab of LAB_IDS) expect(changes(states, (s) => labCardView(s, lab, true))).toBe(0);
+  });
+
+  it('names every booth for a screen reader with the same numbers as the card', () => {
+    const s = lateGame();
+    const labels = labBoothLabels(s);
+    expect(labels).toHaveLength(LAB_IDS.length);
+    LAB_IDS.forEach((lab, i) => {
+      const view = labCardView(s, lab, false);
+      expect(labels[i].startsWith(`${LABS[lab].name}: ${view.agents} ${view.agentsWord}`)).toBe(true);
+      expect(labels[i].includes('Синергия')).toBe(view.synergy >= 0);
+    });
+  });
+
+  it('keeps the booth names steady while a late run idles', () => {
+    expect(changes(idle(lateGame(), 50), labBoothLabels)).toBe(0);
   });
 });
