@@ -1,5 +1,5 @@
 import type { Model } from '../economy/catalog';
-import type { LabId } from '../data/labs';
+import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import {
   bulkCost,
   canPrestige,
@@ -30,7 +30,14 @@ import {
 import { milestoneHint, milestoneReward, nextMilestone, type Milestone } from '../economy/milestones';
 import type { GameState, Glitch } from '../economy/state';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
-import { availableUpgrades, type Upgrade } from '../economy/upgrades';
+import {
+  availableUpgrades,
+  labAgents,
+  labWork,
+  SYNERGY_PER_AGENT,
+  synergyUpgradeId,
+  type Upgrade,
+} from '../economy/upgrades';
 import type { BuyAmount } from './useGameStore';
 
 /**
@@ -572,4 +579,56 @@ const SHARE_MIN = 0.01;
 export function labShareView(s: GameState, lab: LabId): number {
   const share = labIncomeShare(s, lab, incomeOf(s));
   return share >= SHARE_MIN ? Math.round(share * 100) : -1;
+}
+
+/**
+ * Что карточка Маскота говорит о его Лаборатории: Агенты, работа, доля в Доходе и Синергия.
+ * Плоский срез из примитивов — тик карточку не перерисовывает.
+ *
+ * `synergy` — процент, который Синергия даёт всем Моделям Лаборатории, или -1, пока она не
+ * куплена или Испытание «Забег без Синергий» её гасит: карточка не обещает бонуса, которого
+ * движок не начислит.
+ */
+export interface LabCardView {
+  /** Агенты Лаборатории готовой записью («1,5 К»). */
+  agents: string;
+  /** Слово при числе Агентов: «Агент», «Агента», «Агентов». */
+  agentsWord: string;
+  /** Название работы Лаборатории по её высшему Апгрейду; пусто, пока Апгрейдов нет. */
+  work: string;
+  /** Доля в Доходе целым процентом; -1, когда её не показывают. */
+  share: number;
+  /** Бонус Синергии целым процентом; -1, когда её нет. */
+  synergy: number;
+  /** Бонус Синергии готовой записью. */
+  synergyText: string;
+}
+
+export function labCardView(s: GameState, lab: LabId, showShare: boolean): LabCardView {
+  const notation = s.settings.notation;
+  const count = labAgents(s, lab);
+  const synergyOn =
+    s.activeChallenge !== 'no-synergy' && s.upgrades.includes(synergyUpgradeId(s.generation, lab));
+  const synergy = synergyOn ? Math.round(count * SYNERGY_PER_AGENT * 100) : -1;
+  return {
+    agents: formatNumber(count, notation),
+    agentsWord: formatCount(count, 'Агент', 'Агента', 'Агентов', notation),
+    work: labWork(s, lab),
+    share: showShare ? labShareView(s, lab) : -1,
+    synergy,
+    synergyText: synergy >= 0 ? formatNumber(synergy, notation) : '',
+  };
+}
+
+/**
+ * Подписи мест Маскотов для чтеца с экрана, по одной на Лабораторию в порядке `LAB_IDS`:
+ * «Anthropic: 15 Агентов, Синергия +15%». Карточка над Маскотом для чтеца скрыта, потому что
+ * говорит то же самое, и числа в обеих записях идут из одного `labCardView`.
+ */
+export function labBoothLabels(s: GameState): string[] {
+  return LAB_IDS.map((lab) => {
+    const view = labCardView(s, lab, false);
+    const synergy = view.synergy >= 0 ? `, Синергия +${view.synergyText}%` : '';
+    return `${LABS[lab].name}: ${view.agents} ${view.agentsWord}${synergy}`;
+  });
 }

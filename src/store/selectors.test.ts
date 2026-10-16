@@ -15,7 +15,7 @@ import {
 } from '../economy/engine';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import { canPrestige, isContentFinale, labIncomeShare, prestigeGain } from '../economy/engine';
-import { LAB_IDS } from '../data/labs';
+import { LAB_IDS, LABS } from '../data/labs';
 import { CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
 import {
   canLicense,
@@ -26,7 +26,7 @@ import {
   revokeCost,
 } from '../economy/glitches';
 import { newGame, type GameState } from '../economy/state';
-import { availableUpgrades } from '../economy/upgrades';
+import { availableUpgrades, labAgents, labWork, SYNERGY_PER_AGENT, synergyUpgradeId } from '../economy/upgrades';
 import { OVERHEAT_STUN_SEC, TEMP_MAX, thermalRead } from '../economy/thermal';
 import { MILESTONES } from '../economy/milestones';
 import {
@@ -39,6 +39,8 @@ import {
   glitchBandView,
   glitchesOf,
   incomeView,
+  labBoothLabels,
+  labCardView,
   labShareView,
   milestoneView,
   modelView,
@@ -499,5 +501,65 @@ describe('roster slice', () => {
   it('keeps every lab share steady while a late run idles', () => {
     const states = idle(lateGame(), 50);
     for (const lab of LAB_IDS) expect(changes(states, (s) => labShareView(s, lab))).toBe(0);
+  });
+});
+
+describe('mascot card slice', () => {
+  it('says nothing about a lab that is not in the office', () => {
+    const empty = newGame(T0);
+    for (const lab of LAB_IDS) {
+      const view = labCardView(empty, lab, true);
+      expect(view.agents).toBe('0');
+      expect(view.work).toBe('');
+      expect(view.share).toBe(-1);
+      expect(view.synergy).toBe(-1);
+      expect(view.synergyText).toBe('');
+    }
+  });
+
+  it('counts a lab Agents and its Synergy from the whole catalog of the late run', () => {
+    const s = lateGame();
+    for (const lab of LAB_IDS) {
+      const count = labAgents(s, lab);
+      const view = labCardView(s, lab, true);
+      expect(view.agents).toBe(formatNumber(count, s.settings.notation));
+      expect(view.agentsWord).toBe(formatCount(count, 'Агент', 'Агента', 'Агентов', s.settings.notation));
+      expect(view.work).toBe(labWork(s, lab));
+      expect(view.share).toBe(labShareView(s, lab));
+      const bought = s.upgrades.includes(synergyUpgradeId(s.generation, lab));
+      expect(view.synergy).toBe(bought ? Math.round(count * SYNERGY_PER_AGENT * 100) : -1);
+    }
+    // Состав позднего Забега такой, что Синергия хотя бы у одной Лаборатории куплена.
+    expect(LAB_IDS.some((lab) => labCardView(s, lab, true).synergy > 0)).toBe(true);
+  });
+
+  it('hides the share when the card is asked for a lone lab', () => {
+    const s = lateGame();
+    for (const lab of LAB_IDS) expect(labCardView(s, lab, false).share).toBe(-1);
+  });
+
+  it('promises no Synergy while the no-synergy Challenge cancels it', () => {
+    const s = { ...lateGame(), activeChallenge: 'no-synergy' };
+    for (const lab of LAB_IDS) expect(labCardView(s, lab, true).synergy).toBe(-1);
+  });
+
+  it('keeps every lab card steady while a late run idles', () => {
+    const states = idle(lateGame(), 50);
+    for (const lab of LAB_IDS) expect(changes(states, (s) => labCardView(s, lab, true))).toBe(0);
+  });
+
+  it('names every booth for a screen reader with the same numbers as the card', () => {
+    const s = lateGame();
+    const labels = labBoothLabels(s);
+    expect(labels).toHaveLength(LAB_IDS.length);
+    LAB_IDS.forEach((lab, i) => {
+      const view = labCardView(s, lab, false);
+      expect(labels[i].startsWith(`${LABS[lab].name}: ${view.agents} ${view.agentsWord}`)).toBe(true);
+      expect(labels[i].includes('Синергия')).toBe(view.synergy >= 0);
+    });
+  });
+
+  it('keeps the booth names steady while a late run idles', () => {
+    expect(changes(idle(lateGame(), 50), labBoothLabels)).toBe(0);
   });
 });
