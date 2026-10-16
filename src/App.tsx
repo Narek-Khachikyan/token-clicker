@@ -20,6 +20,7 @@ import { HelpModal } from './components/HelpModal';
 import { useHotkeys } from './components/useHotkeys';
 import { PrestigeOverlay } from './components/PrestigeOverlay';
 import { Icon, type IconName } from './components/Icon';
+import { StatusStrip } from './components/StatusStrip';
 import { CoachArrow } from './components/CoachArrow';
 import { CATALOG } from './economy/catalog';
 import { totalIncome } from './economy/engine';
@@ -30,6 +31,12 @@ import {
   HEADER_H,
   NARROW_MAX,
   shopColWidth,
+  STATUS_COL_GAP,
+  STATUS_GAUGE_H,
+  STATUS_PAD_Y,
+  STATUS_ROW_H,
+  STATUS_STRIP_H,
+  STATUS_THERMAL_W,
   TAB_BAR_H,
   TAP_MIN,
   THREE_COL_MIN,
@@ -177,6 +184,12 @@ export const App: React.FC = () => {
     '--tap-min': `${TAP_MIN}px`,
     '--header-h': `${HEADER_H}px`,
     '--tab-bar-h': `${TAB_BAR_H}px`,
+    '--status-strip-h': `${STATUS_STRIP_H}px`,
+    '--status-row-h': `${STATUS_ROW_H}px`,
+    '--status-gauge-h': `${STATUS_GAUGE_H}px`,
+    '--status-pad-y': `${STATUS_PAD_Y}px`,
+    '--status-col-gap': `${STATUS_COL_GAP}px`,
+    '--status-thermal-w': `${STATUS_THERMAL_W}px`,
   } as React.CSSProperties;
 
   // Отступ стека тостов равен высоте полос внизу оболочки
@@ -240,6 +253,10 @@ export const App: React.FC = () => {
         onOpenStats={openStats}
         onOpenSettings={openSettings}
       />
+
+      {/* Закреплённая полоса телефона: Токены, Доход и Температура на любой нижней вкладке. Стоит
+          вне рабочей области, поэтому прокрутка вкладки её не уносит. */}
+      {viewport.single && <StatusStrip />}
 
       {/* Выключенная лента не монтируется: не бегает, не крутит таймер новостей и не выдаёт Слухов. */}
       {ticker && <NewsTicker />}

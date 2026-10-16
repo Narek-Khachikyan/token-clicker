@@ -262,6 +262,26 @@ export function thermalView(s: GameState): ThermalView {
   };
 }
 
+export interface ThermalMiniView {
+  /** Состояние шкалы: от него значок и цвет слова в закреплённой полосе. */
+  state: ThermalStateId;
+  /** Слово состояния рядом со значком: цвет один не различают. */
+  stateLabel: string;
+  /** Положение шкалы в целых процентах: мини-шкала шириной в окно телефона не различит меньше. */
+  pct: number;
+}
+
+/**
+ * Температура для закреплённой полосы телефона: слово состояния и положение шкалы, без
+ * перегрева и множителя. Перегрев копится каждый тик, а полоса стоит над всеми вкладками, и
+ * срез с ним перерисовывал бы её двадцать раз в секунду ради цифры, которой в полосе нет.
+ */
+export function thermalMiniView(s: GameState): ThermalMiniView {
+  const read = thermalRead(s);
+  const state = thermalState(read.temp, read.heat, read.stunned);
+  return { state, stateLabel: THERMAL_STATE_LABEL[state], pct: Math.round((read.temp / TEMP_MAX) * 100) };
+}
+
 /** Три ступени количества: непрерывный ряд из двадцати частиц бьёт по кадру на 20 тиках
  *  в секунду, а ступени дают читаемый «больше жара — больше искр» без рваного счёта. */
 const SPARK_TIERS = [0, 4, 9] as const;

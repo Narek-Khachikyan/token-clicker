@@ -2458,6 +2458,113 @@ body {
   min-height: var(--tap-min);
 }
 
+/* Закреплённая полоса телефона (StatusStrip): Токены и слово Температуры в первой строке, Доход
+   во второй, мини-шкала Температуры по нижнему краю. Все размеры приезжают из layout.ts
+   переменными с корня (App.tsx): высота полосы — сумма названных частей, а не число, угаданное
+   здесь, и стек тостов встаёт под неё по той же сумме. Полоса стоит в оболочке над рабочей
+   областью, вне прокручиваемой колонки, поэтому видна на любой нижней вкладке. */
+.status-strip {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--status-thermal-w);
+  grid-template-rows: var(--status-row-h) var(--status-row-h);
+  column-gap: var(--status-col-gap);
+  align-content: start;
+  padding: var(--status-pad-y) var(--space-4) 0;
+  height: var(--status-strip-h);
+  box-sizing: border-box;
+  background-color: var(--bg-panel);
+  border-bottom: var(--frame-w) solid var(--border);
+  flex: none;
+}
+
+.status-strip__row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.status-strip__tokens {
+  grid-column: 1;
+  grid-row: 1;
+}
+.status-strip__income {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+/* Значок и слово состояния Температуры: правая ячейка первой строки. */
+.status-strip__thermal {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Мини-шкала по нижнему краю полосы: дорожка во всю ширину, заливка до положения шкалы тем же
+   градиентом, что у большой шкалы. Позиционируется от полосы, а не от ячейки Температуры.
+   Ширина заливки не анимируется: шкалу двигает игрок на вкладке Клика, а здесь она только
+   повторяет её, и переход, который перезапускался бы на каждый сдвиг, отставал бы от неё. */
+.status-strip__gauge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--status-gauge-h);
+  background-color: var(--bg-void);
+}
+.status-strip__gauge::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--gauge-pct, 0%);
+  background: linear-gradient(90deg, var(--thermal-cold) 0%, var(--accent-color) 62%, var(--thermal-hot) 100%);
+}
+
+/* Колонка Клика на телефоне. Причал — шкала Температуры и кнопка Клика — прибит к низу
+   прокручиваемой колонки: нижняя половина экрана это зона большого пальца, и главное действие
+   не должно уезжать за прокрутку.
+
+   Нижнего поля у колонки нет, а у причала оно своё: липкий блок прилипает к краю области, а не к
+   её полю, и с общим полем колонки причал сдвигался бы на 16 px при смене «прилип / лежит». */
+.click-col--phone .click-dock {
+  position: sticky;
+  bottom: 0;
+  /* Выше реплики Модели (z-index 4 в QuipBubble): пузырь лежит в прокручиваемой части, и при
+     низком окне она прячется за причалом, а пузырь без этого всплывал бы поверх кнопки Клика. */
+  z-index: 5;
+  /* Причал внизу и тогда, когда над ним мало содержимого: свободное место остаётся над ним. */
+  margin-top: auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) 0 var(--space-2);
+  background-color: var(--bg-panel);
+  border-top: var(--frame-w) solid var(--border);
+  /* Кнопка Клика в причале ниже, чем на десктопе: 12 px по вертикали вместо 16. */
+  --click-pad-y: var(--space-3);
+}
+/* Слово состояния Температуры у шкалы на телефоне не рисуется: то же слово со значком стоит в
+   закреплённой полосе над вкладкой, на том же экране. А у шкалы оно переносилось на вторую
+   строку («Температура» и «Перегрев» вместе шире колонки на 320 px) и поднимало причал на
+   28 px как раз тогда, когда состояние важнее всего. */
+.thermal-dial__state {
+  display: inline-flex;
+}
+.click-col--phone .thermal-dial__state {
+  display: none;
+}
+/* Подсказка про Ctrl + стрелки на телефоне ни к чему, а высота причала — это место, отнятое у
+   прокручиваемой части над ним. Из разметки она не уходит: на неё ссылается aria-describedby. */
+[data-narrow='true'] .click-col--phone #thermal-help {
+  display: none;
+}
+
 /* Подвал. Атрибуция Artificial Analysis обязательна, поэтому полоса переносится и никогда
    не обрезается, а не подгоняется под одну строку. */
 .footer-bar {
@@ -2506,6 +2613,26 @@ body {
   content: '';
   position: absolute;
   inset: calc((var(--tap-min) - 100%) / -2) 0;
+}
+
+/* Отметка справки AA в карточке Модели — квадрат 20 px, а нажать её на телефоне надо пальцем:
+   видимый размер остаётся, область нажатия растёт невидимой подложкой до --tap-min, как у
+   .link-toggle. Это единственная цель нажатия, чья видимая часть меньше 44 px; подложка
+   перекрывает соседний текст имени Модели, но не кнопки. */
+[data-narrow='true'] .aa-toggle {
+  position: relative;
+}
+
+[data-narrow='true'] .aa-toggle::after {
+  content: '';
+  position: absolute;
+  inset: calc((var(--tap-min) - 100%) / -2);
+}
+
+/* Кнопка закрытия тоста: узкая по ширине содержимого («✕»), а палец требует квадрата. Высоту
+   44 px уже даёт `.pixel-btn` на узком экране, ширину — это правило. */
+[data-narrow='true'] .toast-close {
+  min-width: var(--tap-min);
 }
 
 [data-narrow='true'] .header-bar {

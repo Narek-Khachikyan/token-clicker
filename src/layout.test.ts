@@ -29,11 +29,21 @@ import {
   quipBubbleWidth,
   quipTailLeft,
   OFFICE_COL_MIN,
+  pinnedToastAnchors,
   SCENE_COL_PAD,
   SCENE_MIN_H,
   SHOP_COL_MAX,
   SHOP_COL_MIN,
   shopColWidth,
+  STATUS_COL_GAP,
+  STATUS_COUNTER_STEP,
+  STATUS_FRAME,
+  STATUS_GAP,
+  STATUS_GAUGE_H,
+  STATUS_PAD_Y,
+  STATUS_ROW_H,
+  STATUS_STRIP_H,
+  STATUS_THERMAL_W,
   TAB_BAR_H,
   TAP_MIN,
   THREE_COL_MIN,
@@ -181,6 +191,46 @@ describe('layout', () => {
     const plain = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 640, limit: 686, cardHeight: 81 });
     const queued = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 640, limit: 686, cardHeight: 81, below: TOAST_QUEUE_H });
     expect(queued.top).toBe(plain.top - TOAST_QUEUE_H);
+  });
+
+  // Закреплённая полоса телефона: её высоту знают сразу три места (CSS полосы, отступ тостов и
+  // рабочая область под ней), и разъезд между ними — это полоса, которая либо режет строки,
+  // либо оставляет пустоту.
+  describe('status strip of the phone layout', () => {
+    it('is exactly as tall as its parts: two rows, the gauge, the air and the frame', () => {
+      expect(STATUS_STRIP_H).toBe(STATUS_PAD_Y + STATUS_ROW_H * 2 + STATUS_GAP + STATUS_GAUGE_H + STATUS_FRAME);
+      // Строка вмещает пиксельную ступень 22 px, иначе цифры Токенов обрезались бы по высоте.
+      expect(STATUS_ROW_H).toBeGreaterThanOrEqual(22);
+    });
+
+    it('stays a thin strip, not a second header: at most 11% of the shortest phone window', () => {
+      // 568 — самый низкий телефон портретной ориентации (iPhone SE первого поколения).
+      expect(STATUS_STRIP_H / 568).toBeLessThanOrEqual(0.115);
+      // Полоса не выше шапки: закреплённое не должно перевешивать главное, что под ним.
+      expect(STATUS_STRIP_H).toBeGreaterThanOrEqual(HEADER_H);
+      expect(STATUS_STRIP_H).toBeLessThanOrEqual(HEADER_H + 24);
+    });
+
+    it('fits the counter and the temperature in one row on every window down to 320 px', () => {
+      for (let vw = 320; vw < THREE_COL_MIN; vw += 5) {
+        const row = vw - CLICK_COL_PAD * 2;
+        expect(counterWidth(STATUS_COUNTER_STEP) + STATUS_COL_GAP + STATUS_THERMAL_W, `на ${vw} px строка не вмещает`).toBeLessThanOrEqual(row);
+      }
+    });
+
+    it('puts the toast stack right under the strip on every tab, never over it', () => {
+      for (let stripBottom = 60; stripBottom <= 260; stripBottom += 10) {
+        for (let limit = 420; limit <= 900; limit += 20) {
+          for (const cardHeight of [undefined, 64, 117]) {
+            const anchors = pinnedToastAnchors({ stripBottom, limit, cardHeight });
+            const { top, slots } = toastStackBand(anchors);
+            expect(top, 'стек лёг на полосу').toBe(stripBottom + TOAST_GAP);
+            expect(slots).toBeGreaterThanOrEqual(1);
+            expect(slots).toBeLessThanOrEqual(TOAST_VISIBLE_MAX);
+          }
+        }
+      }
+    });
   });
 
   it('derives the toast stack width from the column math on every window', () => {

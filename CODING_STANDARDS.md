@@ -66,6 +66,14 @@ components/    presentation: reads state, calls actions
   bare number renders through `Num`, which picks no font of its own (ADR-0009): it inherits
   Departure Mono on a pixel step and is Nunito everywhere else.
 - **`src/layout.ts` holds every layout number**; `THREE_COL_MIN` is the desktop/mobile switch.
+- **One column (below `THREE_COL_MIN`) is a phone layout with a pinned `StatusStrip`** over the
+  work area: Токены, Доход and a mini Температура (`thermalMiniView`), on every bottom tab. Its
+  height is `STATUS_STRIP_H` in `layout.ts`, summed from named parts and handed to CSS as
+  `--status-*` variables; the strip carries the `click-counter` class because the toast stack
+  anchors on it (`pinnedToastAnchors`), and the Click column draws no counter of its own in that
+  mode. The Click button and the Температура scale live in `.click-dock`, sticky at the bottom of
+  the column — the thumb zone. Touch targets are 44 px (`--tap-min`); the one exception is the
+  20 px «Справка AA» mark, whose hit area grows to 44 px through `.aa-toggle::after`.
 - **Content tables move in pairs:** a new Лаборатория edits the `LabId` union and `LABS` together;
   `data/glossary.ts` timings are asserted against the code constants, so change both.
 - **Type is two faces and three steps** (ADR-0009). Departure Mono — headings, tabs, buttons,

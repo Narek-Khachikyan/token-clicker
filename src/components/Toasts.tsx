@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { effectAllowed, motionAllowed, useGameStore, type ToastMessage } from '../store/useGameStore';
-import { TOAST_GAP, TOAST_MARGIN, TOAST_QUEUE_H, TOAST_VISIBLE_MAX, toastStackBand, toastStackWidth } from '../layout';
+import {
+  pinnedToastAnchors,
+  TOAST_GAP,
+  TOAST_MARGIN,
+  TOAST_QUEUE_H,
+  TOAST_VISIBLE_MAX,
+  toastStackBand,
+  toastStackWidth,
+} from '../layout';
 import { Icon } from './Icon';
 import { Num } from './Num';
 
@@ -137,7 +145,7 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
           e.stopPropagation();
           dismiss();
         }}
-        className="pixel-btn"
+        className="pixel-btn toast-close"
         aria-label="Закрыть уведомление"
         title="Закрыть"
         style={{ padding: 'var(--space-0) var(--space-1)', fontSize: '0.8rem', flexShrink: 0 }}
@@ -180,7 +188,13 @@ function useStackBand(count: number): { top: number; slots: number; width: numbe
     const bottomBand = (root && parseFloat(getComputedStyle(root).getPropertyValue('--toast-bottom'))) || 0;
     const limit = window.innerHeight - bottomBand;
     const cardHeight = document.querySelector('.toast-card')?.getBoundingClientRect().height;
-    const anchors = { counterBottom, keepVisibleBottom, contentBottom, limit, cardHeight };
+    // На телефоне Токены и Доход стоят в закреплённой полосе над вкладкой, а шкала Температуры и
+    // кнопка Клика — в причале у нижней полосы: «под шкалой» там нет места, и стек встаёт прямо
+    // под полосу (см. `pinnedToastAnchors`), а не на кнопку Клика.
+    const strip = document.querySelector('.status-strip');
+    const anchors = strip
+      ? pinnedToastAnchors({ stripBottom: strip.getBoundingClientRect().bottom, limit, cardHeight })
+      : { counterBottom, keepVisibleBottom, contentBottom, limit, cardHeight };
     // Хвост очереди («ещё N») стоит в стопке под карточками и тоже должен поместиться в окно:
     // сначала считаем без него, и если карточек больше, чем влезло, — пересчитываем с ним.
     let band = toastStackBand(anchors);

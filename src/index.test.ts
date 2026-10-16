@@ -100,6 +100,36 @@ describe('index.css', () => {
     });
   });
 
+  // Закреплённая полоса телефона: её высоту и размеры строк знает layout.ts, а стек тостов встаёт
+  // под неё по той же сумме. Литерал в пикселях в правилах полосы — это ещё один ответ на вопрос
+  // «сколько она занимает», и он разошёлся бы с модулем при первой правке (ступени `--space-*` и
+  // `--frame-w` — шкала отступов, не размер полосы).
+  describe('status strip of the phone layout', () => {
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const stripRules = [...code.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((m) => ({ selector: m[1].trim(), body: m[2] }))
+      .filter((r) => r.selector.split(',').some((x) => x.trim().startsWith('.status-strip')));
+
+    it('has rules to read', () => {
+      expect(stripRules.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('takes every size from the layout variables, not from a literal', () => {
+      const literals = stripRules.flatMap((r) =>
+        [...r.body.matchAll(/(?<![\w-])(height|width|min-height|min-width|grid-template-rows|grid-template-columns|bottom|top)\s*:\s*([^;]+)/g)]
+          .filter((m) => /\b\d+(\.\d+)?px\b/.test(m[2]))
+          .map((m) => `${r.selector}: ${m[1]}: ${m[2].trim()}`),
+      );
+      expect(literals, 'размер полосы литералом в px вместо переменной из layout.ts').toEqual([]);
+    });
+
+    it('keeps the strip at the height layout.ts promises', () => {
+      const rule = stripRules.find((r) => r.selector === '.status-strip');
+      expect(rule?.body).toMatch(/height:\s*var\(--status-strip-h\)/);
+      expect(rule?.body).toMatch(/box-sizing:\s*border-box/);
+    });
+  });
+
   // Пиксельный интерфейс (ADR-0008): скруглений и размытых теней у кнопок, вкладок, карточек и
   // панелей нет. Тест читает таблицу стилей без комментариев, чтобы пояснение «скруглений нет» в
   // комментарии не считалось нарушением.

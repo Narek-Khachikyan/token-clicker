@@ -436,6 +436,8 @@ const ModelCard: React.FC<{
                 aria-expanded={isAAOpen}
                 aria-controls={`aa-${m.id}`}
                 id={`aa-toggle-${m.id}`}
+                // Видимая отметка 20 px, а область нажатия на телефоне 44 px (`.aa-toggle` в index.css).
+                className="aa-toggle"
                 aria-label={`Справка Artificial Analysis: ${m.name}`}
                 title="Справка Artificial Analysis"
                 style={{

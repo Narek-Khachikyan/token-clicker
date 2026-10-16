@@ -28,7 +28,12 @@ const APPROACH_MS = 55;
  * Компонент не перерисовывается от тика вовсе: нотация и настройка движения — единственное, что
  * пересобирает цикл, а новая цель приходит из подписки стора.
  */
-const TokenCounter: React.FC = () => {
+export const TokenCounter: React.FC<{
+  /** Ступень пиксельного шрифта: 33 px в колонке, 22 px в закреплённой полосе телефона. */
+  step?: 22 | 33 | 44;
+  /** Подпись «Токенов» под числом: в полосе телефона она не нужна, и там её нет. */
+  caption?: boolean;
+}> = ({ step = COUNTER_STEP, caption = true }) => {
   const notation = useGameStore((s) => s.state.settings.notation);
   const reducedMotion = useGameStore((s) => s.state.settings.reducedMotion);
   const counterRef = useRef<HTMLDivElement>(null);
@@ -126,7 +131,7 @@ const TokenCounter: React.FC = () => {
       <FullNumber value={(s) => s.tokens} as="div" style={{ width: 'fit-content' }}>
         <div
           ref={counterRef}
-          className={`pixel-${COUNTER_STEP}`}
+          className={`pixel-${step}`}
           style={{
             color: 'var(--accent-color)',
             whiteSpace: 'pre',
@@ -134,19 +139,28 @@ const TokenCounter: React.FC = () => {
           }}
         />
       </FullNumber>
-      <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: 'var(--space-0)' }}>
-        Токенов
-      </div>
+      {caption && (
+        <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: 'var(--space-0)' }}>
+          Токенов
+        </div>
+      )}
     </>
   );
 };
 
 /** Доход под счётчиком: перерисовывается, только когда сама строка Дохода изменилась. */
-const IncomeLine: React.FC = () => {
+export const IncomeLine: React.FC<{
+  /** Строка закреплённой полосы телефона: без отступа сверху и без подсказки про магазин —
+   *  подсказке в полосе из двух строк места нет, а новичка ведёт подсказка онбординга. */
+  compact?: boolean;
+}> = ({ compact = false }) => {
   const { text, zero } = useStateSlice(incomeView);
   return (
     <>
-      <div className="pixel-22" style={{ color: 'var(--green)', marginTop: 'var(--space-2)', whiteSpace: 'nowrap' }}>
+      <div
+        className="pixel-22"
+        style={{ color: 'var(--green)', marginTop: compact ? undefined : 'var(--space-2)', whiteSpace: 'nowrap' }}
+      >
         +
         <FullNumber value={incomeOf}>
           <Num bump>{text}</Num>
@@ -155,7 +169,7 @@ const IncomeLine: React.FC = () => {
       </div>
       {/* Подсказка при нулевом Доходе: игрок без Агентов иначе видит голый «+0/сек»
           без следующего шага. Только текст, без анимаций. */}
-      {zero && (
+      {zero && !compact && (
         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
           Нанятый Агент приносит Доход сам — загляни в магазин
         </div>
@@ -309,7 +323,12 @@ const ClickButton: React.FC = () => {
       className="pixel-btn pixel-btn-accent pulse-glow click-btn"
       style={{
         width: '100%',
-        padding: 'var(--space-4)',
+        // Поле по бокам — ступень 12 px, а не 16: «Отправить промпт» на 22 px с значком — 256 px
+        // содержимого, а колонка телефона на 320 px даёт кнопке 252 px при 16, и подпись
+        // переносилась на вторую строку, съедая высоту у причала.
+        // Вертикальное поле причала телефона ниже (`--click-pad-y` в index.css): он прибит к низу и не должен
+        // быть выше рабочей области на самом низком окне.
+        padding: 'var(--click-pad-y, var(--space-4)) var(--space-3)',
         flexDirection: 'column',
         gap: 'var(--space-1)',
         '--click-power': power,
@@ -319,7 +338,7 @@ const ClickButton: React.FC = () => {
           шире колонки Клика (16 знаков по 21 px) и ломалась на две строки, съедая высоту. */}
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
         <Icon name="chat" size={24} />
-        <span className="pixel-22">Отправить промпт</span>
+        <span className="pixel-22" style={{ whiteSpace: 'nowrap' }}>Отправить промпт</span>
       </span>
       <span
         style={{
@@ -389,14 +408,24 @@ const PurchaseProgress: React.FC = () => {
 const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const hasEvent = useGameStore((s) => s.state.event !== null);
 
+  // Обёртка нужна стрелке подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы.
+  const clickAction = (
+    <div style={{ position: 'relative', width: '100%' }}>
+      <ClickButton />
+      <CoachArrow target="click-button" single={full} />
+    </div>
+  );
+
   return (
     <div
-      className="pixel-panel"
+      className={full ? 'pixel-panel click-col--phone' : 'pixel-panel'}
       style={{
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        padding: 'var(--space-4)',
+        // У колонки телефона нет нижнего поля — оно у причала (см. `.click-dock` в index.css) — а верхнее
+        // ниже: над ней стоит полоса, и каждый px здесь отнят у причала на самом низком окне.
+        padding: full ? 'var(--space-2) var(--space-4) 0' : 'var(--space-4)',
         backgroundColor: 'var(--bg-panel)',
         borderRight: 'var(--frame-w) solid var(--border)',
         // Базис приходит из модуля раскладки, а не из содержимого колонки: раньше ширина была
@@ -413,11 +442,15 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
       <Floaters />
       <ClickSparks />
 
-      {/* Токены и Доход */}
-      <div className="click-counter" style={{ textAlign: 'left', width: '100%' }}>
-        <TokenCounter />
-        <IncomeLine />
-      </div>
+      {/* Токены и Доход. На телефоне их нет: те же числа стоят в закреплённой полосе над
+          рабочей областью (`StatusStrip`), на любой вкладке, и второй счётчик на той же вкладке
+          только отнимал бы высоту у кнопки Клика. */}
+      {!full && (
+        <div className="click-counter" style={{ textAlign: 'left', width: '100%' }}>
+          <TokenCounter />
+          <IncomeLine />
+        </div>
+      )}
 
       {/* Подсказка онбординга живёт здесь, а не поверх экрана: плавающая карточка вставала
           бы на сток тостов и перекрывала главное действие. В потоке колонки она всегда рядом
@@ -436,14 +469,14 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
       {/* Главное действие, сразу под ним — Температура, под ней — Вехи одной строкой. Порядок
           «счётчик → Клик → Температура → Вехи» держит и шкалу, и кнопку на экране невысокого
-          окна: всё, что ниже, второстепенно и может уйти за прокрутку. */}
-      {/* Обёртка нужна стрелке подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы. */}
-      <div style={{ position: 'relative', width: '100%' }}>
-        <ClickButton />
-        <CoachArrow target="click-button" single={full} />
-      </div>
-
-      <ThermalDial />
+          окна: всё, что ниже, второстепенно и может уйти за прокрутку. На телефоне порядок
+          другой: см. причал внизу колонки. */}
+      {!full && (
+        <>
+          {clickAction}
+          <ThermalDial />
+        </>
+      )}
 
       <MilestoneStrip />
 
@@ -451,6 +484,16 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           При пустом кошельке первого запуска полоска нулевая, но подсказка уже стоит —
           пустой полоски без текста здесь не бывает. */}
       <PurchaseProgress />
+
+      {/* Телефон: причал внизу колонки — шкала Температуры над кнопкой Клика, а кнопка самая
+          нижняя на экране, ближе всего к большому пальцу. Причал прибит к низу колонки
+          (`.click-dock` в index.css) и не уезжает за прокрутку, как бы много ни стояло над ним. */}
+      {full && (
+        <div className="click-dock">
+          <ThermalDial />
+          {clickAction}
+        </div>
+      )}
     </div>
   );
 };
