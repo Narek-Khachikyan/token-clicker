@@ -74,7 +74,8 @@ describe('Престиж готов', () => {
 
   it('stays silent at the content finale, where Престиж is gone for good', () => {
     expect(prestigeReadyAnnouncement(false, true, true)).toBeNull();
-  });});
+  });
+});
 
 describe('Восстание моделей', () => {
   it('announces the start and each later stage, not every tick afterwards', () => {

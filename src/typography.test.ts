@@ -167,6 +167,7 @@ describe('fonts live in the project (ADR-0009)', () => {
     expect(html).not.toMatch(/https?:\/\//);
     expect(stylesheet).not.toMatch(/https?:\/\//);
   });
+
   // Кнопка без своего класса берёт шрифт браузера (Arial) — третье начертание на экране, которого
   // таблица стилей не называет. «ещё N» в хвосте очереди тостов была именно такой кнопкой.
   it('makes every control inherit the body face instead of the browser own', () => {
@@ -192,6 +193,7 @@ describe('pixel text sits on three steps only (ADR-0009)', () => {
       .filter((r) => r.selector === ':root')
       .flatMap((r) => [...r.body.matchAll(/--([\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()] as const)),
   );
+
   it('puts Departure Mono only on rules that also set a step size', () => {
     const pixelRules = rules.filter(
       (r) => r.selector !== ':root' && /var\(--font-pixel\)|Departure Mono/.test(r.body),

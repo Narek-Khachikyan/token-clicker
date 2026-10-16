@@ -1463,7 +1463,6 @@ describe('the finale screen flag', () => {
     store().resetGame();
     expect(store().finaleDismissed).toBe(false);
   });
-
 });
 
 describe('shattering a crystal', () => {
