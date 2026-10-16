@@ -108,7 +108,7 @@ export const PrestigeOverlay: React.FC = () => {
       <div className="prestige-card pixel-card" style={{ textAlign: 'center', padding: 'var(--space-5) var(--space-6)' }}>
         <div
           style={{
-            fontSize: '0.85rem',
+            fontSize: 'var(--text-sm)',
             color: 'var(--text-muted)',
             letterSpacing: '4px',
             // Отступ первой строки равен межбуквенному: последняя буква разрядки тоже занимает

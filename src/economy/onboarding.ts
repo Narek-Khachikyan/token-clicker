@@ -7,19 +7,19 @@ export interface CoachStep {
   body: string;
 }
 
-const STEP_FIRST_CLICK: CoachStep = {
+export const STEP_FIRST_CLICK: CoachStep = {
   id: "first-click",
   title: "Первый Клик",
   body: "Нажми «Отправить промпт»: каждый Клик генерирует первые Токены.",
 };
 
-const STEP_FIRST_AGENT: CoachStep = {
+export const STEP_FIRST_AGENT: CoachStep = {
   id: "first-agent",
   title: "Первый Агент",
   body: "Найми первую Модель в магазине: Агенты автоматически приносят Доход в Токенах каждую секунду.",
 };
 
-const STEP_FIRST_EVENT: CoachStep = {
+export const STEP_FIRST_EVENT: CoachStep = {
   id: "first-event",
   title: "Апгрейды и События",
   body: "Покупай Апгрейды в магазине для ускорения Дохода и жди Золотой Токен, чтобы поймать первое Событие.",
@@ -63,43 +63,4 @@ export function coachStep(state: GameState): CoachStep | null {
 
   // Шаг 3: после первого Агента, до первого События — ориентируем на магазин Апгрейдов и ожидание Золотого Токена.
   return STEP_FIRST_EVENT;
-}
-
-/** Элемент экрана, на который указывает стрелка подсказки. */
-export type CoachTarget = 'click-button' | 'tab-click' | 'tab-shop' | 'first-model' | 'tab-upgrades';
-
-/**
- * Что видит игрок: одна колонка (телефон) или три, и какой экран открыт. `tab` — это
- * `activeTab` стора; строка, а не его тип, потому что экономика не знает слоя интерфейса.
- */
-export interface CoachView {
-  single: boolean;
-  tab: string;
-}
-
-const SHOP_SCREENS = ['shop', 'upgrades', 'perks'];
-
-/**
- * Куда смотрит стрелка подсказки.
- *
- * На десктопе все три колонки на виду, и стрелка стоит на самом элементе. На телефоне видна
- * одна колонка: если нужный элемент на другом экране, стрелка указывает на нижнюю вкладку,
- * которая к нему ведёт, — иначе она показывала бы на то, чего на экране нет.
- */
-export function coachTarget(state: GameState, view: CoachView): CoachTarget | null {
-  const step = coachStep(state);
-  if (!step) return null;
-
-  const onClick = !view.single || view.tab === 'click';
-  const onShop = !view.single || SHOP_SCREENS.includes(view.tab);
-
-  switch (step.id) {
-    case STEP_FIRST_CLICK.id:
-      return onClick ? 'click-button' : 'tab-click';
-    case STEP_FIRST_AGENT.id:
-      return onShop ? 'first-model' : 'tab-shop';
-    default:
-      // Вкладка «Апгрейды» открыта первым Агентом (reveal.ts): шаг идёт только после него.
-      return onShop ? 'tab-upgrades' : 'tab-shop';
-  }
 }

@@ -3,7 +3,9 @@ import {
   PRESTIGE_READY_TEXT,
   freshToasts,
   nextTabIndex,
+  UPRISING_TEXT,
   prestigeReadyAnnouncement,
+  uprisingAnnouncement,
   toastAnnouncement,
 } from './a11y';
 import type { ToastMessage } from './store/useGameStore';
@@ -77,5 +79,22 @@ describe('Престиж готов', () => {
   it('names the concept in the glossary words', () => {
     expect(PRESTIGE_READY_TEXT).toContain('Престиж готов');
     expect(PRESTIGE_READY_TEXT).toContain('Флагман');
+  });
+});
+
+describe('Восстание моделей', () => {
+  it('announces the start and each later stage, not every tick afterwards', () => {
+    expect(uprisingAnnouncement(0, 1)).toBe(UPRISING_TEXT);
+    expect(uprisingAnnouncement(1, 2)).toBe(UPRISING_TEXT);
+    expect(uprisingAnnouncement(2, 2)).toBeNull();
+  });
+
+  it('stays silent when the stage falls back after a Престиж', () => {
+    expect(uprisingAnnouncement(3, 0)).toBeNull();
+  });
+
+  it('points the player to the Откуп in the glossary words', () => {
+    expect(UPRISING_TEXT).toContain('Восстание моделей');
+    expect(UPRISING_TEXT).toContain('Откуп');
   });
 });

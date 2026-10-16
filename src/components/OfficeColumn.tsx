@@ -6,6 +6,7 @@ import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale } from '../economy/engine';
 import { labAgents } from '../economy/upgrades';
 import { formatCount, formatNumber } from '../economy/format';
+import { Hint } from './Hint';
 import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
@@ -220,46 +221,51 @@ const OfficeGlitchSwarm: React.FC = () => {
         const left = GLITCH_CLICKS - g.clicks;
         const nonce = hitNonces[g.id] ?? 0;
         return (
-          <button
+          <Hint
             key={g.id}
-            className="glitch-node"
-            onClick={() => handleGlitchHit(g.id, g.clicks)}
-            aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)}`}
-            title={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)} — кликни, чтобы лопнул`}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 'var(--space-0)',
-              padding: 0,
-              background: 'none',
-              border: 'none',
-              lineHeight: 0,
-              cursor: 'pointer',
-              pointerEvents: 'auto',
-            }}
+            as="span"
+            content={`Осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)} — кликни, чтобы лопнул`}
+            style={{ display: 'flex' }}
           >
-            <span
-              key={nonce}
-              className="glitch-jitter"
+            <button
+              className="glitch-node"
+              onClick={() => handleGlitchHit(g.id, g.clicks)}
+              aria-label={`Глюк: осталось ${left} ${formatCount(left, 'удар', 'удара', 'ударов', notation)}`}
               style={{
-                display: 'block',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 'var(--space-0)',
+                padding: 0,
+                background: 'none',
+                border: 'none',
                 lineHeight: 0,
-                // Отклик на удар: масштаб и яркость вместо горизонтальной тряски экрана.
-                animation:
-                  nonce > 0
-                    ? motionAllowed()
-                      ? 'click-squash 0.18s cubic-bezier(0.2, 0.8, 0.3, 1.2)'
-                      : 'glitch-hit-fade 0.18s ease-out'
-                    : undefined,
+                cursor: 'pointer',
+                pointerEvents: 'auto',
               }}
             >
-              <GlitchSprite size={GLITCH_SIZE} />
-            </span>
-            <span style={GLITCH_CHIP}>
-              ×<Num>{formatNumber(left, notation)}</Num>
-            </span>
-          </button>
+              <span
+                key={nonce}
+                className="glitch-jitter"
+                style={{
+                  display: 'block',
+                  lineHeight: 0,
+                  // Отклик на удар: масштаб и яркость вместо горизонтальной тряски экрана.
+                  animation:
+                    nonce > 0
+                      ? motionAllowed()
+                        ? 'click-squash 0.18s cubic-bezier(0.2, 0.8, 0.3, 1.2)'
+                        : 'glitch-hit-fade 0.18s ease-out'
+                      : undefined,
+                }}
+              >
+                <GlitchSprite size={GLITCH_SIZE} />
+              </span>
+              <span style={GLITCH_CHIP}>
+                ×<Num>{formatNumber(left, notation)}</Num>
+              </span>
+            </button>
+          </Hint>
         );
       })}
 
@@ -411,12 +417,12 @@ const MascotCard: React.FC<{ anchor: CardAnchor; showShare: boolean }> = ({ anch
       {/* Доля в Доходе — величина сравнительная, и читается она только когда различает: с
           одной Лабораторией она всегда 100%, а ниже процента неотличима от нуля. */}
       {view.share >= 0 && (
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
           Доля в Доходе: <Num>{view.share}</Num>%
         </div>
       )}
       {view.synergy >= 0 && (
-        <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--gold)' }}>
           Синергия: +<Num>{view.synergyText}</Num>% к Доходу всех Моделей {lab.name}
         </div>
       )}
@@ -748,12 +754,12 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               {finale ? (
                 <div style={{ flex: '1 1 12rem', minWidth: 0 }}>
                   <div className="pixel-22" style={{ color: 'var(--gold)' }}>Финал контента MVP!</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>
+                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--gold)' }}>
                     Ты на острие ИИ! Жди новые реальные модели в будущих апдейтах.
                   </div>
                 </div>
               ) : (
-                <div style={{ flex: '1 1 20rem', minWidth: 0 }} title={goalHint}>
+                <Hint content={goalHint} style={{ flex: '1 1 20rem', minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', minWidth: 0 }}>
                     <span
                       className="pixel-22"
@@ -762,7 +768,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                       ЦЕЛЬ
                     </span>
                     {/* Имя обрезается многоточием, а не переносится: на телефоне цель стоит одной
-                        строкой, а полное имя лежит в title и в подписи ниже. */}
+                        строкой, а полное имя лежит в подсказке и в подписи ниже. */}
                     <span
                       style={{
                         fontSize: '1rem',
@@ -778,7 +784,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   </div>
                   <div
                     style={{
-                      fontSize: '0.8rem',
+                      fontSize: 'var(--text-sm)',
                       color: flagshipOwned ? 'var(--green)' : 'var(--text-muted)',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -787,7 +793,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   >
                     {goalHint}
                   </div>
-                </div>
+                </Hint>
               )}
 
               {prestigeReady && !finale && (
@@ -973,7 +979,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               </div>
               <span
                 aria-hidden="true"
-                style={{ fontSize: '0.8rem', color: 'var(--text-main)', textShadow: BADGE_OUTLINE }}
+                style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)', textShadow: BADGE_OUTLINE }}
               >
                 ×<Num>{formatNumber(labAgents(roster, labId), notation)}</Num>
               </span>

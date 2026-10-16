@@ -2,6 +2,7 @@ import React from 'react';
 import { useStateSlice } from '../store/useGameStore';
 import { milestoneView } from '../store/selectors';
 import { MILESTONES } from '../economy/milestones';
+import { Hint } from './Hint';
 import { Num } from './Num';
 
 /**
@@ -23,55 +24,56 @@ export const MilestoneStrip: React.FC = () => {
   if (!current) return null;
 
   return (
-    <div
-      className="milestone-strip"
-      role="group"
-      aria-label={`Веха ${done.length + 1} из ${MILESTONES.length}: ${current.title}. ${hint}. Награда: ${reward} Токенов`}
-      title={hint}
-      style={{
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 'var(--space-2)',
-      }}
-    >
-      {/* Деления: одно на веху, заполненное — выполненное. Чистый пиксельный счётчик,
-          читаемый боковым зрением, без цифр. Заполненное деление берёт акцент Поколения,
-          а незаполненное — пустоту сцены: контраст между «сделано» и «ещё нет» должен быть
-          виден на расстоянии вытянутой руки. */}
-      <div style={{ display: 'flex', gap: 'var(--space-0)', height: '12px', flexShrink: 0 }} aria-hidden="true">
-        {MILESTONES.map((m) => {
-          const isDone = done.includes(m.id);
-          return (
-            <div
-              key={m.id}
-              style={{
-                width: '6px',
-                backgroundColor: isDone ? 'var(--accent-color)' : 'var(--bg-void)',
-                border: isDone ? 'var(--frame-w) solid var(--accent-color)' : 'var(--frame-w) solid var(--border)',
-              }}
-            />
-          );
-        })}
-      </div>
-
-      <span
+    <Hint content={hint} style={{ width: '100%' }}>
+      <div
+        className="milestone-strip"
+        role="group"
+        aria-label={`Веха ${done.length + 1} из ${MILESTONES.length}: ${current.title}. ${hint}. Награда: ${reward} Токенов`}
         style={{
-          flex: 1,
-          minWidth: 0,
-          fontSize: '0.85rem',
-          color: 'var(--text-main)',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-2)',
         }}
       >
-        {current.title}
-      </span>
-      {/* Награда видна сразу, а не по факту: игрок должен видеть, ради чего тянуть. */}
-      <span style={{ fontSize: '0.8rem', color: 'var(--gold)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-        +<Num>{reward}</Num>
-      </span>
-    </div>
+        {/* Деления: одно на веху, заполненное — выполненное. Чистый пиксельный счётчик,
+            читаемый боковым зрением, без цифр. Заполненное деление берёт акцент Поколения,
+            а незаполненное — пустоту сцены: контраст между «сделано» и «ещё нет» должен быть
+            виден на расстоянии вытянутой руки. */}
+        <div style={{ display: 'flex', gap: 'var(--space-0)', height: '12px', flexShrink: 0 }} aria-hidden="true">
+          {MILESTONES.map((m) => {
+            const isDone = done.includes(m.id);
+            return (
+              <div
+                key={m.id}
+                style={{
+                  width: '6px',
+                  backgroundColor: isDone ? 'var(--accent-color)' : 'var(--bg-void)',
+                  border: isDone ? 'var(--frame-w) solid var(--accent-color)' : 'var(--frame-w) solid var(--border)',
+                }}
+              />
+            );
+          })}
+        </div>
+
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 'var(--text-sm)',
+            color: 'var(--text-main)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {current.title}
+        </span>
+        {/* Награда видна сразу, а не по факту: игрок должен видеть, ради чего тянуть. */}
+        <span style={{ fontSize: 'var(--text-sm)', color: 'var(--gold)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+          +<Num>{reward}</Num>
+        </span>
+      </div>
+    </Hint>
   );
 };

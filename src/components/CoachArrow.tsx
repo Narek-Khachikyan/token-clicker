@@ -1,6 +1,6 @@
 import React from 'react';
 import { useGameStore } from '../store/useGameStore';
-import { coachTarget, type CoachTarget } from '../economy/onboarding';
+import { coachTarget, type CoachTarget } from '../coach';
 import { Icon } from './Icon';
 
 /** Сторона, куда смотрит стрелка: поворот пиксельной стрелки на 90° остаётся на сетке. */

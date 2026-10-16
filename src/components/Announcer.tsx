@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { freshToasts, prestigeReadyAnnouncement, toastAnnouncement } from '../a11y';
+import { freshToasts, prestigeReadyAnnouncement, toastAnnouncement, uprisingAnnouncement } from '../a11y';
 import { canPrestige, isContentFinale } from '../economy/engine';
 import { useGameStore, useStateSlice } from '../store/useGameStore';
 
 /**
  * Живая область для скринридера: единственное место, откуда игра сама что-то произносит.
  *
- * Озвучивается ровно то, что случается редко и важно, — тост о Достижении и «Престиж готов». Счётчик
+ * Озвучивается ровно то, что случается редко и важно, — тост о Достижении, «Престиж готов» и
+ * начало Восстания моделей (его тоста нет, а Откуп лежит во вкладке, которую никто не открывал). Счётчик
  * Токенов и Доход живой областью не бывают: они меняются двадцать раз в секунду, и скринридер
  * зачитывал бы их без остановки; их читают по запросу, как обычный текст.
  *
@@ -19,9 +20,11 @@ export const Announcer: React.FC = () => {
   const toasts = useGameStore((s) => s.toasts);
   const ready = useStateSlice(canPrestige);
   const finale = useStateSlice(isContentFinale);
+  const uprising = useGameStore((s) => s.state.uprising);
   const [lines, setLines] = useState<{ key: number; text: string }[]>([]);
   const seen = useRef<Set<string> | null>(null);
   const wasReady = useRef<boolean | null>(null);
+  const wasUprising = useRef<number | null>(null);
   const nextKey = useRef(0);
 
   // Тосты, уже стоявшие на экране при монтировании, и «готов» из загруженного сохранения не
@@ -45,6 +48,14 @@ export const Announcer: React.FC = () => {
     const text = prestigeReadyAnnouncement(prev, ready, finale);
     if (text) setLines((l) => [...l, { key: nextKey.current++, text }].slice(-3));
   }, [ready, finale]);
+
+  useEffect(() => {
+    const prev = wasUprising.current;
+    wasUprising.current = uprising;
+    if (prev === null) return;
+    const text = uprisingAnnouncement(prev, uprising);
+    if (text) setLines((l) => [...l, { key: nextKey.current++, text }].slice(-3));
+  }, [uprising]);
 
   return (
     <div className="visually-hidden" role="status" aria-live="polite" aria-relevant="additions">

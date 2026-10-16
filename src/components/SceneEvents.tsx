@@ -91,7 +91,7 @@ export const SceneGlitchBand: React.FC = () => {
         padding: 'var(--space-1) var(--space-3)',
         backgroundColor: 'var(--bg-void)',
         borderTop: 'var(--frame-w) solid var(--border)',
-        fontSize: '0.8rem',
+        fontSize: 'var(--text-sm)',
         // Жар по нижней кромке полосы — жёсткая линия в пиксель арта, а не размытое свечение
         // (ADR-0008): тот же перегрев, но без размытия на панели.
         boxShadow:

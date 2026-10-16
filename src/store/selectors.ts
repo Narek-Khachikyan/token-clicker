@@ -517,6 +517,15 @@ export function challengeCardView(s: GameState): ChallengeCardView {
   };
 }
 
+/**
+ * Метка «!» на вкладке «Апгрейды». Тоста о Восстании нет (тосты — только Достижения), и о новой
+ * стадии игроку говорит метка — пока он не заглянул во вкладку на этой стадии. Под «Лицензией»
+ * красных Событий нет, и звать к Откупу незачем.
+ */
+export function pledgeAlert(s: GameState, uprisingSeen: number): boolean {
+  return s.uprising > uprisingSeen && !s.covenant;
+}
+
 export interface PledgeView {
   covenant: boolean;
   pledgeBought: number;

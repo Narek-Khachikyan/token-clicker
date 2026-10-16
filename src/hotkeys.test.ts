@@ -15,7 +15,7 @@ describe('какое действие несёт нажатая клавиша',
   it('maps 1, 2 and 3 to the three tabs of the shop', () => {
     expect(hotkeyCommand(press('1'))).toEqual({ kind: 'shopTab', tab: 'models' });
     expect(hotkeyCommand(press('2'))).toEqual({ kind: 'shopTab', tab: 'upgrades' });
-    expect(hotkeyCommand(press('3'))).toEqual({ kind: 'shopTab', tab: 'perks' });
+    expect(hotkeyCommand(press('3'))).toEqual({ kind: 'shopTab', tab: 'prestige' });
   });
 
   it('maps ? to the key card, with the Shift it is typed with', () => {
@@ -49,20 +49,28 @@ describe('сколько Агентов берёт покупка с модиф�
   });
 
   it('keeps the chosen amount with no modifier', () => {
-    for (const base of [1, 10, 100, 'max'] as const) expect(buyAmountFor(base, mods({}))).toBe(base);
+    for (const base of [1, 10, 100, 'max'] as const) expect(buyAmountFor(base, mods({}), false)).toBe(base);
   });
 
   it('Shift buys ×10 and Ctrl or Cmd buys Max, whatever the chosen amount is', () => {
     for (const base of [1, 10, 100, 'max'] as const) {
-      expect(buyAmountFor(base, mods({ shiftKey: true }))).toBe(10);
-      expect(buyAmountFor(base, mods({ ctrlKey: true }))).toBe('max');
-      expect(buyAmountFor(base, mods({ metaKey: true }))).toBe('max');
+      expect(buyAmountFor(base, mods({ shiftKey: true }), false)).toBe(10);
+      expect(buyAmountFor(base, mods({ ctrlKey: true }), false)).toBe('max');
+      expect(buyAmountFor(base, mods({ metaKey: true }), false)).toBe('max');
     }
   });
 
   it('Max wins when Shift is held together with Ctrl or Cmd', () => {
-    expect(buyAmountFor(1, mods({ shiftKey: true, ctrlKey: true }))).toBe('max');
-    expect(buyAmountFor(1, mods({ shiftKey: true, metaKey: true }))).toBe('max');
+    expect(buyAmountFor(1, mods({ shiftKey: true, ctrlKey: true }), false)).toBe('max');
+    expect(buyAmountFor(1, mods({ shiftKey: true, metaKey: true }), false)).toBe('max');
+  });
+
+  it('a sale ignores the modifiers: a stray Ctrl-click never sells every Агент at once', () => {
+    for (const base of [1, 10, 100, 'max'] as const) {
+      for (const m of [{ shiftKey: true }, { ctrlKey: true }, { metaKey: true }]) {
+        expect(buyAmountFor(base, mods(m), true)).toBe(base);
+      }
+    }
   });
 });
 

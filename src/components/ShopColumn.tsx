@@ -9,6 +9,7 @@ import {
   GOAL_TICK_COUNT,
   modelFigures,
   modelView,
+  pledgeAlert,
   pledgeView,
   upgradeView,
 } from '../store/selectors';
@@ -95,7 +96,7 @@ const PLEDGE_ROW: React.CSSProperties = {
 const PLEDGE_TEXT: React.CSSProperties = { flex: 1, minWidth: 0 };
 
 const PLEDGE_DESC: React.CSSProperties = {
-  fontSize: '0.8rem',
+  fontSize: 'var(--text-sm)',
   color: 'var(--text-muted)',
   marginTop: 'var(--space-0)',
 };
@@ -486,7 +487,7 @@ const ModelCard: React.FC<{
         </div>
 
         {/* Подпись обязательна: голое число не отличить от счётчика чего-то другого. */}
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', textAlign: 'right' }}>
           <div className="pixel-22" style={{ color: 'var(--text-main)' }}>
             <Num>{owned}</Num>
           </div>
@@ -523,7 +524,7 @@ const ModelCard: React.FC<{
             gap: 'var(--space-1) var(--space-2)',
           }}
         >
-          <div style={{ fontSize: '0.8rem', color: sellMode ? 'var(--red)' : 'var(--green)' }}>
+          <div style={{ fontSize: 'var(--text-sm)', color: sellMode ? 'var(--red)' : 'var(--green)' }}>
             {/* При пустом действии строка молчит: «−0 к доходу» и «+0 к доходу» не
                 говорят ничего, а место под строку всё равно зарезервировано. */}
             {showsGain && (
@@ -542,10 +543,10 @@ const ModelCard: React.FC<{
               режет всё, что выступает за верхний край первой карточки. */}
           <div style={{ position: 'relative', display: 'flex', flex: '1 1 auto' }}>
           <button
-            // Shift — ×10, Ctrl/Cmd — Max на одно нажатие (hotkeys.ts); без модификатора берётся
-            // множитель кнопок. Клавиатурное нажатие Enter на кнопке несёт те же модификаторы.
+            // Shift — ×10, Ctrl/Cmd — Max на одно нажатие покупки (hotkeys.ts); продажа и нажатие без
+            // модификатора берут множитель кнопок. Enter на кнопке несёт те же модификаторы.
             onClick={(e) => {
-              const amount = buyAmountFor(buyAmount, e);
+              const amount = buyAmountFor(buyAmount, e, sellMode);
               if (sellMode) sellAgents(m.id, amount);
               else buyAgents(m.id, amount);
             }}
@@ -736,7 +737,7 @@ const UpgradeCard: React.FC<{ upgrade: Upgrade }> = ({ upgrade: u }) => {
         <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
       </div>
 
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{u.desc}</div>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{u.desc}</div>
 
       {/* Отказ — той же обёрткой, что у Моделей: сквоша здесь нет, потому что
           карточка купленного Апгрейда размонтируется до кадра отрисовки и
@@ -757,7 +758,7 @@ const UpgradeCard: React.FC<{ upgrade: Upgrade }> = ({ upgrade: u }) => {
           className="pixel-btn pixel-btn-accent"
           style={{
             padding: 'var(--space-1) var(--space-2)',
-            fontSize: '0.85rem',
+            fontSize: 'var(--text-sm)',
             alignSelf: 'flex-end',
             pointerEvents: canAfford ? undefined : 'none',
           }}
@@ -801,7 +802,7 @@ const UpgradesTab: React.FC = () => {
 /**
  * ОТКУПЫ. Живут во вкладке «Апгрейды», рядом со всем, что покупается за текущий Забег, и
  * показываются только с началом Восстания моделей: до него красных Событий нет, откупаться не от чего.
- * Игрок узнаёт об Откупе из тоста Восстания и новостной ленты.
+ * Об Откупе игрок узнаёт по метке «!» на вкладке «Апгрейды», озвучке Восстания и новостной ленте.
  */
 const PledgeCard: React.FC = () => {
   const buyPledge = useGameStore((s) => s.buyPledge);
@@ -849,7 +850,7 @@ const PledgeCard: React.FC = () => {
             onClick={buyPledge}
             disabled={!view.canPledge}
             className="pixel-btn pixel-btn-accent"
-            style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
+            style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)' }}
           >
             {view.covenant ? (
               'Есть Лицензия'
@@ -882,7 +883,7 @@ const PledgeCard: React.FC = () => {
               onClick={revokeLicense}
               disabled={!view.canRevoke}
               className="pixel-btn"
-              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)' }}
             >
               Отозвать (<Num>{view.revokeCostText}</Num>)
             </button>
@@ -910,7 +911,7 @@ const PledgeCard: React.FC = () => {
               onClick={buyLicense}
               disabled={!view.canLicense}
               className="pixel-btn pixel-btn-gold"
-              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)' }}
             >
               Взять Лицензию (
               <Num>{view.licenseCostText}</Num>)
@@ -933,7 +934,7 @@ const CrystalGrowth: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-main)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>
         {planted ? <>Следующий зреет ещё {leftText}</> : 'Первый кристалл только сеется'}
       </div>
       <div
@@ -979,13 +980,13 @@ const CrystalUpgradeCard: React.FC<{ upgrade: CrystalUpgrade }> = ({ upgrade: u 
       }}
     >
       <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{u.name}</span>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{u.desc}</div>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{u.desc}</div>
       {/* Размен назван прямо и без смягчений: ускоритель отнимает бонус за
           запас навсегда, и это его настоящая цена. Уже купленного скидывать
           не стоит — предупреждение там, где решение ещё можно принять. */}
       <div
         style={{
-          fontSize: '0.8rem',
+          fontSize: 'var(--text-sm)',
           color: owned ? 'var(--text-muted)' : '#fca5a5',
         }}
       >
@@ -1005,7 +1006,7 @@ const CrystalUpgradeCard: React.FC<{ upgrade: CrystalUpgrade }> = ({ upgrade: u 
           onClick={() => buyCrystalUpgrade(u.id)}
           disabled={owned || !canAfford}
           className={`pixel-btn ${owned ? '' : 'pixel-btn-accent'}`}
-          style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
+          style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)' }}
         >
           {owned ? (
             'Куплено'
@@ -1079,7 +1080,7 @@ const CrystalCard: React.FC = () => {
         Compute-кристаллы
       </div>
 
-      <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
         В запасе <Num>{stock}</Num>, каждый целый
         кристалл даёт +1% к общему Доходу навсегда. Сейчас это{' '}
         <span style={{ color: 'var(--green)', fontWeight: 600 }}>
@@ -1139,7 +1140,7 @@ const PerkShop: React.FC = () => {
             >
               <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
 
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
                 {p.desc}
               </div>
 
@@ -1166,7 +1167,7 @@ const PerkShop: React.FC = () => {
                   className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                   style={{
                     padding: 'var(--space-1) var(--space-2)',
-                    fontSize: '0.85rem',
+                    fontSize: 'var(--text-sm)',
                     alignSelf: 'flex-end',
                     // Недоступная кнопка прозрачна для указателя: иначе браузер подавил бы
                     // Клик точно в неё и deny-обёртка выше его бы не увидела.
@@ -1211,7 +1212,7 @@ const LegacyPerks: React.FC = () => {
         Наследие поколений (Куплено: <Num>{boughtGenPerks}</Num> из{' '}
         <Num>{genPerks.length}</Num>)
       </div>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 'var(--space-2)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginBottom: 'var(--space-2)' }}>
         Усиливают только своё Поколение навсегда. Следующий —{' '}
         <Num>{nextGenPerkCost}</Num> Compute: цена растёт с числом купленных.
       </div>
@@ -1250,7 +1251,7 @@ const LegacyPerks: React.FC = () => {
             >
               <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
 
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
                 {p.desc}
               </div>
 
@@ -1287,7 +1288,7 @@ const LegacyPerks: React.FC = () => {
                   className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
                   style={{
                     padding: 'var(--space-1) var(--space-2)',
-                    fontSize: '0.85rem',
+                    fontSize: 'var(--text-sm)',
                     alignSelf: 'flex-end',
                     pointerEvents: owned || canAfford ? undefined : 'none',
                   }}
@@ -1310,7 +1311,7 @@ const LegacyPerks: React.FC = () => {
 };
 
 /** ВКЛАДКА ПРЕСТИЖА И ПЕРКОВ: три подраздела, выбранный хранит стор. */
-const PerksTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels }) => {
+const PrestigeShopTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels }) => {
   const section = useGameStore((s) => s.prestigeSection);
 
   return (
@@ -1363,11 +1364,24 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const setSellMode = useGameStore((s) => s.setSellMode);
   const upgradesCount = useStateSlice((s) => availableUpgradesOf(s).length);
   const finale = useStateSlice(isContentFinale);
+  const uprisingStage = useGameStore((s) => s.state.uprising);
+  const uprisingSeen = useGameStore((s) => s.uprisingSeen);
+  const setUprisingSeen = useGameStore((s) => s.setUprisingSeen);
+  const pledgeCalls = useGameStore((s) => pledgeAlert(s.state, s.uprisingSeen));
   const prestigeReady = useStateSlice(canPrestige);
   const { upgradesTab, prestigeTab } = useStateSlice(openUi);
   // Открытая вкладка не прячется (reveal.ts), но выбранной может оказаться вкладка, которой уже
   // нет, — после импорта сохранения с меньшим прогрессом. Тогда показываем «Модели».
-  const shownTab = (tab === 'upgrades' && !upgradesTab) || (tab === 'perks' && !prestigeTab) ? 'models' : tab;
+  const shownTab = (tab === 'upgrades' && !upgradesTab) || (tab === 'prestige' && !prestigeTab) ? 'models' : tab;
+
+  // Открытая вкладка «Апгрейды» — увиденная стадия Восстания, и метка «!» гаснет до следующей.
+  // Престиж сбрасывает стадию в ноль, и отметка падает вместе с ней: иначе Восстание следующего
+  // Забега пришло бы без метки.
+  useEffect(() => {
+    if ((shownTab === 'upgrades' && uprisingStage > uprisingSeen) || uprisingStage < uprisingSeen) {
+      setUprisingSeen(uprisingStage);
+    }
+  }, [shownTab, uprisingStage, uprisingSeen, setUprisingSeen]);
 
   // Вкладка «Престиж» появляется вместе с Флагманом в списке Моделей, но пока Флагман не нанят,
   // она приглушена: игрок видит цель, а подсказка на ней говорит, чего не хватает. На финале
@@ -1450,6 +1464,25 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   {upgradesCount}
                 </span>
               )}
+              {/* Восстание без тоста: метка зовёт к Откупу, пока игрок не заглянул во вкладку на этой стадии. */}
+              {pledgeCalls && shownTab !== 'upgrades' && (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="tab-badge--pulse body-font"
+                    style={{
+                      marginLeft: 'var(--space-1)',
+                      backgroundColor: 'var(--gold)',
+                      color: 'var(--bg-void)',
+                      fontSize: 'var(--text-xs)',
+                      padding: 'var(--space-0) var(--space-1)',
+                    }}
+                  >
+                    !
+                  </span>
+                  <span className="visually-hidden">Восстание моделей: доступен Откуп</span>
+                </>
+              )}
             </button>
             {shownTab !== 'upgrades' && <CoachArrow target="tab-upgrades" single={full} />}
           </div>
@@ -1457,12 +1490,12 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
         {prestigeTab && (
           <button
             role="tab"
-            id="shop-tab-perks"
-            aria-selected={shownTab === 'perks'}
+            id="shop-tab-prestige"
+            aria-selected={shownTab === 'prestige'}
             aria-controls="shop-panel"
-            tabIndex={shownTab === 'perks' ? 0 : -1}
-            onClick={() => setTab('perks')}
-            className={`pixel-btn pixel-22 ${shownTab === 'perks' ? 'pixel-btn-accent' : ''}`}
+            tabIndex={shownTab === 'prestige' ? 0 : -1}
+            onClick={() => setTab('prestige')}
+            className={`pixel-btn pixel-22 ${shownTab === 'prestige' ? 'pixel-btn-accent' : ''}`}
             title={
               finale
                 ? 'Ты дошёл до последнего поколения — дальше престиж недоступен'
@@ -1511,7 +1544,7 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               onClick={() => setSellMode(false)}
               className="pixel-btn"
               aria-pressed={!sellMode}
-              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.8rem' }}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)' }}
             >
               Купить
             </button>
@@ -1519,7 +1552,7 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
               onClick={() => setSellMode(true)}
               className="pixel-btn pixel-btn-sell"
               aria-pressed={sellMode}
-              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.8rem' }}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)' }}
             >
               Продать
             </button>
@@ -1568,7 +1601,7 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
       >
         {shownTab === 'models' && <ModelsTab expandedAA={expandedAA} toggleAA={toggleAA} single={full} />}
         {shownTab === 'upgrades' && <UpgradesTab />}
-        {shownTab === 'perks' && <PerksTab onBackToModels={() => setTab('models')} />}
+        {shownTab === 'prestige' && <PrestigeShopTab onBackToModels={() => setTab('models')} />}
       </div>
     </div>
   );

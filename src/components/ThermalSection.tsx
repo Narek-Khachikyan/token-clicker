@@ -32,7 +32,7 @@ export const ThermalSection: React.FC = () => {
       <h3 className="section-head" style={{ margin: '0 0 var(--space-2)', fontSize: '1rem' }}>
         {THERMAL_COPY.title}
       </h3>
-      <p style={{ margin: '0 0 var(--space-2)', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+      <p style={{ margin: '0 0 var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
         {THERMAL_COPY.summary}
       </p>
 
@@ -47,7 +47,7 @@ export const ThermalSection: React.FC = () => {
                 style={{
                   flexShrink: 0,
                   width: '5.5rem',
-                  fontSize: '0.8rem',
+                  fontSize: 'var(--text-sm)',
                   fontWeight: 600,
                   color: current ? 'var(--accent-color)' : 'var(--text-muted)',
                 }}
@@ -61,7 +61,7 @@ export const ThermalSection: React.FC = () => {
               <dd
                 style={{
                   margin: 0,
-                  fontSize: '0.8rem',
+                  fontSize: 'var(--text-sm)',
                   color: current ? 'var(--text-main)' : 'var(--text-muted)',
                 }}
               >
@@ -75,19 +75,19 @@ export const ThermalSection: React.FC = () => {
       {/* Риски: заголовок и текст из thermalCopy, ничего не собирается на месте. */}
       <ul style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', margin: '0 0 var(--space-2)', paddingLeft: 'var(--space-4)' }}>
         {THERMAL_RISKS.map((r) => (
-          <li key={r.kind} style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          <li key={r.kind} style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
             <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{r.title}</span>{' '}
             {r.text}
           </li>
         ))}
       </ul>
 
-      <p style={{ margin: '0 0 var(--space-1)', fontSize: '0.8rem', color: 'var(--text-muted)' }}>{THERMAL_COPY.cold}</p>
+      <p style={{ margin: '0 0 var(--space-1)', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{THERMAL_COPY.cold}</p>
       {/* Совет — единственная строка, выделенная цветом: это то, ради чего игрок сюда пришёл. */}
       <p
         style={{
           margin: 0,
-          fontSize: '0.85rem',
+          fontSize: 'var(--text-sm)',
           color: 'var(--text-main)',
           paddingTop: 'var(--space-1)',
           borderTop: 'var(--frame-w) solid var(--border)',
@@ -99,7 +99,7 @@ export const ThermalSection: React.FC = () => {
       {/* Живая строка состояния: где игрок на шкале и сколько ещё держит перегрев. Справка
           без неё читается как документация, а с ней — как ответ на вопрос о конкретной шкале
           перед игроком. */}
-      <p style={{ margin: 'var(--space-2) 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+      <p style={{ margin: 'var(--space-2) 0 0', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
         Сейчас: {here.label.toLowerCase()}
         {isOverloaded(temp) ? ` (зона перегруза начинается с ${share}% шкалы)` : ''}, перегрев{' '}
         {Math.round(heat * 100)}%.

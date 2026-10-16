@@ -239,7 +239,7 @@ export const ThermalDial: React.FC = () => {
               alignItems: 'center',
               gap: 'var(--space-1)',
               flexShrink: 0,
-              fontSize: '0.8rem',
+              fontSize: 'var(--text-sm)',
               whiteSpace: 'nowrap',
               color: view.heatHigh ? 'var(--red-text)' : 'var(--text-muted)',
             }}
@@ -277,7 +277,7 @@ export const ThermalDial: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--space-2)', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
         <span>
           Доход ×<Num>{view.mult}</Num>
         </span>

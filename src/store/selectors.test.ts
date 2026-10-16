@@ -49,6 +49,7 @@ import {
   labShareView,
   milestoneView,
   modelView,
+  pledgeAlert,
   pledgeView,
   prestigeCardView,
   purchaseProgressView,
@@ -658,5 +659,23 @@ describe('mascot card slice', () => {
 
   it('keeps the booth names steady while a late run idles', () => {
     expect(changes(idle(lateGame(), 50), labBoothLabels)).toBe(0);
+  });
+});
+
+describe('pledge alert on the Upgrades tab', () => {
+  const at = (uprising: 0 | 1 | 2 | 3, covenant = false): GameState => ({ ...newGame(T0), uprising, covenant });
+
+  it('stays dark before the Uprising', () => {
+    expect(pledgeAlert(at(0), 0)).toBe(false);
+  });
+
+  it('calls once per stage: lit on a new stage, dark once the player has seen that stage', () => {
+    expect(pledgeAlert(at(1), 0)).toBe(true);
+    expect(pledgeAlert(at(1), 1)).toBe(false);
+    expect(pledgeAlert(at(2), 1)).toBe(true);
+  });
+
+  it('stays dark under the Лицензия, where there is no Откуп to call to', () => {
+    expect(pledgeAlert(at(2, true), 0)).toBe(false);
   });
 });

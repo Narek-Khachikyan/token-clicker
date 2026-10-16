@@ -23,7 +23,7 @@ export interface KeyPress {
 
 export type HotkeyCommand = { kind: 'shopTab'; tab: ShopTab } | { kind: 'help' };
 
-const SHOP_TAB_KEYS: Record<string, ShopTab> = { '1': 'models', '2': 'upgrades', '3': 'perks' };
+const SHOP_TAB_KEYS: Record<string, ShopTab> = { '1': 'models', '2': 'upgrades', '3': 'prestige' };
 
 /**
  * Действие для нажатия или null, если клавиша ничего не значит.
@@ -45,11 +45,16 @@ export function hotkeyCommand(e: KeyPress): HotkeyCommand | null {
  * Сколько Агентов берёт эта покупка. Ctrl или Cmd — Max, Shift — ×10, иначе то, что выбрано
  * кнопками ×1/×10/×100/Max. Max сильнее Shift: пара «Shift + Ctrl» не должна молча уменьшать
  * покупку.
+ *
+ * Продажу модификаторы не трогают: спецификация просит их только для покупки, а случайный
+ * Ctrl-клик по «Продать» распустил бы всех Агентов Модели разом и без подтверждения.
  */
 export function buyAmountFor(
   chosen: BuyAmount,
   mods: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+  selling: boolean,
 ): BuyAmount {
+  if (selling) return chosen;
   if (mods.ctrlKey || mods.metaKey) return 'max';
   if (mods.shiftKey) return 10;
   return chosen;
@@ -70,8 +75,8 @@ export interface HotkeyHelpRow {
 export const HOTKEY_HELP: readonly HotkeyHelpRow[] = [
   { keys: ['Пробел', 'Enter'], sep: 'или', what: 'Клик. Удерживай — Клики повторяются, до десяти в секунду.' },
   { keys: ['1', '2', '3'], sep: 'или', what: 'Вкладки магазина: Модели, Апгрейды, Престиж.' },
-  { keys: ['Shift'], sep: '+', what: '+ нажатие на «Купить» (или «Продать») — сразу ×10.' },
-  { keys: ['Ctrl', 'Cmd'], sep: 'или', what: '+ нажатие на «Купить» (или «Продать») — сразу Max.' },
+  { keys: ['Shift'], sep: '+', what: '+ нажатие на «Купить» — сразу ×10.' },
+  { keys: ['Ctrl', 'Cmd'], sep: 'или', what: '+ нажатие на «Купить» — сразу Max.' },
   { keys: ['Ctrl', '←', '→'], sep: '+', what: 'Температура, когда шкала в фокусе. С Shift — крупный шаг.' },
   { keys: ['?'], sep: 'или', what: 'Эта карточка.' },
   { keys: ['Esc'], sep: 'или', what: 'Закрыть окно.' },

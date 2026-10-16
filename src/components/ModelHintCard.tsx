@@ -80,7 +80,7 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
   <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-0)' }}>
     <h3
       className="section-head"
-      style={{ fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}
+      style={{ fontSize: 'var(--text-sm)', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}
     >
       {title}
     </h3>

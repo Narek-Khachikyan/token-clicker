@@ -242,7 +242,7 @@ export const GoldenToken: React.FC = () => {
             id={EFFECT_ID}
             // Подпись об уроне не тонет среди нейтральных: красным она читается как цена,
             // а не как ещё одна строка описания.
-            style={{ fontSize: '0.8rem', color: costsTokens ? 'var(--red)' : 'var(--text-main)' }}
+            style={{ fontSize: 'var(--text-sm)', color: costsTokens ? 'var(--red)' : 'var(--text-main)' }}
           >
             {effectLine(spec, event.red, notation)}
             {/* У «Прорыва» бонус получает одна Модель, и без её названия игрок не понимает,

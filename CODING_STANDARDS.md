@@ -106,8 +106,8 @@ components/    presentation: reads state, calls actions
   and select as they go), with one `role="tabpanel"` it labels. The shop, the Престиж sections and
   the phone's bottom bar are all rows of this kind. The one live region is `Announcer.tsx`
   (`role="status"`, polite, always mounted, hidden with `.visually-hidden`): it reads an Achievement
-  toast and the moment «Престиж готов» begins, never the Токены counter or the Доход, which change
-  twenty times a second. No visible text is under 12 px (`--text-xs`); `index.test.ts` holds the CSS side.
+  toast, the moment «Престиж готов» begins and each stage of the Восстание моделей (its only marker besides a «!» on the «Апгрейды» tab), never the Токены counter or the Доход, which change
+  twenty times a second. No visible text is under 12 px (`--text-xs`), and a description or a hint is at least `--text-sm` (14 px); 12 px is for captions and badges. `index.test.ts` holds the CSS side.
 - **Hints are `Hint.tsx`, never `title=`.** It opens on hover, on keyboard focus and on a tap (touch),
   closes on Esc or a tap elsewhere, and mounts its content only while open. The Модель card
   (`ModelHintCard`) reads `modelCardSummary` from `src/economy/modelCard.ts`, whose breakdown comes

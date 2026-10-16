@@ -38,6 +38,16 @@ export function freshToasts(seen: ReadonlySet<string>, toasts: readonly ToastMes
   return toasts.filter((t) => !seen.has(t.id));
 }
 
+export const UPRISING_TEXT = 'Восстание моделей: красные События начались, Откуп лежит во вкладке «Апгрейды».';
+
+/**
+ * Начало Восстания и каждая следующая его стадия: тоста об этом нет (тосты — только Достижения), а
+ * вкладка с Откупом не говорит о себе сама. Озвучивается переход, а не состояние, как и «Престиж готов».
+ */
+export function uprisingAnnouncement(prev: number, now: number): string | null {
+  return now > prev ? UPRISING_TEXT : null;
+}
+
 export const PRESTIGE_READY_TEXT = 'Престиж готов: Флагман нанят, можно перейти в следующее Поколение.';
 
 /**

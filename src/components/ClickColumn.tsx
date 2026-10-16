@@ -170,7 +170,7 @@ export const IncomeLine: React.FC<{
       {/* Подсказка при нулевом Доходе: игрок без Агентов иначе видит голый «+0/сек»
           без следующего шага. Только текст, без анимаций. */}
       {zero && !compact && (
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
           Нанятый Агент приносит Доход сам — загляни в магазин
         </div>
       )}
@@ -342,7 +342,7 @@ const ClickButton: React.FC = () => {
       </span>
       <span
         style={{
-          fontSize: '0.85rem',
+          fontSize: 'var(--text-sm)',
           color: 'var(--text-main)',
           fontWeight: 400,
         }}
@@ -387,7 +387,7 @@ const PurchaseProgress: React.FC = () => {
           }}
         />
       </div>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', textAlign: 'center' }}>
         {canHire ? (
           <>Можно нанять Агента — загляни в магазин</>
         ) : (

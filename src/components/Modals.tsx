@@ -133,7 +133,7 @@ const AchievementCard: React.FC<{
         >
           {name}
         </div>
-        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{desc}</div>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{desc}</div>
       </div>
     </li>
   );
@@ -163,7 +163,7 @@ const SETTING_ROW: React.CSSProperties = {
 };
 const SETTING_CONTROL: React.CSSProperties = {
   padding: 'var(--space-1) var(--space-3)',
-  fontSize: '0.85rem',
+  fontSize: 'var(--text-sm)',
   whiteSpace: 'nowrap',
   flexShrink: 0,
   marginLeft: 'auto',
@@ -206,7 +206,7 @@ const VolumeSlider: React.FC<{
       aria-describedby={`${id}-hint`}
       aria-valuetext={`${Math.round(value * 100)} процентов`}
     />
-    <div id={`${id}-hint`} style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+    <div id={`${id}-hint`} style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
       {hint}
     </div>
   </div>
@@ -228,7 +228,7 @@ const EffectRow: React.FC<{
     <div style={SETTING_ROW}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 600 }}>{title}</div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
           {hint}
           {overriddenByMotion && reduced ? ' Сейчас не действует: включено «Меньше анимации».' : ''}
         </div>
@@ -605,7 +605,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         </span>
         <ModalCount earned={shadowEarned(earned)} total={SHADOW_ACHIEVEMENTS.length} />
       </div>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
         Не дают силы и не входят в счёт выше — их берут ради рекордов.
       </div>
 
@@ -745,7 +745,7 @@ const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
             padding: 'var(--space-2)',
             backgroundColor: 'var(--tint-gold)',
             border: 'var(--frame-w) solid var(--gold)',
-            fontSize: '0.85rem',
+            fontSize: 'var(--text-sm)',
             color: 'var(--text-main)',
           }}
         >
@@ -780,7 +780,7 @@ const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
             justifyContent: 'space-between',
             padding: 'var(--space-1) var(--space-2)',
             backgroundColor: 'var(--bg-card)',
-            fontSize: '0.85rem',
+            fontSize: 'var(--text-sm)',
           }}
         >
           <span style={{ color: 'var(--text-muted)' }}>{label}</span>
@@ -807,7 +807,7 @@ const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
               style={{
                 padding: 'var(--space-1) var(--space-2)',
                 backgroundColor: 'var(--bg-card)',
-                fontSize: '0.85rem',
+                fontSize: 'var(--text-sm)',
               }}
             >
               <dt style={{ color: 'var(--text-main)', fontWeight: 600 }}>{g.term}</dt>
@@ -938,7 +938,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         <div style={SETTING_ROW}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>Формат больших чисел</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               1,23 M или 1.23e6
             </div>
           </div>
@@ -946,14 +946,14 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             <button
               onClick={() => setNotation('short')}
               className={`pixel-btn ${settings.notation === 'short' ? 'pixel-btn-accent' : ''}`}
-              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}
             >
               Буквы (M, B)
             </button>
             <button
               onClick={() => setNotation('sci')}
               className={`pixel-btn ${settings.notation === 'sci' ? 'pixel-btn-accent' : ''}`}
-              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}
             >
               1e6
             </button>
@@ -964,7 +964,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         <div style={SETTING_ROW}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>8-битный звук</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               Звуковые эффекты клика и событий
             </div>
           </div>
@@ -1010,7 +1010,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         <div style={SETTING_ROW}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>Меньше анимации</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               Выключает движение в игре
             </div>
           </div>
@@ -1057,7 +1057,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               marginTop: 'var(--space-1)',
             }}
           >
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               Вставь код сохранения
             </span>
             <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
@@ -1077,7 +1077,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                   border: 'var(--frame-w) solid var(--border)',
                   color: 'var(--text-main)',
                   padding: 'var(--space-2)',
-                  fontSize: '0.85rem',
+                  fontSize: 'var(--text-sm)',
                 }}
               />
               <button onClick={handleImport} className="pixel-btn pixel-btn-accent" style={{ padding: 'var(--space-2) var(--space-3)' }}>
@@ -1088,7 +1088,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 подтверждением, что и сброс выше, а не системным диалогом. */}
             {confirmImport && (
               <div style={{ display: 'flex', gap: 'var(--space-1)', alignItems: 'center', marginTop: 'var(--space-1)' }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
                   Текущий Забег и весь прогресс будут полностью заменены.
                 </span>
                 <button
@@ -1122,7 +1122,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 padding: 'var(--space-2)',
                 backgroundColor: 'var(--tint-red)',
                 border: 'var(--frame-w) solid var(--red)',
-                fontSize: '0.8rem',
+                fontSize: 'var(--text-sm)',
                 color: '#fca5a5',
                 display: 'flex',
                 gap: 'var(--space-1)',
@@ -1170,7 +1170,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                   borderColor: 'var(--red)',
                   color: 'var(--text-main)',
                   padding: 'var(--space-2)',
-                  fontSize: '0.85rem',
+                  fontSize: 'var(--text-sm)',
                   display: 'flex',
                   gap: 'var(--space-1)',
                   justifyContent: 'center',
@@ -1182,7 +1182,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               <button
                 onClick={() => setConfirmReset(false)}
                 className="pixel-btn"
-                style={{ padding: 'var(--space-2) var(--space-3)', fontSize: '0.85rem' }}
+                style={{ padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-sm)' }}
               >
                 Отмена
               </button>
@@ -1197,7 +1197,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 borderColor: 'var(--red)',
                 color: 'var(--red-text)',
                 padding: 'var(--space-2)',
-                fontSize: '0.85rem',
+                fontSize: 'var(--text-sm)',
                 display: 'flex',
                 gap: 'var(--space-1)',
                 justifyContent: 'center',
@@ -1303,7 +1303,7 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
 
       {/* Пара «засчитано из прошло» стоит всегда, а не только у потолка: игрок, у которого
           потолок не сработал, видит «всё засчитано» и не гадает, не потерял ли он часть. */}
-      <div style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>
         Засчитано{' '}
         <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
           {formatDuration(offlineReport.seconds)}
@@ -1314,7 +1314,7 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
       {isCapped && (
         <div
           style={{
-            fontSize: '0.8rem',
+            fontSize: 'var(--text-sm)',
             color: 'var(--gold)',
             backgroundColor: 'var(--tint-gold)',
             border: 'var(--frame-w) solid var(--gold)',
@@ -1345,7 +1345,7 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
           к Доходу на экране и не понял бы, откуда она. Строка стоит под крупной суммой
           Токенов и до прокручиваемого разбора: кристалл ждал именно этих часов. */}
       {offlineReport.crystals > 0 && (
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
           За простой дозрел{' '}
           <span style={{ color: 'var(--gold)', fontWeight: 600 }}>
             +<Num>{formatNumber(offlineReport.crystals, notation)}</Num>{' '}
@@ -1383,7 +1383,7 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
                   gap: 'var(--space-2)',
                   padding: 'var(--space-1) var(--space-2)',
                   backgroundColor: 'var(--bg-card)',
-                  fontSize: '0.85rem',
+                  fontSize: 'var(--text-sm)',
                 }}
               >
                 <MascotSprite lab={row.lab} size={20} />
@@ -1409,13 +1409,13 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
                 padding: 'var(--space-2)',
                 backgroundColor: 'var(--tint-gold)',
                 border: 'var(--frame-w) solid var(--gold)',
-                fontSize: '0.85rem',
+                fontSize: 'var(--text-sm)',
               }}
             >
               <div style={{ color: 'var(--text-main)' }}>
                 Агент: <span>{bestModel.name}</span>
               </div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
                 {/* После «на» 1 и 2–4 стоят в родительном: 1 Агента, 2 Агента, 5 Агентов.
                     Форма берётся по той же нотации, что и напечатанное число, иначе на
                     больших числах слово и цифры разъедутся. */}
@@ -1436,7 +1436,7 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
                 gap: 'var(--space-2)',
                 padding: 'var(--space-2)',
                 backgroundColor: 'var(--bg-card)',
-                fontSize: '0.85rem',
+                fontSize: 'var(--text-sm)',
               }}
             >
               <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)' }}>
@@ -1449,7 +1449,7 @@ const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
           ))}
 
           {!bestModel && affordableUpgrades.length === 0 && (
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               Токенов пока не хватает ни на одну покупку — они уйдут в Агентов.
             </div>
           )}
@@ -1615,7 +1615,7 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
               </span>
             </div>
 
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>Сгорит:</div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>Сгорит:</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
               {burns.map(([label, value]) => (
                 <div
@@ -1626,7 +1626,7 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
                     gap: 'var(--space-2)',
                     padding: 'var(--space-1) var(--space-2)',
                     backgroundColor: 'var(--bg-card)',
-                    fontSize: '0.85rem',
+                    fontSize: 'var(--text-sm)',
                   }}
                 >
                   <span style={{ color: 'var(--text-muted)' }}>{label}</span>
@@ -1635,7 +1635,7 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
               ))}
             </div>
 
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               Останутся: Compute, Перки, Достижения и вся статистика за всё время.
             </div>
           </>
@@ -1771,7 +1771,7 @@ const FinaleBody: React.FC<
         <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
           Последнее Поколение пройдено, все Модели собраны!
         </div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
           Твоя империя искусственного интеллекта достигла вершины доступных технологий.
         </div>
       </div>
@@ -1783,7 +1783,7 @@ const FinaleBody: React.FC<
           padding: 'var(--space-2) var(--space-3)',
           backgroundColor: 'var(--tint-gold)',
           border: 'var(--frame-w) solid var(--gold)',
-          fontSize: '0.85rem',
+          fontSize: 'var(--text-sm)',
           color: 'var(--gold)',
           textAlign: 'center',
         }}

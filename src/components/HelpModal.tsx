@@ -13,7 +13,7 @@ const KEYCAP: React.CSSProperties = {
   border: 'var(--frame-w) solid var(--border-strong)',
   backgroundColor: 'var(--bg-card)',
   color: 'var(--text-main)',
-  fontSize: '0.85rem',
+  fontSize: 'var(--text-sm)',
   lineHeight: 1.4,
   whiteSpace: 'nowrap',
 };
@@ -60,7 +60,7 @@ export const HelpModal: React.FC = () => {
               {row.keys.map((k, i) => (
                 <React.Fragment key={k}>
                   {i > 0 && (
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{row.sep}</span>
+                    <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{row.sep}</span>
                   )}
                   <kbd style={{ ...KEYCAP, fontFamily: 'inherit' }}>{k}</kbd>
                 </React.Fragment>
@@ -70,7 +70,7 @@ export const HelpModal: React.FC = () => {
           </li>
         ))}
       </ul>
-      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+      <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
         В поле ввода и при открытом окне клавиши не перехватываются.
       </p>
     </ModalFrame>

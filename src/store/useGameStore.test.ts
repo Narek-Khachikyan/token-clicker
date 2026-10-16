@@ -1284,7 +1284,7 @@ describe('the prestige tab section', () => {
     expect(store().prestigeSection).toBe('prestige');
     store().setPrestigeSection('legacy');
     store().setActiveTab('click');
-    store().setActiveTab('perks');
+    store().setActiveTab('prestige');
     expect(store().prestigeSection).toBe('legacy');
     store().setPrestigeSection('perks');
     expect(store().prestigeSection).toBe('perks');
@@ -2102,8 +2102,8 @@ describe('горячие клавиши в сторе', () => {
   it('1, 2 and 3 open the Models, Upgrades and Prestige tabs of the shop', () => {
     store().runHotkey({ kind: 'shopTab', tab: 'upgrades' });
     expect(store().shopTab).toBe('upgrades');
-    store().runHotkey({ kind: 'shopTab', tab: 'perks' });
-    expect(store().shopTab).toBe('perks');
+    store().runHotkey({ kind: 'shopTab', tab: 'prestige' });
+    expect(store().shopTab).toBe('prestige');
     store().runHotkey({ kind: 'shopTab', tab: 'models' });
     expect(store().shopTab).toBe('models');
   });
@@ -2123,7 +2123,7 @@ describe('горячие клавиши в сторе', () => {
 
   it('a hotkey never touches the run: no Токены, no Агенты, nothing to save', () => {
     const before = state();
-    store().runHotkey({ kind: 'shopTab', tab: 'perks' });
+    store().runHotkey({ kind: 'shopTab', tab: 'prestige' });
     store().runHotkey({ kind: 'help' });
     expect(state()).toBe(before);
   });

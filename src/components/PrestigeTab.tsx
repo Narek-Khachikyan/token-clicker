@@ -5,6 +5,7 @@ import { CATALOG, LAST_GENERATION } from '../economy/catalog';
 import { CHALLENGES, CHALLENGE_REWARD_PCT, type ChallengeDef } from '../economy/challenges';
 import { COMPUTE_BONUS } from '../economy/engine';
 import { PRESTIGE_KEEPS, PRESTIGE_RESETS, type PrestigeEffect } from '../economy/prestigeForecast';
+import { Hint } from './Hint';
 import { Num } from './Num';
 import { onTabRowKeyDown } from './tabRow';
 
@@ -199,15 +200,16 @@ const ChallengeOption: React.FC<{ def: ChallengeDef; canStart: boolean }> = ({ d
       )}
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         {active ? (
-          <button
-            onClick={() => startChallenge(null)}
-            disabled={!canStart}
-            className="pixel-btn"
-            style={{ padding: 'var(--space-1) var(--space-2)' }}
-            title={canStart ? undefined : 'Закроется Престижем'}
-          >
-            {canStart ? 'Снять выбор' : 'Выбрано на этот Забег'}
-          </button>
+          <Hint as="span" content="Закроется Престижем" canOpen={() => !canStart}>
+            <button
+              onClick={() => startChallenge(null)}
+              disabled={!canStart}
+              className="pixel-btn"
+              style={{ padding: 'var(--space-1) var(--space-2)' }}
+            >
+              {canStart ? 'Снять выбор' : 'Выбрано на этот Забег'}
+            </button>
+          </Hint>
         ) : (
           <button
             onClick={() => startChallenge(def.id)}

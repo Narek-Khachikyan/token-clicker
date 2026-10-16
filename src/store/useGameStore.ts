@@ -81,9 +81,9 @@ export type PrestigeSection = 'prestige' | 'perks' | 'legacy';
 
 /** Вкладки магазина: Модели, Апгрейды, Престиж. Живут в UI-слое стора, а не в колонке: колонку
  *  размонтирует смена нижней вкладки на телефоне, а горячие клавиши 1/2/3 приходят снаружи. */
-export type ShopTab = 'models' | 'upgrades' | 'perks';
+export type ShopTab = 'models' | 'upgrades' | 'prestige';
 
-export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'perks' | 'stats' | 'achievements' | 'settings';
+export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'prestige' | 'stats' | 'achievements' | 'settings';
 
 export interface ToastMessage {
   id: string;
@@ -144,6 +144,24 @@ export interface OfflineReport {
   /** Сколько кристаллов дозрело за простой: их собирает applyOffline, и без этой строки игрок
    *  узнал бы о них только по прибавке к Доходу на экране. */
   crystals: number;
+}
+
+/**
+ * Простой от `before.lastTick` до `now` и отчёт о нём, или null, если простой ничего не принёс.
+ * Один на загрузку и на длинный тик. Отчёт показывается и из-за одного кристалла: доход за простой
+ * бывает нулевым (например, когда все Агенты проданы), а кристалл стоит +1% Дохода навсегда.
+ */
+function offlineWithReport(before: GameState, now: number): { state: GameState; report: OfflineReport | null } {
+  const { state, seconds, earned } = applyOffline(before, now);
+  const crystals = state.crystals - before.crystals;
+  const elapsed = (now - before.lastTick) / 1000;
+  return {
+    state,
+    report:
+      earned > 0 || crystals > 0
+        ? { seconds, elapsed, earned, rows: offlineBreakdown(before, earned), crystals }
+        : null,
+  };
 }
 
 /** Складывает два простоя в один отчёт: экран один, а время и Токены обоих игрок получил. */
@@ -251,6 +269,9 @@ interface GameStore {
   buyAmount: BuyAmount;
   sellMode: boolean;
   shopTab: ShopTab;
+  /** Стадия Восстания, которую игрок уже видел во вкладке «Апгрейды»: метка «!» на вкладке зовёт к
+   *  Откупу только на стадии новее этой. Вне GameState: это «что игрок видел», а не Забег. */
+  uprisingSeen: number;
   /** Открыта ли карточка «?» со всеми горячими клавишами. */
   helpOpen: boolean;
   toasts: ToastMessage[];
@@ -344,6 +365,7 @@ interface GameStore {
   setSellMode: (mode: boolean) => void;
   setActiveTab: (tab: ActiveTab) => void;
   setShopTab: (tab: ShopTab) => void;
+  setUprisingSeen: (stage: number) => void;
   setHelpOpen: (open: boolean) => void;
   /** Горячая клавиша 1/2/3 или «?». Охранник (поле ввода, окно) стоит у слушателя, не здесь. */
   runHotkey: (command: HotkeyCommand) => void;
@@ -411,21 +433,10 @@ function loadInitialState(): { state: GameState; offline: OfflineReport | null; 
   const base = migrate(raw, now);
   // Оффлайн-начисление, если игра была закрыта дольше порога простоя
   if ((now - base.lastTick) / 1000 >= OFFLINE_THRESHOLD_SEC && base.totalTokens > 0) {
-    const { state: updated, seconds, earned } = applyOffline(base, now);
     // Кристалл дозревает и собирается внутри applyOffline, а тот переставляет crystalPlantedAt на
-    // `now` — поэтому первый тик после загрузки его не повторяет и потеряться ему негде. Чего
-    // не хватало, так это упоминания: кристалл стоит +1% Дохода навсегда, и молчать о нём нельзя.
-    const crystals = updated.crystals - base.crystals;
-    return {
-      state: updated,
-      // Отчёт показывается и из-за одного кристалла: доход за простой бывает нулевым (например,
-      // когда все Агенты проданы), а игрок всё равно что-то получил.
-      offline:
-        earned > 0 || crystals > 0
-          ? { seconds, elapsed: (now - base.lastTick) / 1000, earned, rows: offlineBreakdown(base, earned), crystals }
-          : null,
-      notice,
-    };
+    // `now` — поэтому первый тик после загрузки его не повторяет и потеряться ему негде.
+    const { state: updated, report } = offlineWithReport(base, now);
+    return { state: updated, offline: report, notice };
   }
 
   return { state: base, offline: null, notice };
@@ -773,17 +784,9 @@ export const useGameStore = create<GameStore>((set, get) => {
     updateThermalAudio(s.settings, { temp: s.temp / TEMP_MAX, heat: s.heat });
   };
 
-  /**
-   * Отчёт о простое длинного тика, или null, если простой ничего не принёс.
-   *
-   * Условие то же, что у отчёта при загрузке: не только Токены, но и кристалл стоит экрана.
-   */
-  const awayReport = (before: GameState, dt: number): OfflineReport | null => {
-    const { state: after, seconds, earned } = applyOffline(before, before.lastTick + dt * 1000);
-    const crystals = after.crystals - before.crystals;
-    if (!(earned > 0) && crystals <= 0) return null;
-    return { seconds, elapsed: dt, earned, rows: offlineBreakdown(before, earned), crystals };
-  };
+  /** Отчёт о простое длинного тика, или null, если простой ничего не принёс. */
+  const awayReport = (before: GameState, dt: number): OfflineReport | null =>
+    offlineWithReport(before, before.lastTick + dt * 1000).report;
 
   /**
    * Куда деть простой длинного тика: на открытый экран, в запас до возвращения или на новый экран.
@@ -864,6 +867,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     buyAmount: 1,
     sellMode: false,
     shopTab: 'models',
+    uprisingSeen: 0,
     helpOpen: false,
     toasts: initial.notice ? [initial.notice] : [],
     floaters: [],
@@ -1259,7 +1263,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       } else {
         // Выплаты нет, когда нечего делить: «Грант» берёт минимум из запаса Токенов и пятнадцати
         // минут Дохода, а Доход у игрока без Агентов нулевой. Молчать нельзя — клик без ответа
-        // читается как сломанная кнопка, — поэтому слух подтверждается словами, а не суммой.
+        // читается как сломанная кнопка, — поэтому слух отвечает звуком, а не молчанием.
         playClickSound(state.settings);
       }
       set({ state: awardEarned(earnTokens(state, amount)), collectedRumorId: id });
@@ -1335,6 +1339,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
     setActiveTab: (tab: ActiveTab) => set({ activeTab: tab }),
     setShopTab: (tab: ShopTab) => set({ shopTab: tab }),
+    setUprisingSeen: (stage: number) => set({ uprisingSeen: stage }),
     setHelpOpen: (open: boolean) => set({ helpOpen: open }),
     // Клавиша «магазин, вкладка N» на телефоне ещё и показывает магазин: колонка там одна за раз,
     // и вкладка, переключённая под чужим экраном, ничего не показала бы.

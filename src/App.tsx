@@ -85,7 +85,7 @@ export const App: React.FC = () => {
   const activeTab = useGameStore((s) => s.activeTab);
   const setActiveTab = useGameStore((s) => s.setActiveTab);
   // Нижняя вкладка, которой принадлежит рабочая область: Апгрейды и Престиж живут в «Магазине».
-  const bottomTab = activeTab === 'upgrades' || activeTab === 'perks' ? 'shop' : activeTab;
+  const bottomTab = activeTab === 'upgrades' || activeTab === 'prestige' ? 'shop' : activeTab;
   const generation = useGameStore((s) => s.state.generation);
   const reducedMotion = useGameStore((s) => s.state.settings.reducedMotion);
   const shake = useGameStore((s) => s.state.settings.shake);
@@ -309,7 +309,7 @@ export const App: React.FC = () => {
             >
               {activeTab === 'click' && <ClickColumn full />}
               {activeTab === 'office' && <OfficeColumn full />}
-              {(activeTab === 'shop' || activeTab === 'upgrades' || activeTab === 'perks') && (
+              {(activeTab === 'shop' || activeTab === 'upgrades' || activeTab === 'prestige') && (
                 <ShopColumn full />
               )}
             </div>

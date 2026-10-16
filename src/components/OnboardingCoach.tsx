@@ -45,7 +45,7 @@ export const OnboardingCoach: React.FC = () => {
       >
         {step.title}
       </div>
-      <div style={{ fontSize: '0.85rem', color: 'var(--text-main)', lineHeight: 1.35 }}>{step.body}</div>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)', lineHeight: 1.35 }}>{step.body}</div>
     </div>
   );
 };

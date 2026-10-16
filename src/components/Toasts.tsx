@@ -14,7 +14,8 @@ import { Num } from './Num';
 
 const TOAST_MS = 4000;
 
-// Тосты — только о Достижениях, а пачку из одного тика стор склеивает в одну карточку «+N
+// Тосты — только о Достижениях (единственное исключение — «Сохранение повреждено» при загрузке:
+// больше игроку не от кого узнать, что Забег начат заново не по его вине), а пачку из одного тика стор склеивает в одну карточку «+N
 // Достижения». Показываем только свежие, а длину очереди (тики подряд) передаём счётчиком:
 // молча выбрасывать их нельзя — они остаются в окне «Достижения» и в счётчике в шапке, но игрок
 // должен видеть, что список не кончился.
@@ -130,11 +131,11 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
     >
       <Icon name="trophy" size={22} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '0.85rem', color: 'var(--gold)' }}>{toast.title}</div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', fontWeight: 600 }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--gold)' }}>{toast.title}</div>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)', fontWeight: 600 }}>
           {toast.name}
         </div>
-        {toast.desc && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{toast.desc}</div>}
+        {toast.desc && <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{toast.desc}</div>}
       </div>
       {/* Видимая кнопка закрытия: автозакрытие и клик по карточке остаются, но ждать четыре
           секунды, чтобы убрать тост, игрок не обязан. stopPropagation обязателен — иначе нажатие
@@ -148,7 +149,7 @@ const ToastItem: React.FC<{ toast: ToastMessage; onRemove: (id: string) => void 
         className="pixel-btn toast-close"
         aria-label="Закрыть уведомление"
         title="Закрыть"
-        style={{ padding: 'var(--space-0) var(--space-1)', fontSize: '0.8rem', flexShrink: 0 }}
+        style={{ padding: 'var(--space-0) var(--space-1)', fontSize: 'var(--text-sm)', flexShrink: 0 }}
       >
         ✕
       </button>
@@ -322,7 +323,7 @@ export const Toasts: React.FC = () => {
               alignSelf: 'flex-start',
               padding: 'var(--space-1) var(--space-2)',
               backgroundColor: 'var(--bg-card)',
-              fontSize: '0.8rem',
+              fontSize: 'var(--text-sm)',
               color: 'var(--text-muted)',
               cursor: 'pointer',
             }}
