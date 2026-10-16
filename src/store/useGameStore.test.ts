@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { effectAllowed, SAVE_INTERVAL_MS, useGameStore } from './useGameStore';
+import { effectAllowed, SAVE_INTERVAL_MS, SCENE_MOMENT_MS, useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { QUIPS } from '../data/quips';
 import { pickQuip } from '../economy/quips';
@@ -16,6 +16,7 @@ import {
   totalIncome,
 } from '../economy/engine';
 import { EVENT_TABLES, grantAmount } from '../economy/events';
+import { HOLD_CLICK_MAX_PER_SEC } from '../economy/streak';
 import { RED_TABLES } from '../economy/glitches';
 import {
   GLITCH_CLICKS,
@@ -1187,6 +1188,95 @@ describe('starting a challenge', () => {
   });
 });
 
+describe('reward moments on the scene', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('announces the first Agent of a new Лаборатория and nothing for the second one', () => {
+    freshStore();
+    expect(store().sceneMoment).toBeNull();
+    hire(first.id, 1);
+    expect(store().sceneMoment).toMatchObject({ lab: first.lab, entry: true, flagship: false });
+    const nonce = store().sceneMoment?.nonce;
+    hire(first.id, 1);
+    // Второй Агент той же Модели — обычная покупка: момент остаётся тем же, нового нет.
+    expect(store().sceneMoment?.nonce).toBe(nonce);
+  });
+
+  it('gives every new Лаборатория its own moment', () => {
+    freshStore();
+    hire(first.id, 1);
+    const firstNonce = store().sceneMoment?.nonce ?? 0;
+    const newcomer = g0.models.find((m) => m.lab !== first.lab && m.id !== g0.flagship.id);
+    if (!newcomer) throw new Error('в Поколении 0 одна Лаборатория');
+    hire(newcomer.id, 1);
+    expect(store().sceneMoment).toMatchObject({ lab: newcomer.lab, entry: true });
+    expect(store().sceneMoment?.nonce).toBeGreaterThan(firstNonce);
+  });
+
+  it('celebrates the first Флагман once, and a second Агент of it is just a purchase', () => {
+    freshStore();
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment).toMatchObject({ lab: g0.flagship.lab, flagship: true });
+    const nonce = store().sceneMoment?.nonce;
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment?.nonce).toBe(nonce);
+  });
+
+  it('raises no moment for a purchase that did not go through', () => {
+    freshStore();
+    useGameStore.setState({ state: { ...state(), tokens: 0 } });
+    store().buyAgents(g0.flagship.id);
+    expect(store().sceneMoment).toBeNull();
+  });
+
+  it('is not part of the save', () => {
+    freshStore();
+    hire(g0.flagship.id, 1);
+    expect(JSON.stringify(state())).not.toContain('sceneMoment');
+  });
+
+  it('lets go of the moment after its dwell, but only its own', () => {
+    vi.useFakeTimers();
+    freshStore();
+    hire(first.id, 1);
+    const old = store().sceneMoment?.nonce;
+    vi.advanceTimersByTime(SCENE_MOMENT_MS - 100);
+    const newcomer = g0.models.find((m) => m.lab !== first.lab);
+    if (!newcomer) throw new Error('в Поколении 0 одна Лаборатория');
+    hire(newcomer.id, 1);
+    expect(store().sceneMoment?.nonce).not.toBe(old);
+    // Срок первого момента вышел, но на сцене уже второй: первый таймер его не гасит.
+    vi.advanceTimersByTime(150);
+    expect(store().sceneMoment).not.toBeNull();
+    vi.advanceTimersByTime(SCENE_MOMENT_MS);
+    expect(store().sceneMoment).toBeNull();
+  });
+
+  it('is gone after a new run', () => {
+    freshStore();
+    hire(first.id, 1);
+    store().resetGame();
+    expect(store().sceneMoment).toBeNull();
+  });
+
+  it('is gone after a Престиж, so the new Поколение does not inherit the old celebration', () => {
+    freshStore();
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment?.flagship).toBe(true);
+    store().triggerPrestige();
+    expect(store().sceneMoment).toBeNull();
+  });
+
+  it('is gone after an import, which replaces the run instead of buying into it', () => {
+    freshStore();
+    const exported = exportSave(state());
+    hire(g0.flagship.id, 1);
+    expect(store().sceneMoment).not.toBeNull();
+    expect(store().importSaveData(exported)).toBe(true);
+    expect(store().sceneMoment).toBeNull();
+  });
+});
+
 describe('the prestige tab section', () => {
   beforeEach(() => useGameStore.setState({ prestigeSection: 'prestige' }));
 
@@ -1874,5 +1964,201 @@ describe('corrupt save on load', () => {
     expect(cell.get(CORRUPT_SAVE_KEY)).toBeUndefined();
     expect(snapshot.toasts).toEqual([]);
     expect(snapshot.state.totalTokens).toBe(5);
+  });
+});
+
+describe('the Серия and holding a key down', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  /** Свежая игра без чисел и искр в воздухе и без Кликов в окне Серии. */
+  const freshRun = (): void => {
+    // Система движение разрешает; запрос о нём нужен стору при каждом решении об искрах.
+    vi.stubGlobal('window', { matchMedia: (media: string) => ({ matches: false, media }) });
+    freshStore();
+    useGameStore.setState({ floaters: [], clickSparks: [] });
+  };
+
+  it('pays the same Токены for every Клик at any level of the Серия', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    const price = clickValue(state());
+    const paid: number[] = [];
+    const levels: number[] = [];
+    for (let i = 0; i < 25; i += 1) {
+      const before = state().tokens;
+      store().clickPrompt(10, 10);
+      paid.push(state().tokens - before);
+      levels.push(store().floaters[store().floaters.length - 1].level);
+      vi.advanceTimersByTime(80);
+    }
+    // Тест охватывает и покой, и высший уровень Серии, иначе равенство ничего не доказывало бы.
+    expect(levels[0]).toBe(0);
+    expect(levels[levels.length - 1]).toBeGreaterThan(2);
+    for (const p of paid) expect(p).toBe(price);
+  });
+
+  it('plays the Клик sound one level higher as the Серия grows, and back down after a pause', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    vi.mocked(playClickSound).mockClear();
+    for (let i = 0; i < 15; i += 1) {
+      store().clickPrompt(10, 10);
+      vi.advanceTimersByTime(80);
+    }
+    const levels = vi.mocked(playClickSound).mock.calls.map((c) => c[1]);
+    expect(levels[0]).toBe(0);
+    expect(levels[levels.length - 1]).toBeGreaterThan(levels[0] ?? 0);
+    vi.advanceTimersByTime(5000);
+    store().clickPrompt(10, 10);
+    expect(vi.mocked(playClickSound).mock.calls.at(-1)?.[1]).toBe(0);
+  });
+
+  it('shows more sparks and a bigger +N at a higher level, none of them with the switches off', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    for (let i = 0; i < 15; i += 1) {
+      store().clickPrompt(10, 10);
+      vi.advanceTimersByTime(80);
+    }
+    const sparks = store().clickSparks;
+    expect(sparks.length).toBeGreaterThan(0);
+    expect(sparks[sparks.length - 1].level).toBeGreaterThan(sparks[0]?.level ?? 0);
+    expect(store().floaters[store().floaters.length - 1].level).toBeGreaterThan(2);
+
+    store().setEffect('particles', false);
+    expect(store().clickSparks).toEqual([]);
+    store().clickPrompt(10, 10);
+    expect(store().clickSparks).toEqual([]);
+    expect(store().floaters.length).toBeGreaterThan(0);
+
+    store().setEffect('floaters', false);
+    store().clickPrompt(10, 10);
+    expect(store().floaters).toEqual([]);
+  });
+
+  it('makes no sparks under less animation, and the Клик still counts', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    vi.stubGlobal('window', { matchMedia: (media: string) => ({ matches: true, media }) });
+    for (let i = 0; i < 10; i += 1) store().clickPrompt(10, 10);
+    expect(store().clickSparks).toEqual([]);
+    expect(state().clicks).toBe(10);
+  });
+
+  it('clears the sparks from the air once they have flown', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    for (let i = 0; i < 10; i += 1) {
+      store().clickPrompt(10, 10);
+      vi.advanceTimersByTime(60);
+    }
+    vi.advanceTimersByTime(2000);
+    expect(store().clickSparks).toEqual([]);
+  });
+
+  it('holding a key gives no more Кликов per second than the ceiling, however often the key repeats', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    const accepted: number[] = [];
+    // Автоповтор клавиши шлёт десятки нажатий в секунду; повторяем его шагом в 8 мс на три секунды.
+    for (let t = 0; t < 3000; t += 8) {
+      vi.setSystemTime(T0 + t);
+      if (store().holdClick(10, 10)) accepted.push(t);
+    }
+    expect(state().clicks).toBe(accepted.length);
+    expect(accepted.length).toBeGreaterThan(20);
+    for (const at of accepted) {
+      const inSecond = accepted.filter((other) => other > at - 1000 && other <= at).length;
+      expect(inSecond).toBeLessThanOrEqual(HOLD_CLICK_MAX_PER_SEC);
+    }
+  });
+
+  it('a held key pays the ordinary price of a Клик', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    freshRun();
+    const price = clickValue(state());
+    const before = state().tokens;
+    expect(store().holdClick(10, 10)).toBe(true);
+    expect(state().tokens - before).toBe(price);
+  });
+});
+
+describe('горячие клавиши в сторе', () => {
+  beforeEach(() => {
+    freshStore();
+    useGameStore.setState({ shopTab: 'models', helpOpen: false, activeTab: 'click' });
+  });
+
+  it('1, 2 and 3 open the Models, Upgrades and Prestige tabs of the shop', () => {
+    store().runHotkey({ kind: 'shopTab', tab: 'upgrades' });
+    expect(store().shopTab).toBe('upgrades');
+    store().runHotkey({ kind: 'shopTab', tab: 'perks' });
+    expect(store().shopTab).toBe('perks');
+    store().runHotkey({ kind: 'shopTab', tab: 'models' });
+    expect(store().shopTab).toBe('models');
+  });
+
+  it('a tab key also brings the shop to the screen on a phone, where one column shows at a time', () => {
+    useGameStore.setState({ activeTab: 'click' });
+    store().runHotkey({ kind: 'shopTab', tab: 'upgrades' });
+    expect(store().activeTab).toBe('shop');
+  });
+
+  it('? opens the key card and a second ? closes it', () => {
+    store().runHotkey({ kind: 'help' });
+    expect(store().helpOpen).toBe(true);
+    store().runHotkey({ kind: 'help' });
+    expect(store().helpOpen).toBe(false);
+  });
+
+  it('a hotkey never touches the run: no Токены, no Агенты, nothing to save', () => {
+    const before = state();
+    store().runHotkey({ kind: 'shopTab', tab: 'perks' });
+    store().runHotkey({ kind: 'help' });
+    expect(state()).toBe(before);
+  });
+});
+
+describe('покупка с модификатором', () => {
+  beforeEach(() => {
+    freshStore();
+    withTokens(1e30);
+  });
+
+  it('buys exactly the requested amount and leaves the chosen ×N alone', () => {
+    store().buyAgents(first.id, 10);
+    expect(state().agents[first.id]).toBe(10);
+    expect(store().buyAmount).toBe(1);
+  });
+
+  it('with no amount it buys what the buttons chose, as before', () => {
+    useGameStore.setState({ buyAmount: 10 });
+    store().buyAgents(first.id);
+    expect(state().agents[first.id]).toBe(10);
+  });
+
+  it('Max spends what Max spends: the same purchase as choosing Max by button', () => {
+    const viaButton = engineBuyAgents(state(), first.id, 'max');
+    store().buyAgents(first.id, 'max');
+    expect(state().agents[first.id]).toBe(viaButton.agents[first.id]);
+    expect(state().tokens).toBe(viaButton.tokens);
+  });
+
+  it('a modifier on a sale sells that amount, capped at what is owned', () => {
+    store().buyAgents(first.id, 100);
+    store().sellAgents(first.id, 10);
+    expect(state().agents[first.id]).toBe(90);
+    store().sellAgents(first.id, 'max');
+    expect(state().agents[first.id] ?? 0).toBe(0);
   });
 });

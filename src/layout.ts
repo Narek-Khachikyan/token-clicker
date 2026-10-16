@@ -81,6 +81,28 @@ export const PIXEL_ADVANCE = 350 / 550;
  */
 export const COUNTER_CHARS = 11;
 
+/**
+ * Ступень всплывающего `+N` по уровню Серии (индекс = уровень): 22, 33, 44 px — те же три
+ * ступени пиксельного шрифта, что и везде (ADR-0009), без промежуточных масштабов, которые
+ * размыли бы пиксельную сетку. Число уровней сторожит тест против `STREAK_MAX_LEVEL`.
+ */
+export const FLOATER_STEPS: readonly (22 | 33 | 44)[] = [22, 22, 33, 33, 44];
+
+/** Ступень `+N` на уровне Серии; уровень за краем таблицы берёт ступень с её края. */
+export const floaterStep = (level: number): 22 | 33 | 44 =>
+  FLOATER_STEPS[Math.min(FLOATER_STEPS.length - 1, Math.max(0, Math.floor(level) || 0))];
+
+/**
+ * Левая кромка точки привязки `+N`, px: число центрируется на ней (`translate(-50%)` в
+ * float-up), поэтому точку держим не ближе половины ширины записи к краю окна. Запись шире
+ * окна встаёт по центру: обрезаться ей всё равно, но не одной стороной.
+ */
+export const floaterLeft = (x: number, chars: number, step: 22 | 33 | 44, viewportW: number): number => {
+  const half = (chars * step * PIXEL_ADVANCE) / 2;
+  if (half * 2 >= viewportW) return viewportW / 2;
+  return Math.min(viewportW - half, Math.max(half, x));
+};
+
 /** Горизонтальное поле колонки Клика, px: она же полоса одноколоночного режима. */
 export const CLICK_COL_PAD = 16;
 
@@ -139,6 +161,33 @@ export const mascotCardLeft = (centerX: number, sceneW: number): number => {
  */
 export const mascotCardBottom = (bottom: number, cardH: number, sceneH: number): number =>
   Math.max(MASCOT_CARD_EDGE, Math.min(bottom, sceneH - MASCOT_CARD_EDGE - cardH));
+
+/* Реплика Модели — пузырь над Маскотом, который говорит. Тот же вопрос, что у карточки (не выйти
+   за рамку Сцены), поэтому поле от края то же, а вертикаль считает та же `mascotCardBottom`. Новое
+   здесь одно: хвостик пузыря обязан смотреть на говорящего, даже когда сам пузырь прижат к краю. */
+
+/** Ширина пузыря реплики на Сцене, px: три строки Nunito 14 px для самой длинной реплики. */
+export const QUIP_BUBBLE_W = 320;
+
+/** Зазор между низом пузыря и верхом места Маскота, px: хвостик (8) и воздух над головой Маскота. */
+export const QUIP_BUBBLE_GAP = 12;
+
+/** Отступ хвостика от угла пузыря, px: ближе хвост вылезал бы за скошенный угол рамки. */
+export const QUIP_TAIL_EDGE = 16;
+
+/** Ширина пузыря реплики на Сцене шириной `sceneW`: полная, пока влезает с двумя полями. */
+export const quipBubbleWidth = (sceneW: number): number =>
+  Math.max(0, Math.min(QUIP_BUBBLE_W, sceneW - MASCOT_CARD_EDGE * 2));
+
+/** Левый край пузыря, px от левого края Сцены: по центру Маскота (`centerX`), но внутри Сцены. */
+export const quipBubbleLeft = (centerX: number, sceneW: number): number => {
+  const width = quipBubbleWidth(sceneW);
+  return clamp(centerX - width / 2, MASCOT_CARD_EDGE, Math.max(MASCOT_CARD_EDGE, sceneW - MASCOT_CARD_EDGE - width));
+};
+
+/** Где хвостик, px от левого края пузыря: под Маскотом, но не ближе `QUIP_TAIL_EDGE` к углам. */
+export const quipTailLeft = (centerX: number, left: number, width: number): number =>
+  clamp(centerX - left, QUIP_TAIL_EDGE, Math.max(QUIP_TAIL_EDGE, width - QUIP_TAIL_EDGE));
 
 /* ── Вертикальный ритм оболочки ────────────────────────────────────────────────────
    Полосы оболочки (шапка, лента, рабочая область, панель вкладок, подвал) стоят вплотную,

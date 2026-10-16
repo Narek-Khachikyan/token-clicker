@@ -2,13 +2,15 @@ import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { motionAllowed, reduceMotionMedia, useGameStore, useStateSlice } from '../store/useGameStore';
 import { clickButtonView, incomeOf, incomeView, purchaseProgressView } from '../store/selectors';
 import { formatNumber } from '../economy/format';
-import { COUNTER_CHARS, COUNTER_STEP } from '../layout';
+import { COUNTER_CHARS, COUNTER_STEP, floaterLeft, floaterStep } from '../layout';
+import { holdClickAllowed, isHoldKey, readKeyTarget } from './holdClickKeys';
 import { Num } from './Num';
 import { FullNumber } from './FullNumber';
 import { Icon } from './Icon';
 import { GoldenToken } from './GoldenToken';
 import { QuipBubble } from './QuipBubble';
 import { OnboardingCoach } from './OnboardingCoach';
+import { CoachArrow } from './CoachArrow';
 import { ThermalDial } from './ThermalDial';
 import { MilestoneStrip } from './MilestoneStrip';
 import { useMotionAllowed } from './EventSprites';
@@ -184,33 +186,127 @@ const Floaters: React.FC = () => {
   if (!enabled) return null;
   return (
     <>
-      {floaters.map((f) => (
-        <div key={f.id} className="floater pixel-22" style={{ left: f.x, top: f.y }}>
-          {f.text}
-        </div>
-      ))}
+      {floaters.map((f) => {
+        // Ступень растёт с Серией: 22/33/44 px, без промежуточных масштабов (ADR-0009).
+        const step = floaterStep(f.level);
+        return (
+          <div
+            key={f.id}
+            className={`floater pixel-${step}`}
+            style={{ left: floaterLeft(f.x, f.text.length, step, window.innerWidth), top: f.y }}
+          >
+            {f.text}
+          </div>
+        );
+      })}
     </>
+  );
+};
+
+/** Лучи искр по уровню Серии (индекс = уровень): одиночный Клик искр не даёт, как и прежде. */
+const SPARKS_BY_LEVEL = [0, 3, 5, 7, 9];
+
+/** Веер вверх от точки Клика: лучи делят верхний полукруг поровну, размах растёт с уровнем. */
+const sparkFan = (level: number) => {
+  const n = SPARKS_BY_LEVEL[Math.min(level, SPARKS_BY_LEVEL.length - 1)] ?? 0;
+  return Array.from({ length: n }, (_, i) => {
+    const angle = -Math.PI + (Math.PI * (i + 0.5)) / n;
+    const dist = 22 + level * 8 + (i % 3) * 6;
+    return {
+      dx: Math.round(Math.cos(angle) * dist),
+      dy: Math.round(Math.sin(angle) * dist),
+      size: level >= 3 ? 4 : 3,
+    };
+  });
+};
+
+/**
+ * Искры Серии над кнопкой Клика. Узлы рождает стор, и только когда частицы включены и движение
+ * разрешено (`effectAllowed`), а убирает его таймер: слой сам ничего не решает и не хранит.
+ */
+const ClickSparks: React.FC = () => {
+  const bursts = useGameStore((s) => s.clickSparks);
+  if (bursts.length === 0) return null;
+  return (
+    <div aria-hidden="true" style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 999 }}>
+      {bursts.map((b) =>
+        sparkFan(b.level).map((p, i) => (
+          <span
+            key={`${b.id}-${i}`}
+            className="spark"
+            style={
+              {
+                left: b.x,
+                top: b.y,
+                width: p.size,
+                height: p.size,
+                '--spark-dx': `${p.dx}px`,
+                '--spark-dy': `${p.dy}px`,
+              } as React.CSSProperties
+            }
+          />
+        )),
+      )}
+    </div>
   );
 };
 
 const ClickButton: React.FC = () => {
   const clickPrompt = useGameStore((s) => s.clickPrompt);
+  const holdClick = useGameStore((s) => s.holdClick);
   const { value, word, tier, power } = useStateSlice(clickButtonView);
   const btnRef = useRef<HTMLButtonElement>(null);
 
-  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = rect.left + rect.width / 2 + (Math.random() * 40 - 20);
-    const y = rect.top + 10;
-    clickPrompt(x, y);
-    // Перезапуск сквоша тем же сбросом, что у ModelRow: снятие класса и чтение ширины
-    // между снятием и возвратом, иначе быстрый повторный Клик не перезапустил бы анимацию.
+  /** Точка Клика на кнопке и сквош: общие для мыши и для удержанной клавиши. */
+  const press = (act: (x: number, y: number) => boolean | void) => {
     const node = btnRef.current;
     if (!node) return;
+    const rect = node.getBoundingClientRect();
+    const x = rect.left + rect.width / 2 + (Math.random() * 40 - 20);
+    const y = rect.top + 10;
+    if (act(x, y) === false) return;
+    // Перезапуск сквоша тем же сбросом, что у ModelRow: снятие класса и чтение ширины
+    // между снятием и возвратом, иначе быстрый повторный Клик не перезапустил бы анимацию.
     node.classList.remove('click-btn--squash');
     void node.offsetWidth;
     node.classList.add('click-btn--squash');
   };
+
+  const handleClick = () => {
+    // Пробел и Enter на кнопке обслуживает слушатель ниже и гасит их родное нажатие, поэтому
+    // сюда доходит мышь, касание и вспомогательные технологии — их `click` без клавиши.
+    press((x, y) => clickPrompt(x, y));
+  };
+
+  // Удержание Пробела/Enter повторяет Клик. Слушатель на окне, а не на кнопке: Клик должен идти,
+  // и когда фокус в никуда (после клика мышью по Сцене). Потолок в секунду держит действие стора,
+  // здесь только решение «это Клик» (holdClickKeys). Слушатель живёт, пока на экране кнопка Клика:
+  // на телефоне вне вкладки «Промпт» клавиши ей не принадлежат.
+  useEffect(() => {
+    const handled = new Set<string>();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || !isHoldKey(e) || !holdClickAllowed(readKeyTarget(e, btnRef.current))) return;
+      // Без preventDefault Пробел прокрутил бы страницу, а Enter на кнопке дал бы второй Клик.
+      e.preventDefault();
+      handled.add(e.key);
+      press((x, y) => holdClick(x, y));
+    };
+    // Firefox нажимает кнопку на keyup Пробела, даже если keydown отменён, поэтому отмена и здесь.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!handled.delete(e.key)) return;
+      e.preventDefault();
+    };
+    // Потеря фокуса окном посреди удержания не должна оставить «нажатую» клавишу в памяти.
+    const forget = () => handled.clear();
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', forget);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', forget);
+    };
+  }, [holdClick]);
 
   // Снятие по концу анимации, а не по таймеру: таймеры в компонентах запрещены.
   const handleSquashEnd = () => {
@@ -304,95 +400,6 @@ const PurchaseProgress: React.FC = () => {
   );
 };
 
-/** Переписка с моделью: свежая пара лежит первой и меняется только на Клик. */
-const ChatLog: React.FC = () => {
-  const chatHistory = useGameStore((s) => s.chatHistory);
-  const chatRef = useRef<HTMLDivElement>(null);
-
-  // Свежая пара лежит первой, поэтому якорь — это ноль прокрутки, а не конец списка.
-  const newestReplyId = chatHistory[0]?.id;
-  useEffect(() => {
-    chatRef.current?.scrollTo({ top: 0 });
-  }, [newestReplyId]);
-
-  return (
-    <div
-      style={{
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 'var(--space-2)',
-        marginTop: 'var(--space-1)',
-        flex: 1,
-      }}
-    >
-      <div style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>Диалог с моделью:</div>
-
-      {/* Якорь на свежую реплику. Свежая пара кладётся сверху, поэтому после прихода она
-          выталкивает прочитанное вниз и без якоря игрок вынужден искать её прокруткой.
-          Ставится ровно на смену верхней пары: пока игрок читает старую, лента не дёргается
-          под ногами. */}
-      <div
-        ref={chatRef}
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 'var(--space-2)',
-          overflowY: 'auto',
-          maxHeight: '340px',
-          paddingRight: 'var(--space-1)',
-        }}
-      >
-        {/* Только свежая обменная реплика: старые уже стоят на месте, и анимация на них
-            давно доиграла. Класс на новой реплике появляется вместе с её узлом. */}
-        {chatHistory.map((item, index) => (
-          <div
-            key={item.id}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--space-1)',
-              fontSize: '0.85rem',
-            }}
-          >
-            {/* Промпт игрока */}
-            <div
-              className={index === 0 ? 'chat-prompt--in' : undefined}
-              style={{
-                alignSelf: 'flex-end',
-                backgroundColor: 'var(--accent-solid-hover)',
-                color: 'var(--text-main)',
-                padding: 'var(--space-1) var(--space-2)',
-                maxWidth: '85%',
-                wordBreak: 'break-word',
-              }}
-            >
-              {item.userPrompt}
-            </div>
-
-            {/* Ответ ИИ */}
-            <div
-              className={index === 0 ? 'chat-reply--in' : undefined}
-              style={{
-                alignSelf: 'flex-start',
-                backgroundColor: 'var(--bg-card)',
-                color: 'var(--text-main)',
-                padding: 'var(--space-1) var(--space-2)',
-                border: 'var(--frame-w) solid var(--border)',
-                maxWidth: '90%',
-                whiteSpace: 'pre-line',
-                wordBreak: 'break-word',
-              }}
-            >
-              {item.aiResponse}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
 /**
  * Колонка Клика: каркас и порядок блоков. Данные из состояния читает каждый блок сам, поэтому
  * колонка не перерисовывается от тика — единственное, что она решает сама, это есть ли сейчас
@@ -400,6 +407,14 @@ const ChatLog: React.FC = () => {
  */
 const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const hasEvent = useGameStore((s) => s.state.event !== null);
+
+  // Обёртка нужна стрелке подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы.
+  const clickAction = (
+    <div style={{ position: 'relative', width: '100%' }}>
+      <ClickButton />
+      <CoachArrow target="click-button" single={full} />
+    </div>
+  );
 
   return (
     <div
@@ -425,6 +440,7 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
     >
       {/* Floating numbers */}
       <Floaters />
+      <ClickSparks />
 
       {/* Токены и Доход. На телефоне их нет: те же числа стоят в закреплённой полосе над
           рабочей областью (`StatusStrip`), на любой вкладке, и второй счётчик на той же вкладке
@@ -457,7 +473,7 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           другой: см. причал внизу колонки. */}
       {!full && (
         <>
-          <ClickButton />
+          {clickAction}
           <ThermalDial />
         </>
       )}
@@ -469,15 +485,13 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           пустой полоски без текста здесь не бывает. */}
       <PurchaseProgress />
 
-      <ChatLog />
-
       {/* Телефон: причал внизу колонки — шкала Температуры над кнопкой Клика, а кнопка самая
           нижняя на экране, ближе всего к большому пальцу. Причал прибит к низу колонки
           (`.click-dock` в index.css) и не уезжает за прокрутку, как бы много ни стояло над ним. */}
       {full && (
         <div className="click-dock">
           <ThermalDial />
-          <ClickButton />
+          {clickAction}
         </div>
       )}
     </div>

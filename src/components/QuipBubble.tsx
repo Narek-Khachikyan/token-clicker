@@ -1,23 +1,29 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { LABS } from '../data/labs';
 import { QUIPS } from '../data/quips';
-import { useGameStore } from '../store/useGameStore';
+import { useGameStore, type LastQuip } from '../store/useGameStore';
 import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { useDialogFocus } from './useDialogFocus';
-import { THREE_COL_MIN } from '../layout';
+import {
+  MASCOT_CARD_EDGE,
+  mascotCardBottom,
+  QUIP_BUBBLE_GAP,
+  quipBubbleLeft,
+  quipBubbleWidth,
+  quipTailLeft,
+  THREE_COL_MIN,
+} from '../layout';
 
 export interface QuipBubbleProps {
   /**
-   * Место монтажа:
-   * - "office" (по умолчанию): на Сцене Офиса (абсолютное позиционирование). На десктопе
-   *   (>= THREE_COL_MIN) это единственный пузырь на экране.
-   * - "prompt": в колонке Клика над кнопкой «Отправить промпт». На десктопе скрывается,
-   *   чтобы не дублировать пузырь в Офисе. На мобильном (< THREE_COL_MIN) оживает, так как
-   *   вкладка «Офис» спрятана за нижней навигацией.
+   * Место монтажа. Пузырь над Маскотом на Сцене — отдельный компонент (SceneQuipBubble), а этот
+   * живёт только в колонке Клика, над кнопкой «Отправить промпт»: на десктопе (>= THREE_COL_MIN)
+   * он скрывается, чтобы не дублировать Сцену, а на мобильном (< THREE_COL_MIN) оживает, потому
+   * что Сцена спрятана за нижней навигацией и игрок, который кликает, её не видит.
    */
-  placement?: "office" | "prompt";
+  placement?: "prompt";
 }
 
 function useIsSingleCol(): boolean {
@@ -34,48 +40,46 @@ function useIsSingleCol(): boolean {
   return isSingle;
 }
 
+/** Портрет говорящего, имя Лаборатории и текст реплики: одно содержимое для обоих мест пузыря. */
+const QuipContent: React.FC<{ quip: LastQuip }> = ({ quip }) => {
+  const lab = quip.lab ? LABS[quip.lab] : null;
+  return (
+    <>
+      {lab && quip.lab && <MascotSprite lab={quip.lab} size={32} />}
+      <div style={{ minWidth: 0 }}>
+        {lab && (
+          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{lab.name}</div>
+        )}
+        <div style={{ fontSize: "0.9rem", color: "var(--text-main)" }}>{quip.text}</div>
+      </div>
+    </>
+  );
+};
+
 /**
- * Пузырь реплики говорящей Модели: портрет Маскота говорящего плюс текст.
+ * Пузырь реплики говорящей Модели над кнопкой Клика на узком экране.
  *
- * Слой декоративный (pointerEvents none): пузырь не должен перехватывать клики по Глюкам,
- * Золотому Токену или кнопке «Отправить промпт». На десктопе живёт на Сцене Офиса. На
- * узком экране колонка Офиса скрыта во вкладке, поэтому пузырь переезжает в ClickColumn
- * над кнопкой действия.
+ * Слой декоративный (pointerEvents none). Здесь он в потоке колонки, а не на Сцене: на
+ * телефоне вкладка с Сценой скрыта, и реплика на ней осталась бы неувиденной.
  */
-export const QuipBubble: React.FC<QuipBubbleProps> = ({ placement = "office" }) => {
+export const QuipBubble: React.FC<QuipBubbleProps> = () => {
   const lastQuip = useGameStore((s) => s.lastQuip);
-  // Пустой ли офис, а не сам список Агентов: пузырь ставится по-разному, и этого одного бита
-  // ему достаточно — список же меняется на каждой покупке.
-  const empty = useGameStore((s) => Object.values(s.state.agents).every((n) => (n ?? 0) <= 0));
   const isSingle = useIsSingleCol();
 
-  if (!lastQuip) return null;
-
-  // На десктопе пузырь в ClickColumn не нужен — там уже открыт полноценный Офис.
-  if (placement === "prompt" && !isSingle) {
-    return null;
-  }
-
-  const lab = lastQuip.lab ? LABS[lastQuip.lab] : null;
-  const isPrompt = placement === "prompt";
+  // На десктопе пузырь в ClickColumn не нужен — там уже открыта Сцена.
+  if (!lastQuip || !isSingle) return null;
 
   return (
     <div
       key={lastQuip.nonce}
       className="quip-bubble pixel-card"
       style={{
-        position: isPrompt ? "relative" : "absolute",
-        left: "50%",
-        transform: "translateX(-50%)",
-        ...(isPrompt
-          ? { margin: '0 auto var(--space-3) auto' }
-          : empty
-          ? { top: "30%" }
-          : { bottom: "104px" }),
+        position: "relative",
+        margin: '0 auto var(--space-3) auto',
         zIndex: 4,
         pointerEvents: "none",
-        maxWidth: isPrompt ? "min(360px, 94%)" : "min(320px, 86%)",
-        width: isPrompt ? "max-content" : undefined,
+        maxWidth: "min(360px, 94%)",
+        width: "max-content",
         padding: 'var(--space-2) var(--space-3)',
         display: "flex",
         alignItems: "center",
@@ -83,13 +87,115 @@ export const QuipBubble: React.FC<QuipBubbleProps> = ({ placement = "office" }) 
         boxSizing: "border-box",
       }}
     >
-      {lab && lastQuip.lab && <MascotSprite lab={lastQuip.lab} size={32} />}
-      <div style={{ minWidth: 0 }}>
-        {lab && (
-          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{lab.name}</div>
-        )}
-        <div style={{ fontSize: "0.9rem", color: "var(--text-main)" }}>{lastQuip.text}</div>
-      </div>
+      <QuipContent quip={lastQuip} />
+    </div>
+  );
+};
+
+/** Где стоит пузырь на Сцене: числа в пикселях Сцены, посчитанные из места Маскота. */
+interface SceneAnchor {
+  left: number;
+  width: number;
+  bottom: number;
+  /** Хвостик, px от левого края пузыря; null — говорящего на Сцене нет, и указывать не на кого. */
+  tail: number | null;
+}
+
+/**
+ * Пузырь реплики над Маскотом, который говорит, на собственной подложке (ADR-0002): тот же
+ * `pixel-card`, что у карточки Маскота, и поэтому читается на любой из четырёх Сцен.
+ *
+ * Положение считается по месту Маскота (`.scene__booth[data-lab]`) до первой отрисовки, как у
+ * карточки: ширина Сцены зависит от окна, а пузырь над крайним Маскотом не должен выйти за
+ * рамку, и хвостик при этом остаётся под говорящим. Нет места Маскота — Лаборатория реплики ещё
+ * не куплена (до первой покупки говорит любая) — пузырь стоит по центру у низа Сцены без
+ * хвостика. Слой декоративный: Глюки и Золотой Токен ловятся сквозь него.
+ */
+export const SceneQuipBubble: React.FC<{
+  /** Карточка Маскота открыта: она ложится на то же место, и пузырь уступает ей, а не торчит
+   *  из-под неё обрезком. Реплика остаётся в «Переписке». */
+  yieldToCard: boolean;
+}> = ({ yieldToCard }) => {
+  const lastQuip = useGameStore((s) => s.lastQuip);
+  const nodeRef = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<SceneAnchor | null>(null);
+  const nonce = lastQuip?.nonce;
+  const lab = lastQuip?.lab ?? null;
+
+  useLayoutEffect(() => {
+    const node = nodeRef.current;
+    // Сцена — родитель пузыря. Через ref Сцены не выйдет: слой-ребёнок получает свой эффект раньше,
+    // чем родитель привяжет ref, и на вкладке «Офис» узкого экрана, которая монтируется уже с
+    // репликой в руках, пузырь остался бы без замера и невидимым.
+    const scene = node?.parentElement;
+    if (!scene || !node) return;
+    const place = () => {
+      const sceneW = scene.clientWidth;
+      const sceneH = scene.clientHeight;
+      const width = quipBubbleWidth(sceneW);
+      // Высота зависит от ширины (текст переносится), поэтому ширина встаёт до замера высоты.
+      node.style.width = `${width}px`;
+      const booth = lab ? scene.querySelector<HTMLElement>(`.scene__booth[data-lab="${lab}"]`) : null;
+      if (!booth) {
+        setAnchor({
+          left: quipBubbleLeft(sceneW / 2, sceneW),
+          width,
+          bottom: mascotCardBottom(MASCOT_CARD_EDGE * 3, node.offsetHeight, sceneH),
+          tail: null,
+        });
+        return;
+      }
+      const sr = scene.getBoundingClientRect();
+      const br = booth.getBoundingClientRect();
+      // clientLeft/Top — рамка Сцены: абсолютные дети отсчитываются от внутреннего края.
+      const centerX = br.left + br.width / 2 - sr.left - scene.clientLeft;
+      const boothTop = br.top - sr.top - scene.clientTop;
+      const left = quipBubbleLeft(centerX, sceneW);
+      setAnchor({
+        left,
+        width,
+        bottom: mascotCardBottom(sceneH - boothTop + QUIP_BUBBLE_GAP, node.offsetHeight, sceneH),
+        tail: quipTailLeft(centerX, left, width),
+      });
+    };
+    place();
+    // Окно меняет ширину Сцены, пока пузырь висит (4.5 с), а покупка новой Лаборатории
+    // пересобирает ряд мест: наблюдатель держит пузырь под Маскотом, и живёт он, пока пузырь есть.
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(place);
+    observer.observe(scene);
+    return () => observer.disconnect();
+  }, [nonce, lab]);
+
+  if (!lastQuip) return null;
+
+  return (
+    <div
+      ref={nodeRef}
+      key={lastQuip.nonce}
+      className="quip-bubble pixel-card"
+      style={{
+        position: "absolute",
+        left: anchor?.left ?? 0,
+        bottom: anchor?.bottom ?? 0,
+        width: anchor?.width,
+        // Поверх HUD (zIndex 2) и Маскотов; карточка Маскота (5) выше и закрывает его сама.
+        zIndex: 4,
+        // Первый кадр до замера не показываем: пузырь в левом нижнем углу мелькнул бы одним кадром.
+        visibility: anchor && !yieldToCard ? "visible" : "hidden",
+        pointerEvents: "none",
+        padding: 'var(--space-2) var(--space-3)',
+        display: "flex",
+        alignItems: "center",
+        gap: 'var(--space-2)',
+        boxSizing: "border-box",
+        ...({
+          "--quip-tail": anchor?.tail != null ? `${anchor.tail}px` : "50%",
+          "--quip-tail-show": anchor?.tail != null ? "block" : "none",
+        } as React.CSSProperties),
+      }}
+    >
+      <QuipContent quip={lastQuip} />
     </div>
   );
 };

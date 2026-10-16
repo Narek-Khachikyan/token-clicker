@@ -387,9 +387,17 @@ body {
 
    Покупка Модели   — короткий хлопок строки и 8 искр: событие повторяется десятки раз за
                       Забег, поэтому всё, что крупнее, превратилось бы в рябь.
+   Новая Лаборатория — Маскот поднимается из-за своего стола, и стол проявляется: одно место
+                      Сцены, без искр и звука. Выше покупки (на неё — только прыжок), ниже
+                      Достижения.
    Достижение      — 24 искры, вспышка тоста, пульс значка: первое по-настоящему крупное
                       событие, но локальное. Вспышки на весь экран здесь нет намеренно:
                       яркая вспышка большой площади — известный триггер фоточувствительности.
+   Флагман         — над местом Маскота рамка золота дважды мигает прозрачностью (меньше
+                      3 раз в секунду), вверх летят 28 квадратных конфетти, а кнопка Престижа на
+                      HUD загорается. Выше Достижения, ниже Престижа: тряски нет — она одна на всю
+                      игру и достаётся Престижу. При «меньше анимации» остаются рамка и кнопка,
+                      обе только прозрачностью.
    Престиж         — единственная тряска во всей игре: 10 px и 0.45° за 90 мс плюс провал
                       яркости, а поверх — вуаль-оверлей с карточкой нового Поколения (затемнение, не вспышка: яркого кадра нет). Дальше эта шкала кончается: на Клике, на покупке, на ошибке и
                       на повторном Престиже тряски нет, и добавлять её «для соли» не нужно.
@@ -788,40 +796,6 @@ body {
    сам по себе при загрузке страницы. */
 .ach-badge--pulse::after {
   animation: none;
-}
-
-/* Чат. Реплика игрока падает сверху, ответ модели поднимается снизу: они стартуют одновременно,
-   поэтому ответ не задерживается, но глаз всё равно различает, кто первый заговорил. */
-@keyframes chat-prompt-in {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes chat-reply-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* Пустое правило: появление реплики живёт под гейтом движения */
-.chat-prompt--in {
-  /* Пустое правило: появление реплики живёт под гейтом движения, см. ниже. */
-}
-
-/* Пустое правило: появление реплики живёт под гейтом движения */
-.chat-reply--in {
-  /* Пустое правило: появление реплики живёт под гейтом движения, см. ниже. */
 }
 
 /* Живой фон Сцены. Пыль держится на 50% непрозрачности и дрейфует вверх на 6–9 с: медленнее
@@ -1249,6 +1223,74 @@ body {
   animation: none;
 }
 
+/* Стрелка подсказки новичку. Базовое правило описывает неподвижную стрелку, которая только
+   мигает прозрачностью; сдвиг по направлению включается в блоке полного движения ниже. Сама
+   стрелка не ловит клики: под ней кнопка, на которую игрок и должен нажать. */
+@keyframes coach-arrow-fade {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes coach-arrow-bob {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(var(--coach-bob-x), var(--coach-bob-y));
+  }
+}
+
+.coach-arrow {
+  position: absolute;
+  z-index: 3;
+  display: block;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  color: var(--accent-color);
+}
+
+.coach-arrow__glyph {
+  display: block;
+  animation: coach-arrow-fade 1.2s ease-in-out infinite;
+}
+
+/* Четыре стороны: стрелка стоит с той стороны элемента, откуда смотрит, и повёрнута к нему. */
+.coach-arrow--down {
+  bottom: 100%;
+  left: calc(50% - 12px);
+  --coach-bob-x: 0;
+  --coach-bob-y: 4px;
+}
+
+.coach-arrow--up {
+  top: 100%;
+  left: calc(50% - 12px);
+  transform: rotate(180deg);
+  --coach-bob-x: 0;
+  --coach-bob-y: 4px;
+}
+
+.coach-arrow--right {
+  left: 100%;
+  top: calc(50% - 12px);
+  transform: rotate(90deg);
+  --coach-bob-x: 0;
+  --coach-bob-y: 4px;
+}
+
+.coach-arrow--left {
+  right: 100%;
+  top: calc(50% - 12px);
+  transform: rotate(-90deg);
+  --coach-bob-x: 0;
+  --coach-bob-y: 4px;
+}
+
 /* Mascot animations */
 @keyframes mascot-bob {
   0%, 100% {
@@ -1283,6 +1325,148 @@ body {
 /* Пустое правило: прыжок Маскота живёт под гейтом движения */
 .mascot-hop {
   /* Пустое правило: прыжок Маскота живёт под гейтом движения, см. ниже. */
+}
+
+/* Моменты награды на Сцене (ступени лестницы — в блоке «Акценты событий»). Все четыре держат
+   прозрачность: вестибулярно нейтральна, поэтому работает и при «меньше анимации». Движение —
+   только в @media no-preference ниже. */
+
+/* Новая Лаборатория: место проявляется (стол, тень), а Маскот поднимается из-за стола. Подъём
+   идёт ступенями, как всё остальное на пиксельной Сцене; прозрачность разгоняется раньше
+   подъёма, и Маскот не торчит над столом целиком в первый кадр. */
+@keyframes mascot-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.booth--enter {
+  animation: toast-fade 0.3s ease-out backwards;
+}
+
+/* Без движения Маскот проявляется на месте: тот же срок и та же задержка, что у подъёма. */
+.mascot-rise {
+  animation: toast-fade 0.4s ease-out 0.12s backwards;
+}
+
+/* Флагман. Рамка золота вокруг места Маскота мигает дважды за 1.4 с (пики на 20% и 70%, то есть
+   около 1.4 раза в секунду: ниже порога в три вспышки, за которым начинается риск для
+   фоточувствительных). Рамка в два пикселя арта, заливки нет: площадь вспышки ничтожна. */
+@keyframes booth-ring-pulse {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  45% {
+    opacity: 0.3;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.booth-ring {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border: var(--frame-w) solid var(--gold);
+  animation: booth-ring-pulse 1.4s ease-in-out forwards;
+}
+
+/* Конфетти: квадраты пикселя арта, летят вверх от головы Маскота и оседают. Без анимации они
+   прозрачны и ничего не рисуют, а без движения их нет и в DOM (OfficeColumn); у каждого свои
+   --cf-dx, --cf-dy (вверх — минус) и задержка --cf-delay. */
+@keyframes confetti-fly {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0);
+  }
+  10% {
+    opacity: 1;
+  }
+  45% {
+    transform: translate3d(calc(var(--cf-dx) * 0.75), var(--cf-dy), 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--cf-dx), calc(var(--cf-dy) * -0.2), 0);
+  }
+}
+
+.confetti {
+  position: absolute;
+  left: 50%;
+  width: 0;
+  height: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.confetti__bit {
+  position: absolute;
+  opacity: 0;
+  background-color: var(--gold);
+  /* Жёсткий контур в пиксель арта: на тёплом полу Сцены 1 золото и акцент иначе тонут. */
+  box-shadow: 0 0 0 var(--px) var(--bg-void);
+}
+
+.confetti__bit:nth-child(3n + 2) {
+  background-color: var(--accent-color);
+}
+
+.confetti__bit:nth-child(3n) {
+  background-color: var(--text-main);
+}
+
+/* Кнопка Престижа на HUD загорается: прозрачность падает и возвращается дважды за 1.2 с. Тот же
+   предел в три вспышки в секунду; цвет и яркость кнопки не трогаются. */
+@keyframes prestige-ignite {
+  0% {
+    opacity: 0.15;
+  }
+  25% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Добавка движения: кнопка вырастает из меньшего размера с перелётом и садится. */
+@keyframes prestige-ignite-pop {
+  0% {
+    transform: scale(0.88);
+  }
+  55% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.prestige-ignite {
+  animation: prestige-ignite 1.2s ease-out backwards;
 }
 
 /* Ореол живёт на ::after, а не на самой кнопке. box-shadow — свойство краски, и пульс на нём
@@ -1724,6 +1908,10 @@ body {
   .thermal-spark {
     animation: thermal-spark-fly 0.5s steps(3, end) infinite;
   }
+  .coach-arrow__glyph {
+    animation: coach-arrow-bob 0.7s steps(2, end) infinite;
+  }
+
   .pixel-btn:hover:not(:disabled) {
     transform: translateY(-1px);
   }
@@ -1809,14 +1997,6 @@ body {
     animation: prestige-mote-rise 1.5s steps(14) forwards;
   }
 
-  .chat-prompt--in {
-    animation: chat-prompt-in 0.24s ease-out;
-  }
-
-  .chat-reply--in {
-    animation: chat-reply-in 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
-  }
-
   .mote {
     display: block;
     animation: mote-drift var(--mote-dur) ease-in-out var(--mote-delay) infinite alternate;
@@ -1831,6 +2011,21 @@ body {
      не перезапустила бы анимацию, класс ведь не менялся. */
   .mascot-hop {
     animation: mascot-hop 0.35s ease-out;
+  }
+
+  /* Моменты награды с движением (прозрачностью обходятся и без него, см. выше). */
+  .mascot-rise {
+    animation: mascot-rise 0.6s steps(8, end) 0.12s backwards;
+  }
+
+  .confetti__bit {
+    animation: confetti-fly 1.1s steps(11, end) var(--cf-delay, 0s) forwards;
+  }
+
+  .prestige-ignite {
+    animation:
+      prestige-ignite 1.2s ease-out backwards,
+      prestige-ignite-pop 0.45s ease-out backwards;
   }
 
   .pulse-glow::after {
@@ -1990,9 +2185,8 @@ body {
   animation: none;
 }
 
-[data-motion='reduced'] .chat-prompt--in,
-[data-motion='reduced'] .chat-reply--in {
-  animation: none;
+[data-motion='reduced'] .coach-arrow__glyph {
+  animation: coach-arrow-fade 1.2s ease-in-out infinite;
 }
 
 [data-motion='reduced'] .mote {
@@ -2007,6 +2201,20 @@ body {
    не кнопка и нажатие подтверждать ему нечем, мигание читалось бы как сбой спрайта. */
 [data-motion='reduced'] .mascot-hop {
   animation: none;
+}
+
+/* Моменты награды без движения: подъём и добавка кнопки уходят, конфетти нет вовсе, а рамка
+   Флагмана, проявление места и загорание кнопки остаются — они только меняют прозрачность. */
+[data-motion='reduced'] .mascot-rise {
+  animation: toast-fade 0.4s ease-out 0.12s backwards;
+}
+
+[data-motion='reduced'] .confetti {
+  display: none;
+}
+
+[data-motion='reduced'] .prestige-ignite {
+  animation: prestige-ignite 1.2s ease-out backwards;
 }
 
 [data-motion='reduced'] .pulse-glow::after {
@@ -2456,32 +2664,25 @@ body {
   font-size: var(--text-sm);
 }
 
-/* Пузырь реплики говорящей Модели. Вход — pop пружиной 0.25с (opacity+scale),
-   уход — fade 0.18с с задержкой 4.32с: стор гасит lastQuip через 4.5с, и fade видно
-   целиком. Хвостик — статичный треугольник, а не движение, поэтому при reducedMotion
-   остаётся. При выключенном движении вход — тот же opacity-кадр, что у слухов
-   (rumor-in): scale там запрещён, fade вестибулярно нейтрален. */
+/* Пузырь реплики говорящей Модели. Вход — pop пружиной 0.25с (opacity+scale), уход — fade 0.18с с
+   задержкой 4.32с: стор гасит lastQuip через 4.5с, и fade видно целиком. Положение пузыря ставит
+   разметка в пикселях Сцены, а transform остаётся за анимацией: scale растёт из хвостика, то есть
+   из точки под говорящим Маскотом (`--quip-tail`). Хвостик — статичная ступенька, а не движение,
+   поэтому при reducedMotion остаётся. При выключенном движении вход — тот же opacity-кадр, что у
+   слухов (rumor-in): scale там запрещён, fade вестибулярно нейтрален. */
 @keyframes quip-pop {
   from {
     opacity: 0;
-    transform: translateX(-50%) scale(0.7);
+    transform: scale(0.7);
   }
   to {
     opacity: 1;
-    transform: translateX(-50%) scale(1);
-  }
-}
-
-@keyframes quip-fade {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
+    transform: scale(1);
   }
 }
 
 .quip-bubble {
+  transform-origin: var(--quip-tail, 50%) 100%;
   animation:
     toast-fade 0.25s ease-out,
     float-fade 0.18s ease-in 4.32s forwards;
@@ -2489,12 +2690,14 @@ body {
 
 .quip-bubble::after {
   content: '';
+  /* Нет говорящего на Сцене — указывать не на кого, и хвостика нет. */
+  display: var(--quip-tail-show, block);
   position: absolute;
-  left: 50%;
+  left: var(--quip-tail, 50%);
   bottom: -8px;
   width: 8px;
   height: 8px;
-  margin-left: -4px;
+  margin-left: -6px;
   background-color: inherit;
   /* Хвостик — квадратная ступенька без поворота (ADR-0008): верх открыт, чтобы нижняя рамка
      пузыря не перечёркивала его, а три остальные стороны продолжают рамку. */
