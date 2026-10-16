@@ -8,6 +8,7 @@ import { Icon } from './Icon';
 import { GoldenToken } from './GoldenToken';
 import { QuipBubble } from './QuipBubble';
 import { OnboardingCoach } from './OnboardingCoach';
+import { CoachArrow } from './CoachArrow';
 import { ThermalDial } from './ThermalDial';
 import { MilestoneStrip } from './MilestoneStrip';
 import { useMotionAllowed } from './EventSprites';
@@ -422,7 +423,11 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
       {/* Главное действие, сразу под ним — Температура, под ней — Вехи одной строкой. Порядок
           «счётчик → Клик → Температура → Вехи» держит и шкалу, и кнопку на экране невысокого
           окна: всё, что ниже, второстепенно и может уйти за прокрутку. */}
-      <ClickButton />
+      {/* Обёртка нужна стрелке подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы. */}
+      <div style={{ position: 'relative', width: '100%' }}>
+        <ClickButton />
+        <CoachArrow target="click-button" single={full} />
+      </div>
 
       <ThermalDial />
 

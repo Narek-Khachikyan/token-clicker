@@ -1219,6 +1219,74 @@ body {
   animation: none;
 }
 
+/* Стрелка подсказки новичку. Базовое правило описывает неподвижную стрелку, которая только
+   мигает прозрачностью; сдвиг по направлению включается в блоке полного движения ниже. Сама
+   стрелка не ловит клики: под ней кнопка, на которую игрок и должен нажать. */
+@keyframes coach-arrow-fade {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes coach-arrow-bob {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(var(--coach-bob-x), var(--coach-bob-y));
+  }
+}
+
+.coach-arrow {
+  position: absolute;
+  z-index: 3;
+  display: block;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  color: var(--accent-color);
+}
+
+.coach-arrow__glyph {
+  display: block;
+  animation: coach-arrow-fade 1.2s ease-in-out infinite;
+}
+
+/* Четыре стороны: стрелка стоит с той стороны элемента, откуда смотрит, и повёрнута к нему. */
+.coach-arrow--down {
+  bottom: 100%;
+  left: calc(50% - 12px);
+  --coach-bob-x: 0;
+  --coach-bob-y: 4px;
+}
+
+.coach-arrow--up {
+  top: 100%;
+  left: calc(50% - 12px);
+  transform: rotate(180deg);
+  --coach-bob-x: 0;
+  --coach-bob-y: 4px;
+}
+
+.coach-arrow--right {
+  left: 100%;
+  top: calc(50% - 12px);
+  transform: rotate(90deg);
+  --coach-bob-x: 0;
+  --coach-bob-y: 4px;
+}
+
+.coach-arrow--left {
+  right: 100%;
+  top: calc(50% - 12px);
+  transform: rotate(-90deg);
+  --coach-bob-x: 0;
+  --coach-bob-y: 4px;
+}
+
 /* Mascot animations */
 @keyframes mascot-bob {
   0%, 100% {
@@ -1694,6 +1762,10 @@ body {
   .thermal-spark {
     animation: thermal-spark-fly 0.5s steps(3, end) infinite;
   }
+  .coach-arrow__glyph {
+    animation: coach-arrow-bob 0.7s steps(2, end) infinite;
+  }
+
   .pixel-btn:hover:not(:disabled) {
     transform: translateY(-1px);
   }
@@ -1963,6 +2035,10 @@ body {
 [data-motion='reduced'] .chat-prompt--in,
 [data-motion='reduced'] .chat-reply--in {
   animation: none;
+}
+
+[data-motion='reduced'] .coach-arrow__glyph {
+  animation: coach-arrow-fade 1.2s ease-in-out infinite;
 }
 
 [data-motion='reduced'] .mote {
