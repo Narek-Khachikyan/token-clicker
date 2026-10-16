@@ -1076,6 +1076,36 @@ body {
   padding-bottom: var(--space-1);
 }
 
+/* Подсказка при наведении (Hint.tsx): карточка Модели и полная запись числа. Позицию и ширину
+   карточки задаёт компонент из модуля раскладки; здесь — только вид. Рамка и полоса акцента те
+   же, что у .pixel-card, которым подсказка и помечена. Выше тостов (100) и окон (50), ниже
+   оверлея Престижа (2000): подсказка нужна, пока открыто окно, а сам оверлей её не просит. */
+.hint-pop {
+  position: fixed;
+  z-index: 120;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: var(--text-main);
+}
+
+.hint-pop--card {
+  padding: var(--space-3);
+}
+
+.hint-pop--text {
+  width: max-content;
+  padding: var(--space-1) var(--space-2);
+  /* 300 цифр без пробелов не должны вылезать за окно: рвутся где придётся, группы по три — неразрывные. */
+  overflow-wrap: anywhere;
+}
+
+.hint-pop__number {
+  font-variant-numeric: tabular-nums;
+}
+
 /* Float animation for +X tokens */
 @keyframes float-up {
   0% {
