@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useGameStore } from '../store/useGameStore';
+import React, { useEffect, useRef, useState } from 'react';
+import { useGameStore, useStateSlice } from '../store/useGameStore';
 import { EVENT_MIN_MS } from '../economy/events';
 import { newsPool, RUMORS, tickerLine } from '../economy/news';
 import { Icon } from './Icon';
@@ -56,12 +56,10 @@ export const NewsTicker: React.FC = () => {
   // Пул заголовков нужен ленте, а не только подбору: копии заполняются разными новостями,
   // иначе в начале игры игрок трижды подряд читал одну фразу.
   //
-  // Берётся состояние и считается пул в `useMemo`, а не селектором `newsPool(s.state)`:
-  // селектор возвращал бы новый массив на каждый вызов, и zustand увидел бы изменение при
-  // каждом тике — лента перерисовывалась бы двадцать раз в секунду ради строки, которая меняется
-  // раз в пятнадцать секунд.
-  const state = useGameStore((s) => s.state);
-  const pool = useMemo(() => newsPool(state), [state]);
+  // Подписка на сам пул: он новый массив на каждый вызов, но поверхностное сравнение видит те же
+  // строки, и лента перерисовывается, только когда состав заголовков действительно сменился, а
+  // не двадцать раз в секунду ради строки, которая меняется раз в пятнадцать секунд.
+  const pool = useStateSlice(newsPool);
   const refreshNews = useGameStore((s) => s.refreshNews);
   // У слуха своё действие, а не `catchEvent`: то живёт внутри окна события, и слух не имеет
   // права занимать чужое окно — у него нет ни Золотого Токена, ни его срока.
@@ -138,15 +136,16 @@ export const NewsTicker: React.FC = () => {
       onMouseLeave={() => setPaused(false)}
       onFocus={pause}
       onBlur={resumeIfOutside}
-      className={paused ? 'news-ticker--paused' : undefined}
+      className={paused ? 'news-ticker news-ticker--paused' : 'news-ticker'}
       style={{
-        display: 'flex',
+        // `display` — в классе `.news-ticker` (index.css): инлайн-значение перекрыло бы его скрытие
+        // в альбомной ориентации.
         alignItems: 'center',
-        padding: '6px 14px',
+        padding: 'var(--space-1) var(--space-3)',
         backgroundColor: 'var(--bg-void)',
-        borderBottom: '1px solid var(--border)',
+        borderBottom: 'var(--frame-w) solid var(--border)',
         fontSize: '0.9rem',
-        gap: '8px',
+        gap: 'var(--space-2)',
         overflow: 'hidden',
         whiteSpace: 'nowrap',
       }}
@@ -197,7 +196,7 @@ export const NewsTicker: React.FC = () => {
                 aria-hidden={i > 0 ? true : undefined}
               >
                 {text}
-                <span className="news-ticker-sep" aria-hidden="true" style={{ margin: '0 14px' }}>
+                <span className="news-ticker-sep" aria-hidden="true" style={{ margin: '0 var(--space-3)' }}>
                   ◆
                 </span>
               </span>

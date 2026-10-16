@@ -11,4 +11,11 @@
  */
 declare module 'node:fs' {
   export function readFileSync(path: string, encoding: 'utf8'): string;
+  /** Байты файла: тест шрифтов читает таблицу `cmap` прямо из woff2. */
+  export function readFileSync(path: string): Uint8Array;
+}
+
+declare module 'node:zlib' {
+  /** woff2 хранит таблицы одним потоком brotli. */
+  export function brotliDecompressSync(input: Uint8Array): Uint8Array;
 }

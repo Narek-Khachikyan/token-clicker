@@ -1,9 +1,9 @@
 import React, { useEffect, useRef } from 'react';
-import { motionAllowed, useGameStore } from '../store/useGameStore';
+import { motionAllowed, useGameStore, useStateSlice } from '../store/useGameStore';
 import { CATALOG } from '../economy/catalog';
 import { ACHIEVEMENTS, nonShadowCount } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
-import { computeBonus, freeCompute } from '../economy/engine';
+import { computeBonus } from '../economy/engine';
 import { Num } from './Num';
 import { Icon } from './Icon';
 
@@ -13,26 +13,31 @@ interface HeaderProps {
   onOpenSettings: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({
+const HeaderView: React.FC<HeaderProps> = ({
   onOpenAchievements,
   onOpenStats,
   onOpenSettings,
 }) => {
-  const state = useGameStore((s) => s.state);
+  // Шапка читает пять чисел, а не состояние: тик двигает Токены и часы, и подписка на
+  // `s.state` перерисовывала бы её двадцать раз в секунду ради тех же самых цифр.
+  const generation = useGameStore((s) => s.state.generation);
+  // Бонус к Доходу даёт свободный Compute (ADR-0010): начисленное минус потраченное на Перки.
+  // Два числа, а не состояние: свободный Compute меняется покупкой, а не тиком.
+  const compute = useGameStore((s) => s.state.compute - s.state.computeSpent);
+  const isMuted = useGameStore((s) => s.state.settings.muted);
+  // Бейдж Compute печатается нотацией игрока, а не значением по умолчанию: иначе в научном
+  // режиме вся игра показывала «1.00e4», а шапка — «10,00 K», то есть два разных числа на
+  // одном экране для одной и той же величины.
+  const notation = useGameStore((s) => s.state.settings.notation);
+  // Числитель — nonShadowCount, а не achievements.length: тени лежат в том же списке, и
+  // прямой длиной счётчик шапал бы выше знаменателя. Знаменатель остаётся только обычный.
+  const unlockedAchCount = useStateSlice(nonShadowCount);
   const toggleMute = useGameStore((s) => s.toggleMute);
   const burst = useGameStore((s) => s.burst);
   const badgeRef = useRef<HTMLButtonElement>(null);
 
-  const gen = CATALOG[state.generation];
-  // Числитель — nonShadowCount, а не achievements.length: тени лежат в том же списке, и
-  // прямой длиной счётчик шапал бы выше знаменателя. Знаменатель остаётся только обычный.
-  const unlockedAchCount = nonShadowCount(state);
+  const gen = CATALOG[generation];
   const totalAchCount = ACHIEVEMENTS.length;
-  const isMuted = state.settings.muted;
-  // Бейдж Compute печатается нотацией игрока, а не значением по умолчанию: иначе в научном
-  // режиме вся игра показывала «1.00e4», а шапка — «10,00 K», то есть два разных числа на
-  // одном экране для одной и той же величины.
-  const notation = state.settings.notation;
 
   // Значок — единственное место на экране, где Достижение остаётся видимым после того, как
   // тост уйдёт, поэтому пульсирует он, а не тост: вспышка тоста длится полсекунды.
@@ -49,132 +54,91 @@ export const Header: React.FC<HeaderProps> = ({
   }, [burst?.nonce]);
 
   return (
-    <header
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '10px 16px',
-        backgroundColor: 'var(--bg-panel)',
-        borderBottom: '2px solid var(--border)',
-        flexWrap: 'wrap',
-        gap: '10px',
-        // minWidth: 0 обязателен обеим группам: флекс-элемент иначе не сожмётся ниже
-        // содержимого, и на узком экране бейдж Поколения распирал бы строку вместо того,
-        // чтобы уступить её соседу. Прокрутка полосы не участвует — шапка обязана помещаться
-        // в экран целиком, поэтому лишнее уходит в перенос строки, а не под обрез.
-        minWidth: 0,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flexWrap: 'wrap' }}>
-        {/* Логотип — единственное место, где пиксельный шрифт законен на словах (ADR-0003).
-            clamp вместо фиксированного кегля: на 390 px «TOKEN CLICKER» в 1.4rem переносился
-            на две строки и поднимал всю шапку до 131 px, то есть на шестую часть экрана. */}
-        <h1
-          className="pixel-font"
-          style={{
-            fontSize: 'clamp(1rem, 4.4vw, 1.4rem)',
-            color: 'var(--accent-color)',
-            letterSpacing: '1px',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          TOKEN CLICKER
-        </h1>
-        {/* Бейдж Поколения: key пересоздаёт узел на смене Поколения, появление — только
-            opacity через toast-fade, а пульс — классом tab-badge--pulse (scale при движении,
-            мигание при reducedMotion), перезапуск тем же перемонтированием.
+    // Полоса описана классами целиком (index.css): инлайн-отступ в компоненте победил бы правило
+    // узкого режима, и шапка на телефоне осталась бы с широким полем и вырезом экрана под ней.
+    <header className="header-bar">
+      <div className="header-left">
+        {/* Логотип набран Departure Mono на ступени 22 px, как и остальные заголовки (ADR-0009).
+            «TOKEN CLICKER» — 13 знаков по 14 px, 182 px: рядом с четырьмя кнопками по 44 px и
+            бейджем Поколения на 320 px он не помещается, поэтому на телефоне невидим. Из
+            дерева доступности он не уходит (`header-full`): h1 остаётся единственным заголовком
+            страницы с именем игры. */}
+        <h1 className="pixel-22 header-logo header-full">TOKEN CLICKER</h1>
+        {/* Бейджи Поколения и Compute. Ряд на широкой шапке, столбик на узкой: в 320 px рядом они
+            не встают. */}
+        <div className={`header-badges${compute > 0 ? ' header-badges--stack' : ''}`}>
+          {/* Бейдж Поколения: key пересоздаёт узел на смене Поколения, появление — только
+              opacity через toast-fade, а пульс — классом tab-badge--pulse (scale при движении,
+              мигание при reducedMotion), перезапуск тем же перемонтированием.
 
-            nowrap плюс многоточие: период Поколения — это данные, и его длина ничем не
-            ограничена, а шапка от него не должна зависеть. Без nowrap бейдж «Поколение 5:
-            Reasoning (конец 2024 — начало 2025)» занимал четыре строки и выдавливал
-            остальную шапку вниз; теперь он всегда одна строка, а не поместившийся хвост
-            обрезается многоточием — имя Поколения, ради которого бейдж и нужен, остаётся. */}
-        <span
-          key={state.generation}
-          style={{
-            fontSize: '0.85rem',
-            backgroundColor: 'var(--tint-accent)',
-            border: '1px solid var(--border-strong)',
-            color: 'var(--text-main)',
-            padding: '2px 8px',
-            borderRadius: '4px',
-            animation: 'toast-fade 0.15s ease-out',
-            maxWidth: '100%',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <span className="tab-badge--pulse" style={{ display: 'inline-block' }}>
-            Поколение {gen.id}: {gen.name} ({gen.period})
+              nowrap плюс многоточие: период Поколения — это данные, и его длина ничем не
+              ограничена, а шапка от него не должна зависеть. Без nowrap бейдж «Поколение 5:
+              Reasoning (конец 2024 — начало 2025)» занимал четыре строки и выдавливал
+              остальную шапку вниз; теперь он всегда одна строка, а не поместившийся хвост
+              обрезается многоточием — имя Поколения, ради которого бейдж и нужен, остаётся.
+              На телефоне виден только «Поколение N»: имя и период остались в дереве доступности. */}
+          <span key={generation} className="header-gen">
+            <span className="tab-badge--pulse" style={{ display: 'inline-block' }}>
+              {/* Номер Поколения — пиксельным шрифтом, а название и период — Nunito мельче 22 px:
+                  период — данные и длиной не ограничен, в пиксельный кегль он не вмещается. */}
+              <span className="pixel-22 header-gen__num">Поколение {gen.id}</span>
+              <span className="header-full" style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+                {' '}
+                {gen.name} · {gen.period}
+              </span>
+            </span>
           </span>
-        </span>
-        {state.compute > 0 && (
-          <span
-            style={{
-              fontSize: '0.85rem',
-              backgroundColor: 'var(--tint-gold)',
-              border: '1px solid var(--gold)',
-              color: 'var(--gold)',
-              padding: '2px 8px',
-              borderRadius: '4px',
-              // Появление при монтировании — только opacity через toast-fade: бейдж
-              // возникает один раз, пульс ему не нужен.
-              animation: 'toast-fade 0.15s ease-out',
-              whiteSpace: 'nowrap',
-            }}
-            title="Бонус к Доходу даёт только свободный Compute: потраченный на Перки в него не входит"
-          >
-            <Num>{formatNumber(freeCompute(state), notation)}</Num> Compute (+
-            <Num>{formatNumber(computeBonus(freeCompute(state)) * 100, notation)}</Num>%)
-          </span>
-        )}
+          {compute > 0 && (
+            <span
+              className="pixel-22 header-compute"
+              title="Бонус к Доходу даёт только свободный Compute: потраченный на Перки в него не входит"
+            >
+              <Num>{formatNumber(compute, notation)}</Num> Compute (+
+              <Num>{formatNumber(computeBonus(compute) * 100, notation)}</Num>%)
+            </span>
+          )}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+      <div className="header-right">
         {/* Иконочные кнопки получают имя из aria-label: картинка помечена декоративной, и
             без подписи озвучка прочитала бы пустую кнопку. */}
         <button
-          className="pixel-btn"
+          className="pixel-btn header-btn"
           onClick={toggleMute}
           title={isMuted ? 'Включить звук' : 'Выключить звук'}
           aria-label={isMuted ? 'Включить звук' : 'Выключить звук'}
-          style={{ padding: '6px 10px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name={isMuted ? 'sound-off' : 'sound-on'} />
         </button>
 
         <button
           ref={badgeRef}
-          className="pixel-btn ach-badge"
+          className="pixel-btn pixel-22 header-btn header-btn--count ach-badge"
           onClick={onOpenAchievements}
           title="Достижения"
           // Без aria-label доступное имя кнопки — это «14 / 21», то есть два числа без
           // единого слова; озвучка читала бы их вслух и не называла, что открывается.
           aria-label={`Достижения: ${unlockedAchCount} из ${totalAchCount}`}
-          style={{ padding: '6px 12px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name="trophy" />
-          <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
+          <span>
+            <Num>{unlockedAchCount}</Num>/<Num>{totalAchCount}</Num>
+          </span>
         </button>
 
-        <button
-          className="pixel-btn"
-          onClick={onOpenStats}
-          title="Инфо"
-          style={{ padding: '6px 12px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
-        >
+        {/* Слово «Инфо» на телефоне уходит в невидимые: кнопка остаётся 44 px значком, а имя ей
+            даёт само слово в дереве доступности. */}
+        <button className="pixel-btn pixel-22 header-btn" onClick={onOpenStats} title="Инфо">
           <Icon name="info" />
-          Инфо
+          <span className="header-full">Инфо</span>
         </button>
 
         <button
-          className="pixel-btn"
+          className="pixel-btn header-btn"
           onClick={onOpenSettings}
           title="Настройки"
           aria-label="Настройки"
-          style={{ padding: '6px 12px', fontSize: '0.9rem', whiteSpace: 'nowrap' }}
         >
           <Icon name="settings" />
         </button>
@@ -182,3 +146,5 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
+
+export const Header = React.memo(HeaderView);

@@ -15,15 +15,25 @@
  * приезжают оттуда же, потому что обе задачи решает одно число на один вопрос.
  */
 
-/** Минимум колонки Клика, px. */
-export const CLICK_COL_MIN = 300;
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+
+/**
+ * Минимум колонки Клика, px. Вместе с магазином в 430 и офисом в 360 даёт порог в 1130 px — окно,
+ * в котором шапка с кнопками на 22 px (ADR-0009) ещё стоит в одну строку; на 1100 px она уже
+ * переносилась.
+ */
+export const CLICK_COL_MIN = 340;
 /** Максимум колонки Клика, px — прежний предел, до которого колонка и доли окна. */
 export const CLICK_COL_MAX = 380;
 /** Доля окна, на которой колонка Клика доходит до максимума. */
 export const CLICK_COL_SHARE = 0.27;
 
-/** Минимум колонки магазина, px. */
-export const SHOP_COL_MIN = 340;
+/**
+ * Минимум колонки магазина, px. Вкладки «Модели / Апгрейды / Престиж» набраны Departure Mono
+ * на ступени 22 px (ADR-0009): шрифт моноширинный и шире Nunito, три слова с полями и плашкой
+ * Апгрейдов в 340 px не помещались, а в 430 помещаются.
+ */
+export const SHOP_COL_MIN = 430;
 /** Максимум колонки магазина, px. */
 export const SHOP_COL_MAX = 440;
 /** Доля окна, на которой колонка магазина доходит до максимума. */
@@ -39,18 +49,148 @@ export const OFFICE_COL_MIN = 360;
 export const THREE_COL_MIN = CLICK_COL_MIN + SHOP_COL_MIN + OFFICE_COL_MIN;
 
 /**
- * Ширина окна, ниже которой шапка сжимается до одного ряда: на 390 px она занимала две
- * строки, а подвал с атрибуцией Artificial Analysis обрезался.
+ * Ширина окна, до которой интерфейс идёт под палец: шапка сжата до одного ряда с кнопками в
+ * 44 px, а цели нажатия и подвал подогнаны под телефон.
  *
- * Это НЕ порог раскладки: одна колонка начинается ниже, на `THREE_COL_MIN`, но между 600 и
- * 1000 px шапка уже обязана ужиматься. Правило живёт здесь, потому что `index.css` не умеет
- * взять константу, а дублировать число в двух местах — значит рано или поздно получить два
- * разных ответа на один вопрос.
+ * Это НЕ порог раскладки: одна колонка начинается выше, на `THREE_COL_MIN`. 960, а не 600:
+ * телефон в альбомной ориентации шире 600 (iPhone SE 667, iPhone 14 844, Pro Max 932), и полная
+ * шапка — логотип, бейдж Поколения с периодом, Compute и четыре кнопки с подписями — на 844 px
+ * уже не помещалась: бейдж обрезался до «Поколени…», а ниже 900 она переносилась на второй ряд.
+ * Выше 960 шапка полная и в строку влезает. Так же под палец идут и планшеты в портрете.
  *
- * Дубль числа в CSS убран вместе с медиазапросом: App.tsx вешает на корень `data-narrow`,
- * и CSS спрашивает признак, а не ширину. Медиазапрос константу взять не умеет — признак умеет.
+ * Правило живёт здесь, потому что `index.css` не умеет взять константу, а дублировать число в
+ * двух местах — значит рано или поздно получить два разных ответа на один вопрос. App.tsx
+ * вешает на корень `data-narrow`, и CSS спрашивает признак, а не ширину: медиазапрос константу
+ * взять не умеет, признак умеет.
  */
-export const NARROW_MAX = 600;
+export const NARROW_MAX = 960;
+
+/* ── Счётчик Токенов ──────────────────────────────────────────────────────────────
+   Счётчик набран Departure Mono на ступени 33 px (ADR-0009). Шрифт моноширинный: каждый
+   знак, включая запятую и пробел перед суффиксом, занимает одну ячейку, поэтому число не
+   дрожит по ширине, пока растёт, а ширина записи — это число знаков на ширину ячейки.
+   Колонка обязана вмещать самую длинную запись, и это единственный вопрос здесь. */
+
+/** Ступень счётчика Токенов, px: одна из трёх ступеней пиксельного шрифта, класс `pixel-${COUNTER_STEP}`. */
+export const COUNTER_STEP: 22 | 33 | 44 = 33;
+
+/** Ширина ячейки Departure Mono в долях кегля: 350 из 550 единиц em. */
+export const PIXEL_ADVANCE = 350 / 550;
+
+/**
+ * Знаков в самой длинной записи счётчика: «100,00 QaDc» — мантисса, пробел и суффикс из
+ * четырёх букв. «100,00», а не «99,99», потому что `formatNumber` решает о двух знаках до
+ * округления, и мантисса 99,996 печатается шире. Длину сторожит тест по `formatNumber`.
+ */
+export const COUNTER_CHARS = 11;
+
+/**
+ * Ступень всплывающего `+N` по уровню Серии (индекс = уровень): 22, 33, 44 px — те же три
+ * ступени пиксельного шрифта, что и везде (ADR-0009), без промежуточных масштабов, которые
+ * размыли бы пиксельную сетку. Число уровней сторожит тест против `STREAK_MAX_LEVEL`.
+ */
+export const FLOATER_STEPS: readonly (22 | 33 | 44)[] = [22, 22, 33, 33, 44];
+
+/** Ступень `+N` на уровне Серии; уровень за краем таблицы берёт ступень с её края. */
+export const floaterStep = (level: number): 22 | 33 | 44 =>
+  FLOATER_STEPS[Math.min(FLOATER_STEPS.length - 1, Math.max(0, Math.floor(level) || 0))];
+
+/**
+ * Левая кромка точки привязки `+N`, px: число центрируется на ней (`translate(-50%)` в
+ * float-up), поэтому точку держим не ближе половины ширины записи к краю окна. Запись шире
+ * окна встаёт по центру: обрезаться ей всё равно, но не одной стороной.
+ */
+export const floaterLeft = (x: number, chars: number, step: 22 | 33 | 44, viewportW: number): number => {
+  const half = (chars * step * PIXEL_ADVANCE) / 2;
+  if (half * 2 >= viewportW) return viewportW / 2;
+  return Math.min(viewportW - half, Math.max(half, x));
+};
+
+/** Горизонтальное поле колонки Клика, px: она же полоса одноколоночного режима. */
+export const CLICK_COL_PAD = 16;
+
+/** Ширина самой длинной записи счётчика Токенов на ступени `step`, px. */
+export const counterWidth = (step: number = COUNTER_STEP): number => COUNTER_CHARS * step * PIXEL_ADVANCE;
+
+/* ── Сцена ─────────────────────────────────────────────────────────────────────────
+   На десктопе Сцена — самый крупный элемент центральной колонки: над ней нет баннера цели,
+   под ней нет состава Лабораторий, колонка — это поле и сама Сцена. Цель Поколения, кнопка
+   Престижа и «Переписка» стоят на HUD-полосе поверх неё (ADR-0002), а число Агентов и
+   Синергия Лаборатории — в карточке, которая появляется над Маскотом при наведении. */
+
+/** Поле центральной колонки вокруг Сцены, px: ступень `--space-4` шкалы отступов. */
+export const SCENE_COL_PAD = 16;
+
+/**
+ * Низшая высота Сцены, px: HUD в самом высоком виде (на 320 px с кнопкой Престижа он 234 px)
+ * плюс два ряда мест Маскотов (около 190 px) и воздух между ними. Ниже Маскоты заезжали бы под
+ * HUD, поэтому на низком окне колонка прокручивается, а Сцена не сжимается. Замерено в
+ * браузере на 320, 390, 1131 и 1440 px.
+ */
+export const SCENE_MIN_H = 440;
+
+/** Ширина карточки Маскота, px: самая длинная строка («Синергия: +100% всем Моделям») в одну. */
+export const MASCOT_CARD_W = 232;
+
+/** Поле между карточкой Маскота и краем Сцены, px: карточка не прижимается к рамке. */
+export const MASCOT_CARD_EDGE = 8;
+
+/** Зазор между низом карточки и верхом места Маскота, px. */
+export const MASCOT_CARD_GAP = 8;
+
+/**
+ * Ширина карточки Маскота на Сцене шириной `sceneW`: полная, пока Сцена шире карточки с двумя
+ * полями, иначе — вся Сцена за вычетом полей. На 320 px Сцена уже 288, но 232 + 16 влезает; при
+ * ещё более узком окне карточка сужается, а не вылезает.
+ */
+export const mascotCardWidth = (sceneW: number): number =>
+  Math.max(0, Math.min(MASCOT_CARD_W, sceneW - MASCOT_CARD_EDGE * 2));
+
+/**
+ * Левый край карточки Маскота, px от левого края Сцены: карточка стоит по центру места
+ * Маскота (`centerX`), но не выходит за Сцену — крайние Маскоты ряда иначе показывали бы
+ * половину карточки за рамкой, где её режет `overflow: hidden`.
+ */
+export const mascotCardLeft = (centerX: number, sceneW: number): number => {
+  const width = mascotCardWidth(sceneW);
+  return clamp(centerX - width / 2, MASCOT_CARD_EDGE, Math.max(MASCOT_CARD_EDGE, sceneW - MASCOT_CARD_EDGE - width));
+};
+
+/**
+ * Нижний край карточки Маскота, px от низа Сцены: над местом (`bottom`), но так, чтобы верх
+ * карточки высотой `cardH` не вышел за верх Сцены высотой `sceneH`. На телефоне Сцена всего
+ * 300 px, Маскоты стоят в два ряда, и над верхним рядом места на карточку нет — тогда она
+ * ложится поверх места, а не уходит под HUD или за рамку.
+ */
+export const mascotCardBottom = (bottom: number, cardH: number, sceneH: number): number =>
+  Math.max(MASCOT_CARD_EDGE, Math.min(bottom, sceneH - MASCOT_CARD_EDGE - cardH));
+
+/* Реплика Модели — пузырь над Маскотом, который говорит. Тот же вопрос, что у карточки (не выйти
+   за рамку Сцены), поэтому поле от края то же, а вертикаль считает та же `mascotCardBottom`. Новое
+   здесь одно: хвостик пузыря обязан смотреть на говорящего, даже когда сам пузырь прижат к краю. */
+
+/** Ширина пузыря реплики на Сцене, px: три строки Nunito 14 px для самой длинной реплики. */
+export const QUIP_BUBBLE_W = 320;
+
+/** Зазор между низом пузыря и верхом места Маскота, px: хвостик (8) и воздух над головой Маскота. */
+export const QUIP_BUBBLE_GAP = 12;
+
+/** Отступ хвостика от угла пузыря, px: ближе хвост вылезал бы за скошенный угол рамки. */
+export const QUIP_TAIL_EDGE = 16;
+
+/** Ширина пузыря реплики на Сцене шириной `sceneW`: полная, пока влезает с двумя полями. */
+export const quipBubbleWidth = (sceneW: number): number =>
+  Math.max(0, Math.min(QUIP_BUBBLE_W, sceneW - MASCOT_CARD_EDGE * 2));
+
+/** Левый край пузыря, px от левого края Сцены: по центру Маскота (`centerX`), но внутри Сцены. */
+export const quipBubbleLeft = (centerX: number, sceneW: number): number => {
+  const width = quipBubbleWidth(sceneW);
+  return clamp(centerX - width / 2, MASCOT_CARD_EDGE, Math.max(MASCOT_CARD_EDGE, sceneW - MASCOT_CARD_EDGE - width));
+};
+
+/** Где хвостик, px от левого края пузыря: под Маскотом, но не ближе `QUIP_TAIL_EDGE` к углам. */
+export const quipTailLeft = (centerX: number, left: number, width: number): number =>
+  clamp(centerX - left, QUIP_TAIL_EDGE, Math.max(QUIP_TAIL_EDGE, width - QUIP_TAIL_EDGE));
 
 /* ── Вертикальный ритм оболочки ────────────────────────────────────────────────────
    Полосы оболочки (шапка, лента, рабочая область, панель вкладок, подвал) стоят вплотную,
@@ -66,8 +206,32 @@ export const NARROW_MAX = 600;
 
 export const TAP_MIN = 44;
 
-/** Высота шапки, px: 44 px тапа плюс ряд кнопок, поэтому выше тапа. */
-export const HEADER_H = 48;
+/**
+ * Высота узкой шапки без выреза, px: кнопка в 44 px, 2 px воздуха над ней, жёсткая тень кнопки
+ * (`--drop`, 4 px) под ней и нижняя рамка в 2 px. Выше тапа ровно на то, что вокруг него.
+ */
+export const HEADER_H = 52;
+
+/** Поле шапки слева и справа на узком экране, px: ступень `--space-2` шкалы отступов. */
+export const HEADER_PAD_X = 8;
+/** Зазор между кнопками шапки на узком экране, px: ступень `--space-1`. */
+export const HEADER_GAP = 4;
+/** Сколько кнопок в правой группе шапки: звук, Достижения, Инфо, Настройки. */
+export const HEADER_BUTTONS = 4;
+/**
+ * Что нужно левой группе шапки на узком экране, px: знак «TC» (около 28) и бейдж «Пок. N»
+ * (около 64) с зазором. Меньше этого логотип с бейджем в строку не встанут, и шапка на 320 px
+ * уйдёт во второй ряд.
+ */
+export const HEADER_LEFT_MIN = 96;
+/**
+ * Сколько места остаётся левой группе узкой шапки в окне шириной `vw`, px: все кнопки по 44 px
+ * (палец, а не курсор), зазоры между ними и перед группой, поля по краям. Ширина кнопок не
+ * зависит от слов на них: подписи на узком экране уходят в `aria-label`, а счётчик Достижений
+ * стоит под значком, а не рядом с ним.
+ */
+export const headerLeftRoom = (vw: number): number =>
+  vw - HEADER_PAD_X * 2 - HEADER_BUTTONS * TAP_MIN - HEADER_BUTTONS * HEADER_GAP;
 
 /**
  * Высота панели вкладок в одноколоночном режиме, px. Замерено в браузере на 320, 360 и
@@ -75,6 +239,98 @@ export const HEADER_H = 48;
  * не растут её собой.
  */
 export const TAB_BAR_H = 56;
+
+/* ── Закреплённая полоса телефона ──────────────────────────────────────────────────
+   В одноколоночном режиме над рабочей областью стоит полоса из двух строк и шкалы: Токены и
+   слово состояния Температуры, Доход под ними, а по нижнему краю — мини-шкала Температуры.
+   Она вне прокручиваемой области, поэтому видна на любой нижней вкладке; счётчик в колонке
+   Клика на телефоне не рисуется — это тот же счётчик, а не второй.
+
+   Высоту полосы знают три места: CSS полосы, отступ стека тостов (он встаёт под неё) и
+   рабочая область под ней. Поэтому она складывается из названных частей здесь и приезжает в
+   CSS переменными, а не угадывается в каждом месте отдельно. */
+
+/** Ступень счётчика Токенов в полосе: 22 px, а не 33 — 33 px шире строки на 320 px вместе с Температурой. */
+export const STATUS_COUNTER_STEP: 22 | 33 | 44 = 22;
+/** Высота строки полосы, px: пиксельная ступень 22 px и два пикселя арта воздуха. */
+export const STATUS_ROW_H = 24;
+/** Высота мини-шкалы Температуры по нижнему краю полосы, px. */
+export const STATUS_GAUGE_H = 6;
+/** Отступ полосы сверху, px: ступень `--space-1` шкалы отступов. */
+export const STATUS_PAD_Y = 4;
+/** Воздух между второй строкой и мини-шкалой, px. */
+export const STATUS_GAP = 4;
+/** Нижняя рамка полосы, px: `--frame-w`. */
+export const STATUS_FRAME = 2;
+/** Высота полосы целиком, px. */
+export const STATUS_STRIP_H = STATUS_PAD_Y + STATUS_ROW_H * 2 + STATUS_GAP + STATUS_GAUGE_H + STATUS_FRAME;
+
+/**
+ * Ширина правой ячейки первой строки, px: значок и слово состояния Температуры. Ячейка не
+ * зависит от слова («Перегрев» — самое длинное: значок 16 px и около 62 px Nunito), поэтому
+ * счётчик слева не гуляет, когда состояние меняется.
+ */
+export const STATUS_THERMAL_W = 96;
+/** Зазор между счётчиком и ячейкой Температуры, px: `--space-2`. */
+export const STATUS_COL_GAP = 8;
+
+/* ── Альбомная ориентация ──────────────────────────────────────────────────────────
+   Телефон на боку (844 × 390, 667 × 375, 568 × 320) — та же одноколоночная раскладка, и кнопки
+   в ней стоят на тех же местах относительно друг друга: Токены сверху, вкладки снизу, Клик
+   последним над ними. Меняется только высота: рабочей области остаётся 390 минус шапка, лента
+   новостей, панель вкладок и подвал, и закреплённая полоса из двух строк съедала бы ещё
+   четверть оставшегося. Поэтому полоса в альбомной ориентации — одна строка: ширина у неё есть,
+   высоты нет. */
+
+/** Высота окна, до которой окно шире своей высоты считается телефоном на боку, px. */
+export const LANDSCAPE_MAX_H = 500;
+
+/**
+ * Телефон на боку: одноколоночная раскладка, окно шире своей высоты и ниже `LANDSCAPE_MAX_H`.
+ * «Шире высоты» нужно затем, что портретный телефон с адресной строкой тоже бывает ниже 500
+ * (iPhone SE: около 460), но в нём полосе нужны две строки — ширины на одну не хватает.
+ */
+export const isLandscapePhone = (width: number, height: number): boolean =>
+  width < THREE_COL_MIN && width > height && height <= LANDSCAPE_MAX_H;
+
+/** Высота полосы в альбомной ориентации, px: одна строка вместо двух. */
+export const STATUS_STRIP_LANDSCAPE_H = STATUS_PAD_Y + STATUS_ROW_H + STATUS_GAP + STATUS_GAUGE_H + STATUS_FRAME;
+
+/** Высота закреплённой полосы телефона, px. */
+export const statusStripH = (landscape: boolean): number =>
+  landscape ? STATUS_STRIP_LANDSCAPE_H : STATUS_STRIP_H;
+
+/** Знаков в самой длинной записи Дохода полосы: «+100,00 QaDc / сек» — мантисса, суффикс и «/ сек». */
+export const STATUS_INCOME_CHARS = 18;
+
+/** Измеренные края для стека тостов на телефоне. */
+export interface PinnedToastInput {
+  /** Низ закреплённой полосы, px от верха окна. */
+  stripBottom: number;
+  /** Верх нижних полос оболочки (панель вкладок, подвал). */
+  limit: number;
+  /** Измеренная высота одной карточки; пока тостов нет — `TOAST_CARD_BUDGET`. */
+  cardHeight?: number;
+  /** Что стек держит под карточками: кнопка «ещё N». */
+  below?: number;
+}
+
+/**
+ * Края для `toastStackBand` на телефоне: всё главное лежит под стеком и над ним нет ничего
+ * важнее полосы, поэтому и шкала Температуры, и Вехи считаются стоящими прямо под полосой. Стек
+ * встаёт сразу под ней и идёт вниз; кнопка Клика и шкала у большого пальца внизу — тостом они
+ * закрыты быть не должны, а наверху тост закрывает только то, что переживёт четыре секунды без
+ * взгляда. Без этого правила на телефоне «пока есть место, стек стоит под шкалой» поставило бы
+ * его на кнопку Клика: шкала там не посередине колонки, а у нижней полосы.
+ */
+export const pinnedToastAnchors = (a: PinnedToastInput): ToastAnchors => ({
+  counterBottom: a.stripBottom,
+  keepVisibleBottom: a.stripBottom,
+  contentBottom: a.stripBottom,
+  limit: a.limit,
+  cardHeight: a.cardHeight,
+  below: a.below,
+});
 
 /**
  * Поля стека тостов слева и справа, px. Стек стоит с тем же отступом от края, что и колонка
@@ -108,7 +364,56 @@ export const toastStackWidth = (vw: number): number => {
  */
 export const TOAST_CLEARANCE = 8;
 
-const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+/** Зазор между карточками стека и между стеком и тем, что над ним, px. */
+export const TOAST_GAP = 8;
+
+/** Высота, которую одна карточка тоста занимает в стеке вместе с зазором, px, пока измерить её
+ *  нечем: карточка с трёхстрочным описанием — 117 px, плюс зазор. */
+export const TOAST_CARD_BUDGET = 128;
+
+/** Сколько карточек стек показывает разом, как бы много места ни было. */
+export const TOAST_VISIBLE_MAX = 2;
+
+/** Измеренные края колонки Клика (px от верха окна), по которым ставится стек тостов. */
+export interface ToastAnchors {
+  /** Низ счётчика Токенов и Дохода: стек не поднимается выше. */
+  counterBottom: number;
+  /** Низ последнего, что обязано остаться на виду под тостом: шкала Температуры, а при её
+   *  отсутствии кнопка Клика. Стек не заходит выше этой черты ни на узком, ни на низком окне. */
+  keepVisibleBottom: number;
+  /** Низ колонки со всем главным (после Вех): отсюда стек начинается, если места хватает. */
+  contentBottom: number;
+  /** Верх нижних полос оболочки (панель вкладок, подвал): ниже него стеку не место. */
+  limit: number;
+  /** Измеренная высота одной карточки; пока тостов нет, замерять нечего и берётся `TOAST_CARD_BUDGET`. */
+  cardHeight?: number;
+  /** Что стек держит под карточками: кнопка «ещё N» хвоста очереди, px; без хвоста — 0. */
+  below?: number;
+}
+
+/** Высота кнопки «ещё N» вместе с зазором над ней, px: она стоит в стеке под карточками. */
+export const TOAST_QUEUE_H = 40;
+
+/**
+ * Где стоять стеку тостов и сколько карточек в него влезает.
+ *
+ * Три правила по убыванию силы. Первое: стек целиком в окне, над нижними полосами (`limit`) —
+ * тост, выехавший за экран, нельзя ни прочитать, ни закрыть. Второе: стек не лежит на числе
+ * Токенов и Доходе. Третье: пока есть место, он не лежит и на кнопке Клика, шкале Температуры
+ * и линии перегрева — стоит под колонкой, а на невысоком окне поднимается ровно настолько,
+ * чтобы поместиться, и закрывает тогда Вехи и прогресс покупки, то есть то, что переживёт
+ * четыре секунды без взгляда. Если места не хватает даже на это (320 × 640), третье правило
+ * уступает первому: колонка там и так прокручивается, а тост висит в окне.
+ */
+export const toastStackBand = (a: ToastAnchors): { top: number; slots: number } => {
+  const floor = a.counterBottom + TOAST_GAP;
+  const preferred = Math.max(a.contentBottom, a.keepVisibleBottom) + TOAST_GAP;
+  const card = a.cardHeight && a.cardHeight > 0 ? a.cardHeight : TOAST_CARD_BUDGET - TOAST_GAP;
+  const limit = a.limit - (a.below ?? 0);
+  const top = Math.max(floor, Math.min(preferred, limit - card));
+  const slots = clamp(Math.floor((limit - top + TOAST_GAP) / (card + TOAST_GAP)), 1, TOAST_VISIBLE_MAX);
+  return { top: Math.round(top), slots };
+};
 
 /** Ширина колонки Клика при ширине окна `vw`: те же границы, что у CSS `clamp`. */
 export const clickColWidth = (vw: number): number =>
@@ -117,3 +422,101 @@ export const clickColWidth = (vw: number): number =>
 /** Ширина колонки магазина при ширине окна `vw`. */
 export const shopColWidth = (vw: number): number =>
   clamp(vw * SHOP_COL_SHARE, SHOP_COL_MIN, SHOP_COL_MAX);
+
+/* ── Подсказка при наведении ───────────────────────────────────────────────────────
+   Карточка Модели и полная запись числа стоят рядом с тем, на что указывают, и не вылезают
+   за окно. Место карточки считается здесь, а не в компоненте: тесту нужны числа, а не пиксели. */
+
+/** Воздух между подсказкой и краем окна, px. */
+export const HINT_MARGIN = 8;
+/** Воздух между подсказкой и тем, на что она указывает, px. */
+export const HINT_GAP = 8;
+/** Ширина карточки Модели, px: пять строк «название — значение» Nunito 14 px без переносов. */
+export const HINT_CARD_W = 320;
+
+/** Ширина карточки в окне `vw`: не шире окна за вычетом воздуха, на 320 px это 304. */
+export const hintCardWidth = (vw: number): number => Math.min(HINT_CARD_W, vw - HINT_MARGIN * 2);
+
+export interface HintBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+export interface HintPlacement {
+  left: number;
+  top: number;
+  /** Выше этой высоты содержимое прокручивается: карточка не должна выходить за окно. */
+  maxHeight: number;
+  /** С какой стороны от цели встала подсказка. */
+  side: 'left' | 'right' | 'below' | 'above';
+}
+
+/** Небезопасные края окна (вырез, скруглённые углы, системные полосы), px. */
+export interface SafeInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/** Окно без вырезов: так читается и десктоп, и телефон без `viewport-fit=cover`. */
+export const NO_INSETS: SafeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+
+/**
+ * Куда поставить подсказку размера `size` у цели `anchor` в окне `viewport`.
+ *
+ * `insets` — небезопасные края окна: подсказка стоит внутри безопасной области, а не под вырезом.
+ * Считается в безопасной области как в целом окне и сдвигается обратно, поэтому все остальные
+ * правила (поле от края, сторона, высота) остаются теми же.
+ *
+ * Сначала сбоку: на десктопе магазин стоит у правого края, и карточка ложится на Сцену слева,
+ * не закрывая ни саму строку, ни кнопки рядом с ней. Если сбоку не хватает ширины (одна
+ * колонка на телефоне и в узком окне), подсказка уходит под цель или над ней, туда, где места
+ * больше; не вмещаясь и там, она берёт всё доступное и прокручивается. По вертикали сбоку она
+ * прижимается к верху цели и сдвигается ровно настолько, чтобы остаться в окне.
+ */
+export function placeHint(
+  anchor: HintBox,
+  size: { width: number; height: number },
+  viewport: { width: number; height: number; insets?: SafeInsets },
+): HintPlacement {
+  const insets = viewport.insets ?? NO_INSETS;
+  if (insets.top || insets.right || insets.bottom || insets.left) {
+    const inner = placeHint(
+      { ...anchor, left: anchor.left - insets.left, top: anchor.top - insets.top },
+      size,
+      { width: viewport.width - insets.left - insets.right, height: viewport.height - insets.top - insets.bottom },
+    );
+    return { ...inner, left: inner.left + insets.left, top: inner.top + insets.top };
+  }
+  const fitY = (top: number, height: number) =>
+    clamp(top, HINT_MARGIN, Math.max(HINT_MARGIN, viewport.height - HINT_MARGIN - height));
+  const fitX = (left: number) =>
+    clamp(left, HINT_MARGIN, Math.max(HINT_MARGIN, viewport.width - HINT_MARGIN - size.width));
+  const maxSide = viewport.height - HINT_MARGIN * 2;
+
+  const roomLeft = anchor.left - HINT_GAP - HINT_MARGIN;
+  if (roomLeft >= size.width) {
+    const height = Math.min(size.height, maxSide);
+    return { left: anchor.left - HINT_GAP - size.width, top: fitY(anchor.top, height), maxHeight: maxSide, side: 'left' };
+  }
+  const roomRight = viewport.width - (anchor.left + anchor.width) - HINT_GAP - HINT_MARGIN;
+  if (roomRight >= size.width) {
+    const height = Math.min(size.height, maxSide);
+    return { left: anchor.left + anchor.width + HINT_GAP, top: fitY(anchor.top, height), maxHeight: maxSide, side: 'right' };
+  }
+
+  const roomBelow = viewport.height - (anchor.top + anchor.height) - HINT_GAP - HINT_MARGIN;
+  const roomAbove = anchor.top - HINT_GAP - HINT_MARGIN;
+  const below = size.height <= roomBelow || (size.height > roomAbove && roomBelow >= roomAbove);
+  const room = Math.max(0, below ? roomBelow : roomAbove);
+  const height = Math.min(size.height, room);
+  return {
+    left: fitX(anchor.left + (anchor.width - size.width) / 2),
+    top: below ? anchor.top + anchor.height + HINT_GAP : anchor.top - HINT_GAP - height,
+    maxHeight: room,
+    side: below ? 'below' : 'above',
+  };
+}

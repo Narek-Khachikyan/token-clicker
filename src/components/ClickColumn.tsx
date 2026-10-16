@@ -1,12 +1,16 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
-import { motionAllowed, reduceMotionMedia, useGameStore } from '../store/useGameStore';
-import { totalIncome, clickValue, nextAgentCost, shortfall } from '../economy/engine';
-import { formatCount, formatNumber } from '../economy/format';
+import { motionAllowed, reduceMotionMedia, useGameStore, useStateSlice } from '../store/useGameStore';
+import { clickButtonView, incomeOf, incomeView, purchaseProgressView } from '../store/selectors';
+import { formatNumber } from '../economy/format';
+import { COUNTER_CHARS, COUNTER_STEP, floaterLeft, floaterStep } from '../layout';
+import { holdClickAllowed, isHoldKey, readKeyTarget } from './holdClickKeys';
 import { Num } from './Num';
+import { FullNumber } from './FullNumber';
 import { Icon } from './Icon';
 import { GoldenToken } from './GoldenToken';
 import { QuipBubble } from './QuipBubble';
 import { OnboardingCoach } from './OnboardingCoach';
+import { CoachArrow } from './CoachArrow';
 import { ThermalDial } from './ThermalDial';
 import { MilestoneStrip } from './MilestoneStrip';
 import { useMotionAllowed } from './EventSprites';
@@ -16,61 +20,36 @@ import { useMotionAllowed } from './EventSprites';
  *  не зависит от частоты кадров. */
 const APPROACH_MS = 55;
 
-export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
-  const state = useGameStore((s) => s.state);
-  const clickPrompt = useGameStore((s) => s.clickPrompt);
-  const floaters = useGameStore((s) => s.floaters);
-  const chatHistory = useGameStore((s) => s.chatHistory);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const chatRef = useRef<HTMLDivElement>(null);
-
-  // Свежая пара лежит первой, поэтому якорь — это ноль прокрутки, а не конец списка.
-  const newestReplyId = chatHistory[0]?.id;
-  useEffect(() => {
-    chatRef.current?.scrollTo({ top: 0 });
-  }, [newestReplyId]);
-
-  const income = totalIncome(state);
-  const cVal = clickValue(state, income);
-  const notation = state.settings.notation;
-  const reducedMotion = state.settings.reducedMotion;
-  const motion = useMotionAllowed();
-
-  // Сила Клика: честный расчёт из существующего состояния (число Агентов и Доход).
-  // Без новых полей GameState, без таймеров — обновляется на существующем 50-мс тике.
-  const totalAgents = Object.values(state.agents).reduce((sum, n) => sum + n, 0);
-  const clickPowerTier =
-    totalAgents >= 200 || income >= 2500
-      ? 4
-      : totalAgents >= 50 || income >= 100
-        ? 3
-        : totalAgents >= 10 || income >= 5
-          ? 2
-          : totalAgents >= 1 || income > 0
-            ? 1
-            : 0;
-
-  // Нормализованная сила 0..1 для плавной интерполяции ореола через CSS-переход:
-  const clickPower =
-    totalAgents === 0 && income === 0
-      ? 0
-      : Math.min(1, Math.log10(totalAgents + 1) / 2.6);
-
+/**
+ * Счётчик Токенов. Живёт вне React: тик зовёт подписчика двадцать раз в секунду, и любое
+ * значение, проведённое через состояние, копилось бы в очередь ререндеров вместо отрисовки.
+ * Узел при этом рендерится пустым — иначе React затрёт написанное в textContent своими детьми.
+ *
+ * Компонент не перерисовывается от тика вовсе: нотация и настройка движения — единственное, что
+ * пересобирает цикл, а новая цель приходит из подписки стора.
+ */
+export const TokenCounter: React.FC<{
+  /** Ступень пиксельного шрифта: 33 px в колонке, 22 px в закреплённой полосе телефона. */
+  step?: 22 | 33 | 44;
+  /** Подпись «Токенов» под числом: в полосе телефона она не нужна, и там её нет. */
+  caption?: boolean;
+}> = ({ step = COUNTER_STEP, caption = true }) => {
+  const notation = useGameStore((s) => s.state.settings.notation);
+  const reducedMotion = useGameStore((s) => s.state.settings.reducedMotion);
   const counterRef = useRef<HTMLDivElement>(null);
-  const targetRef = useRef(state.tokens);
-  const shownRef = useRef(state.tokens);
+  const targetRef = useRef(useGameStore.getState().state.tokens);
+  const shownRef = useRef(useGameStore.getState().state.tokens);
 
-  // Счётчик живёт вне React: колонки перерисовываются каждый тик, и любое значение,
-  // проведённое через состояние, копилось бы в очередь ререндеров вместо отрисовки.
-  // Узел при этом рендерится пустым — иначе React затрёт написанное в textContent
-  // своими детьми на каждом тике.
   useLayoutEffect(() => {
     const node = counterRef.current;
     if (!node) return;
 
     let painted = '';
     const paint = (value: number) => {
-      const text = formatNumber(value, notation);
+      // Запись дополняется пробелами до резерва `COUNTER_CHARS` (ячейки моноширинного шрифта
+      // одинаковы, пробел тоже ячейка), поэтому ширина текста не зависит от числа знаков:
+      // растущий счётчик не двигает ничего правее и ниже себя.
+      const text = formatNumber(value, notation).padEnd(COUNTER_CHARS);
       if (text !== painted) {
         node.textContent = text;
         painted = text;
@@ -144,105 +123,338 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
     };
   }, [notation, reducedMotion]);
 
-  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = rect.left + rect.width / 2 + (Math.random() * 40 - 20);
-    const y = rect.top + 10;
-    clickPrompt(x, y);
-    // Перезапуск сквоша тем же сбросом, что у ModelRow: снятие класса и чтение ширины
-    // между снятием и возвратом, иначе быстрый повторный Клик не перезапустил бы анимацию.
+  return (
+    <>
+      {/* Пустой узел: текст сюда пишет только requestAnimationFrame, и любой ререндер
+          React затирал бы его своими детьми. `pre` оставляет дополняющие пробелы ячейками, а
+          не схлопывает их. */}
+      <FullNumber value={(s) => s.tokens} as="div" style={{ width: 'fit-content' }}>
+        <div
+          ref={counterRef}
+          className={`pixel-${step}`}
+          style={{
+            color: 'var(--accent-color)',
+            whiteSpace: 'pre',
+            textShadow: '0 0 12px var(--accent-glow)',
+          }}
+        />
+      </FullNumber>
+      {caption && (
+        <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: 'var(--space-0)' }}>
+          Токенов
+        </div>
+      )}
+    </>
+  );
+};
+
+/** Доход под счётчиком: перерисовывается, только когда сама строка Дохода изменилась. */
+export const IncomeLine: React.FC<{
+  /** Строка закреплённой полосы телефона: без отступа сверху и без подсказки про магазин —
+   *  подсказке в полосе из двух строк места нет, а новичка ведёт подсказка онбординга. */
+  compact?: boolean;
+}> = ({ compact = false }) => {
+  const { text, zero } = useStateSlice(incomeView);
+  return (
+    <>
+      <div
+        className="pixel-22"
+        style={{ color: 'var(--green)', marginTop: compact ? undefined : 'var(--space-2)', whiteSpace: 'nowrap' }}
+      >
+        +
+        <FullNumber value={incomeOf}>
+          <Num bump>{text}</Num>
+        </FullNumber>{' '}
+        / сек
+      </div>
+      {/* Подсказка при нулевом Доходе: игрок без Агентов иначе видит голый «+0/сек»
+          без следующего шага. Только текст, без анимаций. */}
+      {zero && !compact && (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
+          Нанятый Агент приносит Доход сам — загляни в магазин
+        </div>
+      )}
+    </>
+  );
+};
+
+/** Всплывающие числа Клика: меняются только на Клик и на уход числа через 900 мс. */
+const Floaters: React.FC = () => {
+  const floaters = useGameStore((s) => s.floaters);
+  // Выключатель из «Настроек»: стор число всё равно ведёт, а показывать его или нет решает экран.
+  const enabled = useGameStore((s) => s.state.settings.floaters);
+  if (!enabled) return null;
+  return (
+    <>
+      {floaters.map((f) => {
+        // Ступень растёт с Серией: 22/33/44 px, без промежуточных масштабов (ADR-0009).
+        const step = floaterStep(f.level);
+        return (
+          <div
+            key={f.id}
+            className={`floater pixel-${step}`}
+            style={{ left: floaterLeft(f.x, f.text.length, step, window.innerWidth), top: f.y }}
+          >
+            {f.text}
+          </div>
+        );
+      })}
+    </>
+  );
+};
+
+/** Лучи искр по уровню Серии (индекс = уровень): одиночный Клик искр не даёт, как и прежде. */
+const SPARKS_BY_LEVEL = [0, 3, 5, 7, 9];
+
+/** Веер вверх от точки Клика: лучи делят верхний полукруг поровну, размах растёт с уровнем. */
+const sparkFan = (level: number) => {
+  const n = SPARKS_BY_LEVEL[Math.min(level, SPARKS_BY_LEVEL.length - 1)] ?? 0;
+  return Array.from({ length: n }, (_, i) => {
+    const angle = -Math.PI + (Math.PI * (i + 0.5)) / n;
+    const dist = 22 + level * 8 + (i % 3) * 6;
+    return {
+      dx: Math.round(Math.cos(angle) * dist),
+      dy: Math.round(Math.sin(angle) * dist),
+      size: level >= 3 ? 4 : 3,
+    };
+  });
+};
+
+/**
+ * Искры Серии над кнопкой Клика. Узлы рождает стор, и только когда частицы включены и движение
+ * разрешено (`effectAllowed`), а убирает его таймер: слой сам ничего не решает и не хранит.
+ */
+const ClickSparks: React.FC = () => {
+  const bursts = useGameStore((s) => s.clickSparks);
+  if (bursts.length === 0) return null;
+  return (
+    <div aria-hidden="true" style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 999 }}>
+      {bursts.map((b) =>
+        sparkFan(b.level).map((p, i) => (
+          <span
+            key={`${b.id}-${i}`}
+            className="spark"
+            style={
+              {
+                left: b.x,
+                top: b.y,
+                width: p.size,
+                height: p.size,
+                '--spark-dx': `${p.dx}px`,
+                '--spark-dy': `${p.dy}px`,
+              } as React.CSSProperties
+            }
+          />
+        )),
+      )}
+    </div>
+  );
+};
+
+const ClickButton: React.FC = () => {
+  const clickPrompt = useGameStore((s) => s.clickPrompt);
+  const holdClick = useGameStore((s) => s.holdClick);
+  const { value, word, tier, power } = useStateSlice(clickButtonView);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  /** Точка Клика на кнопке и сквош: общие для мыши и для удержанной клавиши. */
+  const press = (act: (x: number, y: number) => boolean | void) => {
     const node = btnRef.current;
     if (!node) return;
+    const rect = node.getBoundingClientRect();
+    const x = rect.left + rect.width / 2 + (Math.random() * 40 - 20);
+    const y = rect.top + 10;
+    if (act(x, y) === false) return;
+    // Перезапуск сквоша тем же сбросом, что у ModelRow: снятие класса и чтение ширины
+    // между снятием и возвратом, иначе быстрый повторный Клик не перезапустил бы анимацию.
     node.classList.remove('click-btn--squash');
     void node.offsetWidth;
     node.classList.add('click-btn--squash');
   };
+
+  const handleClick = () => {
+    // Пробел и Enter на кнопке обслуживает слушатель ниже и гасит их родное нажатие, поэтому
+    // сюда доходит мышь, касание и вспомогательные технологии — их `click` без клавиши.
+    press((x, y) => clickPrompt(x, y));
+  };
+
+  // Удержание Пробела/Enter повторяет Клик. Слушатель на окне, а не на кнопке: Клик должен идти,
+  // и когда фокус в никуда (после клика мышью по Сцене). Потолок в секунду держит действие стора,
+  // здесь только решение «это Клик» (holdClickKeys). Слушатель живёт, пока на экране кнопка Клика:
+  // на телефоне вне вкладки «Промпт» клавиши ей не принадлежат.
+  useEffect(() => {
+    const handled = new Set<string>();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.isComposing || !isHoldKey(e) || !holdClickAllowed(readKeyTarget(e, btnRef.current))) return;
+      // Без preventDefault Пробел прокрутил бы страницу, а Enter на кнопке дал бы второй Клик.
+      e.preventDefault();
+      handled.add(e.key);
+      press((x, y) => holdClick(x, y));
+    };
+    // Firefox нажимает кнопку на keyup Пробела, даже если keydown отменён, поэтому отмена и здесь.
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (!handled.delete(e.key)) return;
+      e.preventDefault();
+    };
+    // Потеря фокуса окном посреди удержания не должна оставить «нажатую» клавишу в памяти.
+    const forget = () => handled.clear();
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', forget);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', forget);
+    };
+  }, [holdClick]);
 
   // Снятие по концу анимации, а не по таймеру: таймеры в компонентах запрещены.
   const handleSquashEnd = () => {
     btnRef.current?.classList.remove('click-btn--squash');
   };
 
-  // Прогресс до ближайшей покупки Агента: цена приходит из движка, компонент только делит.
-  const nextCost = nextAgentCost(state);
-  const rawMissing = shortfall(nextCost, state.tokens);
-  // Math.ceil защищает от обещания нехватки целого, когда списание дробное: formatNumber
-  // режет дробную часть вниз (Math.floor), поэтому без округления вверх на дробной цене
-  // игрок накопил бы на единицу меньше необходимого.
-  const missing = Math.ceil(rawMissing);
-  const progress = nextCost > 0 ? Math.min(1, state.tokens / nextCost) : 0;
-  const canHire = nextCost > 0 && state.tokens >= nextCost;
+  return (
+    <button
+      ref={btnRef}
+      onClick={handleClick}
+      onAnimationEnd={handleSquashEnd}
+      aria-label="Отправить промпт"
+      data-power-tier={tier}
+      className="pixel-btn pixel-btn-accent pulse-glow click-btn"
+      style={{
+        width: '100%',
+        // Поле по бокам — ступень 12 px, а не 16: «Отправить промпт» на 22 px с значком — 256 px
+        // содержимого, а колонка телефона на 320 px даёт кнопке 252 px при 16, и подпись
+        // переносилась на вторую строку, съедая высоту у причала.
+        // Вертикальное поле причала телефона ниже (`--click-pad-y` в index.css): он прибит к низу и не должен
+        // быть выше рабочей области на самом низком окне.
+        padding: 'var(--click-pad-y, var(--space-4)) var(--space-3)',
+        flexDirection: 'column',
+        gap: 'var(--space-1)',
+        '--click-power': power,
+      } as React.CSSProperties}
+    >
+      {/* Значок и подпись в одну строку: ступень 22 px, потому что «Отправить промпт» на 33 px
+          шире колонки Клика (16 знаков по 21 px) и ломалась на две строки, съедая высоту. */}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+        <Icon name="chat" size={24} />
+        <span className="pixel-22" style={{ whiteSpace: 'nowrap' }}>Отправить промпт</span>
+      </span>
+      <span
+        style={{
+          fontSize: 'var(--text-sm)',
+          color: 'var(--text-main)',
+          fontWeight: 400,
+        }}
+      >
+        {/* Существительное склоняется по числу: «+1 Токенов за клик» — ошибка, которую игрок
+            видит буквально на первой кнопке первой минуты. Величина может быть дробной
+            («1,44 B»), и там множественное верно, поэтому одна форма на «1» сломала бы
+            вторую половину диапазона. */}
+        +<Num>{value}</Num> {word} за клик
+      </span>
+    </button>
+  );
+};
+
+/** Прогресс до ближайшей покупки Агента: цена приходит из движка, компонент только рисует. */
+const PurchaseProgress: React.FC = () => {
+  const { canHire, width, now, missingText, missingWord } = useStateSlice(purchaseProgressView);
+  const motion = useMotionAllowed();
+
+  return (
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+      <div
+        role="progressbar"
+        aria-label="Прогресс до следующей покупки"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={now}
+        style={{
+          width: '100%',
+          height: '8px',
+          backgroundColor: 'var(--bg-card)',
+          border: 'var(--frame-w) solid var(--border)',
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            width: `${width}%`,
+            height: '100%',
+            backgroundColor: 'var(--accent-color)',
+            transition: motion ? 'width 0.2s ease-out' : undefined,
+          }}
+        />
+      </div>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', textAlign: 'center' }}>
+        {canHire ? (
+          <>Можно нанять Агента — загляни в магазин</>
+        ) : (
+          <>
+            До следующей покупки: не хватает <Num>{missingText}</Num> {missingWord}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Колонка Клика: каркас и порядок блоков. Данные из состояния читает каждый блок сам, поэтому
+ * колонка не перерисовывается от тика — единственное, что она решает сама, это есть ли сейчас
+ * окно События с Золотым Токеном.
+ */
+const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
+  const hasEvent = useGameStore((s) => s.state.event !== null);
+
+  // Обёртка нужна стрелке подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы.
+  const clickAction = (
+    <div className="click-action">
+      <ClickButton />
+      <CoachArrow target="click-button" single={full} />
+    </div>
+  );
 
   return (
     <div
+      className={full ? 'pixel-panel click-col--phone' : 'pixel-panel'}
       style={{
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        padding: '20px 16px',
+        // У колонки телефона нет нижнего поля — оно у причала (см. `.click-dock` в index.css) — а верхнее
+        // ниже: над ней стоит полоса, и каждый px здесь отнят у причала на самом низком окне.
+        padding: full ? 'var(--space-2) var(--space-4) 0' : 'var(--space-4)',
         backgroundColor: 'var(--bg-panel)',
-        borderRight: '2px solid var(--border)',
+        borderRight: 'var(--frame-w) solid var(--border)',
         // Базис приходит из модуля раскладки, а не из содержимого колонки: раньше ширина была
         // min/max по содержимому, и переключение вкладки магазина дёргало всю сетку.
         // В одноколоночном режиме колонка единственная и занимает всю ширину.
         flex: full ? '1 1 auto' : '0 0 var(--col-click)',
         minWidth: 0,
-        gap: '18px',
+        gap: 'var(--space-3)',
         height: '100%',
         overflowY: 'auto',
       }}
     >
       {/* Floating numbers */}
-      {floaters.map((f) => (
-        <div key={f.id} className="floater" style={{ left: f.x, top: f.y }}>
-          {f.text}
-        </div>
-      ))}
+      <Floaters />
+      <ClickSparks />
 
-      {/* Токены и Доход */}
-      <div className="click-counter" style={{ textAlign: 'center', width: '100%' }}>
-        {/* Пустой узел: текст сюда пишет только requestAnimationFrame, и любой ререндер
-            React затирал бы его своими детьми на каждом тике. */}
-        <div
-          ref={counterRef}
-          className="pixel-font"
-          style={{
-            fontSize: '2.2rem',
-            fontWeight: 700,
-            color: 'var(--accent-color)',
-            lineHeight: 1.1,
-            // nowrap плюс блочная коробка во всю ширину держат колонку: разряд больше не
-            // перетекает весь столбец. Табличные цифры не заказаны — в Pixelify Sans нет
-            // фичи tnum, см. пояснение в index.css.
-            whiteSpace: 'nowrap',
-            textShadow: '0 0 12px var(--accent-glow)',
-          }}
-        />
-        <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-          Токенов
+      {/* Токены и Доход. На телефоне их нет: те же числа стоят в закреплённой полосе над
+          рабочей областью (`StatusStrip`), на любой вкладке, и второй счётчик на той же вкладке
+          только отнимал бы высоту у кнопки Клика. */}
+      {!full && (
+        <div className="click-counter" style={{ textAlign: 'left', width: '100%' }}>
+          <TokenCounter />
+          <IncomeLine />
         </div>
-        <div
-          style={{
-            fontSize: '1.1rem',
-            color: 'var(--green)',
-            marginTop: '8px',
-            fontWeight: 600,
-          }}
-        >
-          +<Num bump>{formatNumber(income, notation)}</Num> / сек
-        </div>
-        {/* Подсказка при нулевом Доходе: игрок без Агентов иначе видит голый «+0/сек»
-            без следующего шага. Только текст, без анимаций. */}
-        {income === 0 && (
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Нанятый Агент приносит Доход сам — загляни в магазин
-          </div>
-        )}
-      </div>
+      )}
 
-      {/* Подсказка онбординга живёт здесь, а не поверх экрана: плавающая карточка вставала бы
-          на сток тостов и перекрывала главное действие. В потоке колонки она всегда рядом с
-          кнопкой Клика и на узком экране, и на широком. */}
+      {/* Подсказка онбординга живёт здесь, а не поверх экрана: плавающая карточка вставала
+          бы на сток тостов и перекрывала главное действие. В потоке колонки она всегда рядом
+          с кнопкой Клика и на узком экране, и на широком. */}
       <OnboardingCoach />
 
       {/* Реплика говорящей Модели: на узком экране монтируется над кнопкой Клика,
@@ -253,168 +465,37 @@ export const ClickColumn: React.FC<{ full?: boolean }> = ({ full = false }) => {
           находка попадала в ту же область взгляда, что и главное действие игры. Карточка
           монтируется и размонтируется вместе с окном, поэтому её появление и есть
           объявление. */}
-      {state.event && <GoldenToken />}
+      {hasEvent && <GoldenToken />}
 
-      {/* Веха и шкала Температуры */}
-      <div style={{ width: '100%', marginTop: '2px' }}>
-        <MilestoneStrip />
-      </div>
-      <ThermalDial />
+      {/* Главное действие, сразу под ним — Температура, под ней — Вехи одной строкой. Порядок
+          «счётчик → Клик → Температура → Вехи» держит и шкалу, и кнопку на экране невысокого
+          окна: всё, что ниже, второстепенно и может уйти за прокрутку. На телефоне порядок
+          другой: см. причал внизу колонки. */}
+      {!full && (
+        <>
+          {clickAction}
+          <ThermalDial />
+        </>
+      )}
 
-      {/* Большая кнопка Клиreg */}
-<button
-        ref={btnRef}
-        onClick={handleClick}
-        onAnimationEnd={handleSquashEnd}
-        aria-label="Отправить промпт"
-        data-power-tier={clickPowerTier}
-className="pixel-btn pixel-btn-accent pulse-glow click-btn"
-        style={{
-          width: '100%',
-          padding: '24px 16px',
-          fontSize: '1.25rem',
-          borderRadius: '8px',
-          flexDirection: 'column',
-          gap: '8px',
-          '--click-power': clickPower.toFixed(2),
-        } as React.CSSProperties}
-      >
-        <Icon name="chat" size={30} />
-        <span>Отправить промпт</span>
-        <span
-          style={{
-            fontSize: '0.85rem',
-            color: 'var(--text-main)',
-            fontWeight: 400,
-          }}
-        >
-          {/* Существительное склоняется по числу: «+1 Токенов за клик» — ошибка, которую игрок
-              видит буквально на первой кнопке первой минуты. Величина может быть дробной
-              («1,44 B»), и там множественное верно, поэтому одна форма на «1» сломала бы
-              вторую половину диапазона. */}
-          +<Num>{formatNumber(cVal, notation, 'price')}</Num>{' '}
-          {formatCount(cVal, 'Токен', 'Токена', 'Токенов', notation, 'price')} за клик
-        </span>
-      </button>
+      <MilestoneStrip />
 
       {/* Прогресс до ближайшей покупки Агента: сколько осталось до самой дешёвой Модели.
           При пустом кошельке первого запуска полоска нулевая, но подсказка уже стоит —
           пустой полоски без текста здесь не бывает. */}
-      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <div
-          role="progressbar"
-          aria-label="Прогресс до следующей покупки"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(progress * 100)}
-          style={{
-            width: '100%',
-            height: '8px',
-            backgroundColor: 'var(--bg-card)',
-            border: '1px solid var(--border)',
-            borderRadius: '4px',
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              width: `${progress * 100}%`,
-              height: '100%',
-              backgroundColor: 'var(--accent-color)',
-              transition: motion ? 'width 0.2s ease-out' : undefined,
-            }}
-          />
-        </div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-          {canHire ? (
-            <>Можно нанять Агента — загляни в магазин</>
-          ) : (
-            <>
-              До следующей покупки: не хватает <Num>{formatNumber(missing, notation)}</Num>{' '}
-              {/* Нотация обязательна: форма считается по цифрам той же записи, что и число. */}
-              {formatCount(missing, 'Токен', 'Токена', 'Токенов', notation)}
-            </>
-          )}
-        </div>
-      </div>
+      <PurchaseProgress />
 
-      {/* Чат-пузыри */}
-      <div
-        style={{
-          width: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '10px',
-          marginTop: '6px',
-          flex: 1,
-        }}
-      >
-        <div style={{ fontSize: '0.95rem', color: 'var(--text-muted)' }}>Диалог с моделью:</div>
-
-        {/* Якорь на свежую реплику. Свежая пара кладётся сверху, поэтому после прихода она
-            выталкивает прочитанное вниз и без якоря игрок вынужден искать её прокруткой.
-            Ставится ровно на смену верхней пары: пока игрок читает старую, лента не дёргается
-            под ногами. */}
-        <div
-          ref={chatRef}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px',
-            overflowY: 'auto',
-            maxHeight: '340px',
-            paddingRight: '4px',
-          }}
-        >
-          {/* Только свежая обменная реплика: старые уже стоят на месте, и анимация на них
-              давно доиграла. Класс на новой реплике появляется вместе с её узлом. */}
-          {chatHistory.map((item, index) => (
-            <div
-              key={item.id}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '4px',
-                fontSize: '0.85rem',
-              }}
-            >
-              {/* Промпт игрока */}
-              <div
-                className={index === 0 ? 'chat-prompt--in' : undefined}
-                style={{
-                  alignSelf: 'flex-end',
-                  backgroundColor: 'var(--accent-solid-hover)',
-                  color: 'var(--text-main)',
-                  padding: '6px 10px',
-                  borderRadius: '12px 12px 2px 12px',
-                  maxWidth: '85%',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {item.userPrompt}
-              </div>
-
-              {/* Ответ ИИ */}
-              <div
-                className={index === 0 ? 'chat-reply--in' : undefined}
-                style={{
-                  alignSelf: 'flex-start',
-                  backgroundColor: 'var(--bg-card)',
-                  color: 'var(--text-main)',
-                  padding: '6px 10px',
-                  borderRadius: '12px 12px 12px 2px',
-                  border: '1px solid var(--border)',
-                  maxWidth: '90%',
-                  whiteSpace: 'pre-line',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {item.aiResponse}
-              </div>
-            </div>
-          ))}
+      {/* Телефон: причал внизу колонки — шкала Температуры над кнопкой Клика, а кнопка самая
+          нижняя на экране, ближе всего к большому пальцу. Причал прибит к низу колонки
+          (`.click-dock` в index.css) и не уезжает за прокрутку, как бы много ни стояло над ним. */}
+      {full && (
+        <div className="click-dock">
+          <ThermalDial />
+          {clickAction}
         </div>
-      </div>
+      )}
     </div>
   );
 };
+
+export const ClickColumn = React.memo(ClickColumnView);

@@ -79,6 +79,90 @@ describe('save volume', () => {
   });
 });
 
+describe('save effect switches and channel volumes', () => {
+  /** Настройки игрока, который успел выбрать всё, что было выбираемо до переключателей. */
+  const CHOSEN = { notation: 'sci', muted: true, volume: 0.25, reducedMotion: true };
+  const EFFECT_DEFAULTS = { particles: true, floaters: true, shake: true, ticker: true, musicVolume: 1, sfxVolume: 1 };
+
+  it('brings a save of every earlier version to the current one with every effect on and full channels', () => {
+    for (let v = 1; v < SAVE_VERSION; v++) {
+      const s = migrate({ version: v, generation: 3, tokens: 1e6, settings: CHOSEN }, T0);
+      expect(s.version, `v${v}`).toBe(SAVE_VERSION);
+      // Каналы на единице, а не на DEFAULT_VOLUME: общий ползунок остаётся мастером, и игрок,
+      // не трогавший новых настроек, слышит игру ровно такой, какой слышал вчера.
+      expect(s.settings, `v${v}`).toEqual({ ...CHOSEN, ...EFFECT_DEFAULTS });
+      expect(s.generation, `v${v}`).toBe(3);
+      expect(s.tokens, `v${v}`).toBe(1e6);
+    }
+  });
+
+  it('builds the whole settings block for a save that predates settings entirely', () => {
+    expect(migrate({ version: 1, generation: 2 }, T0).settings).toEqual({
+      notation: 'short',
+      muted: false,
+      volume: DEFAULT_VOLUME,
+      reducedMotion: false,
+      ...EFFECT_DEFAULTS,
+    });
+  });
+
+  it('reads a missing reduced motion in a current save as off', () => {
+    // Чужой или урезанный файл текущей версии идёт мимо миграций: дефолт обязан держать и разбор.
+    const { reducedMotion: _dropped, ...rest } = newGame(T0).settings;
+    expect(migrate({ ...newGame(T0), settings: rest }, T0).settings.reducedMotion).toBe(false);
+  });
+
+  it('starts a new game with every effect on and both channels full', () => {
+    expect(newGame(T0).settings).toEqual({
+      notation: 'short',
+      muted: false,
+      volume: DEFAULT_VOLUME,
+      reducedMotion: false,
+      ...EFFECT_DEFAULTS,
+    });
+  });
+
+  it('keeps what the player switched off and the channel levels they chose', () => {
+    const chosen = { particles: false, floaters: false, shake: false, ticker: false, musicVolume: 0.3, sfxVolume: 0 };
+    expect(migrate(currentSave(chosen), T0).settings).toMatchObject(chosen);
+    // Миграция дополняет, а не перезаписывает: поле, уже стоящее в записи, переживает подъём версии.
+    expect(migrate({ version: SAVE_VERSION - 1, settings: { ...CHOSEN, ...chosen } }, T0).settings).toEqual({
+      ...CHOSEN,
+      ...chosen,
+    });
+  });
+
+  it('falls back to on and full for values that are not a switch or a level', () => {
+    const junk = migrate(
+      currentSave({ particles: 'нет', floaters: null, shake: 0, ticker: [], musicVolume: 'x', sfxVolume: Infinity }),
+      T0,
+    );
+    expect(junk.settings).toMatchObject(EFFECT_DEFAULTS);
+    expect(migrate(currentSave({ musicVolume: NaN, sfxVolume: null }), T0).settings).toMatchObject({
+      musicVolume: 1,
+      sfxVolume: 1,
+    });
+  });
+
+  it('clamps a channel level from a corrupt or foreign save into 0..1', () => {
+    expect(migrate(currentSave({ musicVolume: 9999, sfxVolume: -5 }), T0).settings).toMatchObject({
+      musicVolume: 1,
+      sfxVolume: 0,
+    });
+    const imported = importSave(exportSave(currentSave({ musicVolume: -2, sfxVolume: 40 })), T0)!;
+    expect(imported.settings).toMatchObject({ musicVolume: 0, sfxVolume: 1 });
+  });
+
+  it('round-trips through export/import, switches and silent channels included', () => {
+    const base = newGame(T0);
+    const s = {
+      ...base,
+      settings: { ...base.settings, particles: false, ticker: false, musicVolume: 0, sfxVolume: 0.4 },
+    };
+    expect(importSave(exportSave(s), T0)!.settings).toEqual(s.settings);
+  });
+});
+
 describe('migration chain', () => {
   it('covers every version from 1 to SAVE_VERSION without gaps', () => {
     // Пропуск шага молча обрывал цепочку, а сохранение штамповалось текущей версией:
@@ -134,7 +218,18 @@ describe('migration chain', () => {
     expect(s.challengesDone).toEqual(['no-click']);
     expect(s.temp).toBe(0.9);
     expect(s.heat).toBe(0.2);
-    expect(s.settings).toEqual({ notation: 'sci', muted: true, volume: 0.25, reducedMotion: true });
+    expect(s.settings).toEqual({
+      notation: 'sci',
+      muted: true,
+      volume: 0.25,
+      reducedMotion: true,
+      particles: true,
+      floaters: true,
+      shake: true,
+      ticker: true,
+      musicVolume: 1,
+      sfxVolume: 1,
+    });
   });
 });
 
@@ -244,11 +339,14 @@ describe('corrupt storage', () => {
   });
 
   it('reads a valid save as ok', () => {
-    const text = JSON.stringify(newGame(T0));
+    const text = JSON.stringify({ ...newGame(T0), tokens: 4242 });
     const { storage } = mem({ [SAVE_KEY]: text });
     vi.stubGlobal('localStorage', storage);
     const read = readStoredSave();
     expect(read.status).toBe('ok');
+    if (read.status !== 'ok') return;
+    expect(read.text).toBe(text);
+    expect((read.value as { tokens: number }).tokens).toBe(4242);
   });
 
   it('reads truncated JSON as corrupt and quarantines the bytes under a separate key', () => {

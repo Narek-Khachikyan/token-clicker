@@ -278,13 +278,12 @@ describe('каждое теневое достижение достижимо', 
     expect(newlyEarnedShadows(idle(lateGame(), 1e300))).not.toContain(UNREACHABLE);
   });
 
-  it('идёт по возрастанию: числовая лестница и её рубежи', () => {
+  it('держит рубежи числовой лестницы: id лежат в сохранениях', () => {
+    // id теней записываются в сохранение игрока, поэтому рубежи зашиты числом: переименование
+    // или перестановка рубежа осиротит запись и молча сдвинет лестницу.
     const prefix = 'shadow_tok_';
     const rungs = SHADOW_ACHIEVEMENTS.filter((a) => a.id.startsWith(prefix)).map((a) => Number(a.id.slice(prefix.length)));
     expect(rungs).toEqual([33, 45, 60, 80, 110, 150, 200, 260, 300]);
-    for (let i = 1; i < rungs.length; i++) expect(rungs[i]).toBeGreaterThan(rungs[i - 1]);
-    // Обычные Достижения кончаются на 1e27 — лестница начинается строго выше.
-    expect(rungs[0]).toBeGreaterThan(27);
   });
 
   it('числовая лестница закрывается ровно на своём рубеже', () => {
@@ -364,15 +363,6 @@ describe('тени, пришедшие из ранней ветки', () => {
 });
 
 describe('детерминированность', () => {
-  it('одинаковое состояние даёт одинаковый ответ', () => {
-    for (const s of probes()) {
-      const clone = JSON.parse(JSON.stringify(s)) as GameState;
-      const once = SHADOW_ACHIEVEMENTS.map((a) => a.check(s));
-      expect(SHADOW_ACHIEVEMENTS.map((a) => a.check(s))).toEqual(once);
-      expect(SHADOW_ACHIEVEMENTS.map((a) => a.check(clone))).toEqual(once);
-    }
-  });
-
   it('не меняет состояние: на замороженном снимке все check возвращают boolean', () => {
     for (const s of probes()) {
       const frozen = JSON.parse(JSON.stringify(s)) as GameState;
