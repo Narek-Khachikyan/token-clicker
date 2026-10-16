@@ -12,6 +12,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   audioBus,
+  clickPitchRatio,
   clickVolumeForStreak,
   masterVolume,
   playAchievementSound,
@@ -571,6 +572,36 @@ describe('антитрещотка Кликов', () => {
     expect(second).toBeLessThan(first);
     expect(third).toBeGreaterThan(second);
     expect(third).toBeCloseTo(first);
+  });
+});
+
+describe('высота Клика по Серии', () => {
+  /** Конечная частота взлёта свежего Клика на уровне Серии. */
+  const sweepEnd = (level: number): number => {
+    nextClickMoment();
+    const before = ctx.oscillators.length;
+    playClickSound(SETTINGS, level);
+    const osc = ctx.oscillators[before];
+    return osc.frequency.points[osc.frequency.points.length - 1].value;
+  };
+
+  it('растёт с каждым уровнем и не уходит за ступень выше таблицы', () => {
+    const ratios = [0, 1, 2, 3, 4, 5, 99].map(clickPitchRatio);
+    expect(ratios[0]).toBe(1);
+    for (let i = 1; i <= 4; i += 1) expect(ratios[i]).toBeGreaterThan(ratios[i - 1]);
+    expect(ratios[5]).toBe(ratios[4]);
+    expect(ratios[6]).toBe(ratios[4]);
+    expect(clickPitchRatio(-3)).toBe(1);
+    expect(clickPitchRatio(Number.NaN)).toBe(1);
+    // Выше октавы не уходит: иначе высший уровень звучал бы писком.
+    expect(ratios[4]).toBeLessThan(2);
+  });
+
+  it('играет выше на высоком уровне Серии, чем вне её', () => {
+    const base = sweepEnd(0);
+    const top = sweepEnd(4);
+    expect(top).toBeGreaterThan(base);
+    expect(top / base).toBeCloseTo(clickPitchRatio(4));
   });
 });
 

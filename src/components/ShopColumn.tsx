@@ -7,12 +7,14 @@ import {
   crystalStockView,
   crystalUpgradeView,
   GOAL_TICK_COUNT,
+  modelFigures,
   modelView,
   pledgeView,
   upgradeView,
 } from '../store/selectors';
 import { useMotionAllowed } from './EventSprites';
 import { CATALOG, type Model } from '../economy/catalog';
+import type { GameState } from '../economy/state';
 import { LABS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale } from '../economy/engine';
 import { openUi } from '../economy/reveal';
@@ -29,6 +31,9 @@ import { CRYSTAL_STOCK_CAP, CRYSTAL_UPGRADES, type CrystalUpgrade } from '../eco
 import { formatNumber } from '../economy/format';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
+import { Hint } from './Hint';
+import { FullNumber } from './FullNumber';
+import { ModelHintCard } from './ModelHintCard';
 import { Icon } from './Icon';
 import { CoachArrow } from './CoachArrow';
 import { ChallengeCard, PrestigeForecastCard, PrestigeSectionNav } from './PrestigeTab';
@@ -398,8 +403,12 @@ const ModelCard: React.FC<{
   const view = useStateSlice((s) => modelView(s, m, buyAmount, sellMode));
   const { owned, count, canAfford, showsGain, goalTicks } = view;
   const lab = LABS[m.lab];
+  // Полная запись читает те же числа, что напечатаны на кнопке, но только в момент наведения.
+  const figure = (pick: (f: ReturnType<typeof modelFigures>) => number) => (s: GameState) =>
+    pick(modelFigures(s, m, buyAmount, sellMode));
 
   return (
+    <Hint as="div" variant="card" content={<ModelHintCard model={m} />}>
     <ModelRow owned={owned} isFlagship={m.isFlagship} canAfford={canAfford}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
@@ -516,7 +525,10 @@ const ModelCard: React.FC<{
             {showsGain && (
               <>
                 {sellMode ? '−' : '+'}
-                <Num>{view.gainText}</Num> к доходу
+                <FullNumber value={figure((f) => f.gain)}>
+                  <Num>{view.gainText}</Num>
+                </FullNumber>{' '}
+                к доходу
               </>
             )}
           </div>
@@ -560,7 +572,11 @@ const ModelCard: React.FC<{
                   )
                 ) : count > 0 ? (
                   <>
-                    Купить ×<Num>{count}</Num> (<Num>{view.costText}</Num>)
+                    Купить ×<Num>{count}</Num> (
+                    <FullNumber value={figure((f) => f.cost)}>
+                      <Num>{view.costText}</Num>
+                    </FullNumber>
+                    )
                   </>
                 ) : (
                   <>Купить</>
@@ -568,12 +584,18 @@ const ModelCard: React.FC<{
               </span>
               {view.missingText !== '' && (
                 <span className="body-font" style={{ fontSize: '0.7rem', opacity: 0.85 }}>
-                  не хватает <Num>{view.missingText}</Num>
+                  не хватает{' '}
+                  <FullNumber value={figure((f) => f.missing)}>
+                    <Num>{view.missingText}</Num>
+                  </FullNumber>
                 </span>
               )}
               {sellMode && count > 0 && (
                 <span className="body-font" style={{ fontSize: '0.7rem', opacity: 0.85 }}>
-                  вернёт <Num>{view.refundText}</Num>
+                  вернёт{' '}
+                  <FullNumber value={figure((f) => f.refund)}>
+                    <Num>{view.refundText}</Num>
+                  </FullNumber>
                 </span>
               )}
             </span>
@@ -627,6 +649,7 @@ const ModelCard: React.FC<{
           подписи не осталось, и в закрытом виде повисала под рельсом чужой чертой. */}
       {isAAOpen && <AAReference model={m} />}
     </ModelRow>
+    </Hint>
   );
 };
 
@@ -731,7 +754,11 @@ const UpgradeCard: React.FC<{ upgrade: Upgrade }> = ({ upgrade: u }) => {
         >
           {/* Цена живёт в кнопке на всех вкладках магазина: в шапке карточки её
               больше нет, поэтому искать её приходилось в двух разных местах. */}
-          Улучшить (<Num>{costText}</Num>)
+          Улучшить (
+          <FullNumber value={u.cost}>
+            <Num>{costText}</Num>
+          </FullNumber>
+          )
         </button>
 
         <TokenDeficit text={missingText} word={missingWord} />
@@ -743,9 +770,13 @@ const UpgradeCard: React.FC<{ upgrade: Upgrade }> = ({ upgrade: u }) => {
 /** Вкладка Апгрейдов: список меняется, только когда что-то открылось или куплено. */
 const UpgradesTab: React.FC = () => {
   const upgrades = useStateSlice(availableUpgradesOf);
+  // Примитив, а не вид: стадия Восстания меняется раз на Поколение, и вкладка не перерисовывается на тике.
+  const uprising = useGameStore((s) => s.state.uprising > 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+      {/* Откуп сверху: красные События идут сейчас, а список Апгрейдов может быть длинным. */}
+      {uprising && <PledgeCard />}
       {upgrades.length === 0 ? (
         <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 'var(--space-6)' }}>
           Пока нет доступных апгрейдов. Нанимай больше агентов!
@@ -758,8 +789,9 @@ const UpgradesTab: React.FC = () => {
 };
 
 /**
- * ОТКУПЫ. Блок виден всегда, а не только во время Восстания: скрытая покупка — дверь в одну
- * сторону, и игрок не узнал бы, что от красных событий вообще можно откупиться.
+ * ОТКУПЫ. Живут во вкладке «Апгрейды», рядом со всем, что покупается за текущий Забег, и
+ * показываются только с началом Восстания моделей: до него красных Событий нет, откупаться не от чего.
+ * Игрок узнаёт об Откупе из тоста Восстания и новостной ленты.
  */
 const PledgeCard: React.FC = () => {
   const buyPledge = useGameStore((s) => s.buyPledge);
@@ -776,114 +808,105 @@ const PledgeCard: React.FC = () => {
         Откупы от Восстания моделей
       </div>
 
-      {view.uprising === 0 ? (
-        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-          Откупы открываются с начала Восстания: найми 1 агента флагмана и сделай
-          Престиж. Пока красных событий не бывает — покупать нечего.
-        </div>
-      ) : (
-        <>
-          {/* Лобби. Цена растёт в восемь раз за покупку, и подпись показывает и саму
-              цену, и её рост, и сколько покупок в этом забеге ещё доступно: иначе
-              рост цены был бы виден только задним числом. */}
-          <div style={PLEDGE_ROW}>
-            <div style={PLEDGE_TEXT}>
-              <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Лобби</div>
-              <div style={PLEDGE_DESC}>
-                Глушит красные события на полчаса. Второе продлевает, а не заменяет.
-              </div>
-              <div style={PLEDGE_DESC}>
-                Куплено <Num>{view.pledgeBought}</Num> из <Num>{PLEDGE_MAX}</Num>,
-                каждая следующая дороже в <Num>{PLEDGE_GROWTH}</Num> раз.
-              </div>
-              {/* Под «Лицензией» кнопка молчит, но не прячет цену и условие: игрок
-                  обязан прочитать, что Лобби стал недоступен и почему. */}
-              {view.covenant && (
-                <div style={PLEDGE_DESC}>
-                  «Лицензия» глушит всё, поэтому Лобби за <Num>{view.pledgeCostText}</Num> не продаётся.
-                </div>
-              )}
-              {view.leftText !== '' && (
-                <div style={{ ...PLEDGE_DESC, color: 'var(--green)' }}>
-                  Глушит ещё {view.leftText}
-                </div>
-              )}
-            </div>
-            <div onClickCapture={handleDeny(view.canPledge)} style={{ flexShrink: 0 }}>
-              <button
-                onClick={buyPledge}
-                disabled={!view.canPledge}
-                className="pixel-btn pixel-btn-accent"
-                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
-              >
-                {view.covenant ? (
-                  'Есть Лицензия'
-                ) : (
-                  <>
-                    Откупиться (<Num>{view.pledgeCostText}</Num>)
-                  </>
-                )}
-              </button>
-            </div>
+      {/* Лобби. Цена растёт в восемь раз за покупку, и подпись показывает и саму
+          цену, и её рост, и сколько покупок в этом забеге ещё доступно: иначе
+          рост цены был бы виден только задним числом. */}
+      <div style={PLEDGE_ROW}>
+        <div style={PLEDGE_TEXT}>
+          <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Лобби</div>
+          <div style={PLEDGE_DESC}>
+            Глушит красные события на полчаса. Второе продлевает, а не заменяет.
           </div>
-
-          {/* Лицензия. Её размен назван прямо и ДО покупки, потому что налог на Доход
-              платится постоянно, а не разово: игрок обязан видеть, что именно он
-              покупает вместе с вечным глушением. */}
-          {view.covenant ? (
-            <div style={PLEDGE_ROW}>
-              <div style={PLEDGE_TEXT}>
-                <div style={{ fontSize: '0.95rem', color: 'var(--green)' }}>
-                  Лицензия активна
-                </div>
-                <div style={PLEDGE_DESC}>
-                  Красные события глушатся, Глюки не заводятся. Налог на Доход{' '}
-                  −<Num>{view.taxText}</Num>%{' '}
-                  платится, пока Лицензия не отозвана.
-                </div>
-              </div>
-              <div onClickCapture={handleDeny(view.canRevoke)} style={{ flexShrink: 0 }}>
-                <button
-                  onClick={revokeLicense}
-                  disabled={!view.canRevoke}
-                  className="pixel-btn"
-                  style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
-                >
-                  Отозвать (<Num>{view.revokeCostText}</Num>)
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div style={PLEDGE_ROW}>
-              <div style={PLEDGE_TEXT}>
-                <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-                  Лицензия
-                </div>
-                <div style={PLEDGE_DESC}>
-                  Вечное «Лобби»: красные события глушатся навсегда, а все Глюки
-                  лопаются разом и выплачивают общий котёл.
-                </div>
-                <div style={{ ...PLEDGE_DESC, color: '#fca5a5' }}>
-                  Постоянный налог на Доход −
-                  <Num>{view.taxText}</Num>%:
-                  отзыв обойдётся в{' '}
-                  <Num>{view.revokeCostText}</Num>.
-                </div>
-              </div>
-              <div onClickCapture={handleDeny(view.canLicense)} style={{ flexShrink: 0 }}>
-                <button
-                  onClick={buyLicense}
-                  disabled={!view.canLicense}
-                  className="pixel-btn pixel-btn-gold"
-                  style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
-                >
-                  Взять Лицензию (
-                  <Num>{view.licenseCostText}</Num>)
-                </button>
-              </div>
+          <div style={PLEDGE_DESC}>
+            Куплено <Num>{view.pledgeBought}</Num> из <Num>{PLEDGE_MAX}</Num>,
+            каждая следующая дороже в <Num>{PLEDGE_GROWTH}</Num> раз.
+          </div>
+          {/* Под «Лицензией» кнопка молчит, но не прячет цену и условие: игрок
+              обязан прочитать, что Лобби стал недоступен и почему. */}
+          {view.covenant && (
+            <div style={PLEDGE_DESC}>
+              «Лицензия» глушит всё, поэтому Лобби за <Num>{view.pledgeCostText}</Num> не продаётся.
             </div>
           )}
-        </>
+          {view.leftText !== '' && (
+            <div style={{ ...PLEDGE_DESC, color: 'var(--green)' }}>
+              Глушит ещё {view.leftText}
+            </div>
+          )}
+        </div>
+        <div onClickCapture={handleDeny(view.canPledge)} style={{ flexShrink: 0 }}>
+          <button
+            onClick={buyPledge}
+            disabled={!view.canPledge}
+            className="pixel-btn pixel-btn-accent"
+            style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
+          >
+            {view.covenant ? (
+              'Есть Лицензия'
+            ) : (
+              <>
+                Откупиться (<Num>{view.pledgeCostText}</Num>)
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Лицензия. Её размен назван прямо и ДО покупки, потому что налог на Доход
+          платится постоянно, а не разово: игрок обязан видеть, что именно он
+          покупает вместе с вечным глушением. */}
+      {view.covenant ? (
+        <div style={PLEDGE_ROW}>
+          <div style={PLEDGE_TEXT}>
+            <div style={{ fontSize: '0.95rem', color: 'var(--green)' }}>
+              Лицензия активна
+            </div>
+            <div style={PLEDGE_DESC}>
+              Красные события глушатся, Глюки не заводятся. Налог на Доход{' '}
+              −<Num>{view.taxText}</Num>%{' '}
+              платится, пока Лицензия не отозвана.
+            </div>
+          </div>
+          <div onClickCapture={handleDeny(view.canRevoke)} style={{ flexShrink: 0 }}>
+            <button
+              onClick={revokeLicense}
+              disabled={!view.canRevoke}
+              className="pixel-btn"
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
+            >
+              Отозвать (<Num>{view.revokeCostText}</Num>)
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={PLEDGE_ROW}>
+          <div style={PLEDGE_TEXT}>
+            <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
+              Лицензия
+            </div>
+            <div style={PLEDGE_DESC}>
+              Вечное «Лобби»: красные события глушатся навсегда, а все Глюки
+              лопаются разом и выплачивают общий котёл.
+            </div>
+            <div style={{ ...PLEDGE_DESC, color: '#fca5a5' }}>
+              Постоянный налог на Доход −
+              <Num>{view.taxText}</Num>%:
+              отзыв обойдётся в{' '}
+              <Num>{view.revokeCostText}</Num>.
+            </div>
+          </div>
+          <div onClickCapture={handleDeny(view.canLicense)} style={{ flexShrink: 0 }}>
+            <button
+              onClick={buyLicense}
+              disabled={!view.canLicense}
+              className="pixel-btn pixel-btn-gold"
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: '0.85rem' }}
+            >
+              Взять Лицензию (
+              <Num>{view.licenseCostText}</Num>)
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1288,7 +1311,6 @@ const PerksTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels }) 
           <>
             <PrestigeForecastCard onBackToModels={onBackToModels} />
             <ChallengeCard />
-            <PledgeCard />
           </>
         )}
         {section === 'perks' && <PerkShop />}

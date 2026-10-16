@@ -387,9 +387,17 @@ body {
 
    Покупка Модели   — короткий хлопок строки и 8 искр: событие повторяется десятки раз за
                       Забег, поэтому всё, что крупнее, превратилось бы в рябь.
+   Новая Лаборатория — Маскот поднимается из-за своего стола, и стол проявляется: одно место
+                      Сцены, без искр и звука. Выше покупки (на неё — только прыжок), ниже
+                      Достижения.
    Достижение      — 24 искры, вспышка тоста, пульс значка: первое по-настоящему крупное
                       событие, но локальное. Вспышки на весь экран здесь нет намеренно:
                       яркая вспышка большой площади — известный триггер фоточувствительности.
+   Флагман         — над местом Маскота рамка золота дважды мигает прозрачностью (меньше
+                      3 раз в секунду), вверх летят 28 квадратных конфетти, а кнопка Престижа на
+                      HUD загорается. Выше Достижения, ниже Престижа: тряски нет — она одна на всю
+                      игру и достаётся Престижу. При «меньше анимации» остаются рамка и кнопка,
+                      обе только прозрачностью.
    Престиж         — единственная тряска во всей игре: 10 px и 0.45° за 90 мс плюс провал
                       яркости, а поверх — вуаль-оверлей с карточкой нового Поколения (затемнение, не вспышка: яркого кадра нет). Дальше эта шкала кончается: на Клике, на покупке, на ошибке и
                       на повторном Престиже тряски нет, и добавлять её «для соли» не нужно.
@@ -1110,6 +1118,36 @@ body {
   padding-bottom: var(--space-1);
 }
 
+/* Подсказка при наведении (Hint.tsx): карточка Модели и полная запись числа. Позицию и ширину
+   карточки задаёт компонент из модуля раскладки; здесь — только вид. Рамка и полоса акцента те
+   же, что у .pixel-card, которым подсказка и помечена. Выше тостов (100) и окон (50), ниже
+   оверлея Престижа (2000): подсказка нужна, пока открыто окно, а сам оверлей её не просит. */
+.hint-pop {
+  position: fixed;
+  z-index: 120;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: var(--text-main);
+}
+
+.hint-pop--card {
+  padding: var(--space-3);
+}
+
+.hint-pop--text {
+  width: max-content;
+  padding: var(--space-1) var(--space-2);
+  /* 300 цифр без пробелов не должны вылезать за окно: рвутся где придётся, группы по три — неразрывные. */
+  overflow-wrap: anywhere;
+}
+
+.hint-pop__number {
+  font-variant-numeric: tabular-nums;
+}
+
 /* Float animation for +X tokens */
 @keyframes float-up {
   0% {
@@ -1321,6 +1359,148 @@ body {
 /* Пустое правило: прыжок Маскота живёт под гейтом движения */
 .mascot-hop {
   /* Пустое правило: прыжок Маскота живёт под гейтом движения, см. ниже. */
+}
+
+/* Моменты награды на Сцене (ступени лестницы — в блоке «Акценты событий»). Все четыре держат
+   прозрачность: вестибулярно нейтральна, поэтому работает и при «меньше анимации». Движение —
+   только в @media no-preference ниже. */
+
+/* Новая Лаборатория: место проявляется (стол, тень), а Маскот поднимается из-за стола. Подъём
+   идёт ступенями, как всё остальное на пиксельной Сцене; прозрачность разгоняется раньше
+   подъёма, и Маскот не торчит над столом целиком в первый кадр. */
+@keyframes mascot-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.booth--enter {
+  animation: toast-fade 0.3s ease-out backwards;
+}
+
+/* Без движения Маскот проявляется на месте: тот же срок и та же задержка, что у подъёма. */
+.mascot-rise {
+  animation: toast-fade 0.4s ease-out 0.12s backwards;
+}
+
+/* Флагман. Рамка золота вокруг места Маскота мигает дважды за 1.4 с (пики на 20% и 70%, то есть
+   около 1.4 раза в секунду: ниже порога в три вспышки, за которым начинается риск для
+   фоточувствительных). Рамка в два пикселя арта, заливки нет: площадь вспышки ничтожна. */
+@keyframes booth-ring-pulse {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  45% {
+    opacity: 0.3;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.booth-ring {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  border: var(--frame-w) solid var(--gold);
+  animation: booth-ring-pulse 1.4s ease-in-out forwards;
+}
+
+/* Конфетти: квадраты пикселя арта, летят вверх от головы Маскота и оседают. Без анимации они
+   прозрачны и ничего не рисуют, а без движения их нет и в DOM (OfficeColumn); у каждого свои
+   --cf-dx, --cf-dy (вверх — минус) и задержка --cf-delay. */
+@keyframes confetti-fly {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0);
+  }
+  10% {
+    opacity: 1;
+  }
+  45% {
+    transform: translate3d(calc(var(--cf-dx) * 0.75), var(--cf-dy), 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--cf-dx), calc(var(--cf-dy) * -0.2), 0);
+  }
+}
+
+.confetti {
+  position: absolute;
+  left: 50%;
+  width: 0;
+  height: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.confetti__bit {
+  position: absolute;
+  opacity: 0;
+  background-color: var(--gold);
+  /* Жёсткий контур в пиксель арта: на тёплом полу Сцены 1 золото и акцент иначе тонут. */
+  box-shadow: 0 0 0 var(--px) var(--bg-void);
+}
+
+.confetti__bit:nth-child(3n + 2) {
+  background-color: var(--accent-color);
+}
+
+.confetti__bit:nth-child(3n) {
+  background-color: var(--text-main);
+}
+
+/* Кнопка Престижа на HUD загорается: прозрачность падает и возвращается дважды за 1.2 с. Тот же
+   предел в три вспышки в секунду; цвет и яркость кнопки не трогаются. */
+@keyframes prestige-ignite {
+  0% {
+    opacity: 0.15;
+  }
+  25% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Добавка движения: кнопка вырастает из меньшего размера с перелётом и садится. */
+@keyframes prestige-ignite-pop {
+  0% {
+    transform: scale(0.88);
+  }
+  55% {
+    transform: scale(1.06);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.prestige-ignite {
+  animation: prestige-ignite 1.2s ease-out backwards;
 }
 
 /* Ореол живёт на ::after, а не на самой кнопке. box-shadow — свойство краски, и пульс на нём
@@ -1875,6 +2055,21 @@ body {
     animation: mascot-hop 0.35s ease-out;
   }
 
+  /* Моменты награды с движением (прозрачностью обходятся и без него, см. выше). */
+  .mascot-rise {
+    animation: mascot-rise 0.6s steps(8, end) 0.12s backwards;
+  }
+
+  .confetti__bit {
+    animation: confetti-fly 1.1s steps(11, end) var(--cf-delay, 0s) forwards;
+  }
+
+  .prestige-ignite {
+    animation:
+      prestige-ignite 1.2s ease-out backwards,
+      prestige-ignite-pop 0.45s ease-out backwards;
+  }
+
   .pulse-glow::after {
     animation: pulse-glow 2s infinite ease-in-out;
   }
@@ -2053,6 +2248,20 @@ body {
    не кнопка и нажатие подтверждать ему нечем, мигание читалось бы как сбой спрайта. */
 [data-motion='reduced'] .mascot-hop {
   animation: none;
+}
+
+/* Моменты награды без движения: подъём и добавка кнопки уходят, конфетти нет вовсе, а рамка
+   Флагмана, проявление места и загорание кнопки остаются — они только меняют прозрачность. */
+[data-motion='reduced'] .mascot-rise {
+  animation: toast-fade 0.4s ease-out 0.12s backwards;
+}
+
+[data-motion='reduced'] .confetti {
+  display: none;
+}
+
+[data-motion='reduced'] .prestige-ignite {
+  animation: prestige-ignite 1.2s ease-out backwards;
 }
 
 [data-motion='reduced'] .pulse-glow::after {
