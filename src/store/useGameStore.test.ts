@@ -17,7 +17,6 @@ import {
   totalIncome,
 } from '../economy/engine';
 import { EVENT_TABLES, grantAmount } from '../economy/events';
-import { HOLD_CLICK_MAX_PER_SEC } from '../economy/streak';
 import { RED_TABLES } from '../economy/glitches';
 import {
   GLITCH_CLICKS,
@@ -2075,7 +2074,8 @@ describe('the Серия and holding a key down', () => {
     expect(accepted.length).toBeGreaterThan(20);
     for (const at of accepted) {
       const inSecond = accepted.filter((other) => other > at - 1000 && other <= at).length;
-      expect(inSecond).toBeLessThanOrEqual(HOLD_CLICK_MAX_PER_SEC);
+      // Потолок — литерал из спеки, а не константа модуля: сравнение с ней прошло бы при любом её значении.
+      expect(inSecond).toBeLessThanOrEqual(10);
     }
   });
 
