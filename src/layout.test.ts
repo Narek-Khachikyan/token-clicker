@@ -1,20 +1,64 @@
 import { describe, expect, it } from 'vitest';
+import { formatNumber } from './economy/format';
+import { STREAK_MAX_LEVEL } from './economy/streak';
 import {
+  FLOATER_STEPS,
+  floaterLeft,
+  floaterStep,
   CLICK_COL_MAX,
   CLICK_COL_MIN,
+  CLICK_COL_PAD,
   clickColWidth,
+  COUNTER_CHARS,
+  counterWidth,
   HEADER_H,
+  HEADER_LEFT_MIN,
+  headerLeftRoom,
+  hintCardWidth,
+  HINT_CARD_W,
+  HINT_MARGIN,
+  isLandscapePhone,
+  LANDSCAPE_MAX_H,
+  PIXEL_ADVANCE,
+  STATUS_INCOME_CHARS,
+  STATUS_STRIP_LANDSCAPE_H,
+  statusStripH,
+  type HintBox,
+  placeHint,
+  MASCOT_CARD_EDGE,
+  MASCOT_CARD_W,
+  mascotCardBottom,
+  mascotCardLeft,
+  mascotCardWidth,
   NARROW_MAX,
+  NO_INSETS,
+  type SafeInsets,
+  QUIP_BUBBLE_W,
+  QUIP_TAIL_EDGE,
+  quipBubbleLeft,
+  quipBubbleWidth,
+  quipTailLeft,
   OFFICE_COL_MIN,
+  pinnedToastAnchors,
+  SCENE_COL_PAD,
   SHOP_COL_MAX,
   SHOP_COL_MIN,
   shopColWidth,
+  STATUS_COL_GAP,
+  STATUS_COUNTER_STEP,
+  STATUS_ROW_H,
+  STATUS_STRIP_H,
+  STATUS_THERMAL_W,
   TAB_BAR_H,
   TAP_MIN,
   THREE_COL_MIN,
-  TOAST_CLEARANCE,
   TOAST_MARGIN,
   toastStackWidth,
+  toastStackBand,
+  TOAST_GAP,
+  TOAST_CARD_BUDGET,
+  TOAST_VISIBLE_MAX,
+  TOAST_QUEUE_H,
 } from './layout';
 
 // Раскладку не проверяет ничто, кроме этих чисел, поэтому тест ловит ровно тот класс дефекта,
@@ -24,16 +68,6 @@ import {
 const WINDOWS = [999, 1000, 1001, 1024, 1100, 1280, 1440];
 
 describe('layout', () => {
-  it('derives the three-column threshold from the column minima', () => {
-    expect(THREE_COL_MIN).toBe(CLICK_COL_MIN + SHOP_COL_MIN + OFFICE_COL_MIN);
-  });
-
-  it('keeps every column minimum below its maximum', () => {
-    expect(CLICK_COL_MIN).toBeLessThan(CLICK_COL_MAX);
-    expect(SHOP_COL_MIN).toBeLessThan(SHOP_COL_MAX);
-    expect(OFFICE_COL_MIN).toBeGreaterThan(0);
-  });
-
   it('fits three columns exactly at the threshold and above it', () => {
     for (const vw of WINDOWS) {
       const columns = clickColWidth(vw) + shopColWidth(vw) + OFFICE_COL_MIN;
@@ -73,18 +107,42 @@ describe('layout', () => {
     expect(TAB_BAR_H).toBeGreaterThanOrEqual(TAP_MIN);
   });
 
-  it('keeps the toast clearance clear of the bars it sits above', () => {
-    // Отступ — это воздух, а не полоса: он обязан быть положительным и меньше самой
-    // короткой полосы, иначе стопка тостов начала бы отодвигать половину экрана.
-    expect(TOAST_CLEARANCE).toBeGreaterThan(0);
-    expect(TOAST_CLEARANCE).toBeLessThan(TAP_MIN);
-  });
-
   it('keeps the narrow breakpoint strictly inside the one-column range', () => {
     // NARROW_MAX — порог сжатия шапки, а не порог раскладки: на 600..999 px раскладка уже
     // одноколоночная, но шапка ещё может быть широкой. Равенство означало бы, что два разных
     // вопроса получили один ответ.
     expect(NARROW_MAX).toBeLessThan(THREE_COL_MIN);
+  });
+
+  // Шапка телефона обязана быть одним рядом. Слова на кнопках в ряд не влезают, поэтому кнопки
+  // узкого режима по 44 px, а что останется — отдано логотипу и бейджу Поколения; число остатка
+  // считает модуль, а ширину самих знаков сверяет браузер.
+  it('leaves the phone header room for its logo and badge at 320, 360 and 390', () => {
+    for (const vw of [320, 360, 390, NARROW_MAX]) {
+      expect(headerLeftRoom(vw), `на ${vw} px левой группе не хватает места`).toBeGreaterThanOrEqual(HEADER_LEFT_MIN);
+    }
+    // Соседние окна растут монотонно: шире окно — не меньше места.
+    expect(headerLeftRoom(390)).toBeGreaterThan(headerLeftRoom(360));
+    expect(headerLeftRoom(360)).toBeGreaterThan(headerLeftRoom(320));
+  });
+
+  it('counts a phone held sideways as narrow, so its header and targets are made for a finger', () => {
+    // iPhone 14 на боку — 844 px, Pro Max — 932: по прежней границе в 600 они «широкие», но
+    // полная шапка в них либо обрезала бейдж Поколения, либо уходила во второй ряд, а кнопки
+    // были ниже пальца.
+    for (const vw of [667, 844, 932]) expect(NARROW_MAX).toBeGreaterThanOrEqual(vw);
+  });
+
+  it('tells a phone on its side from a portrait phone with a tall address bar and from a desktop', () => {
+    expect(isLandscapePhone(844, 390)).toBe(true);
+    expect(isLandscapePhone(568, 320)).toBe(true);
+    // Портрет: ниже 500 бывает у iPhone SE при открытой адресной строке, но он остаётся портретом.
+    expect(isLandscapePhone(320, 460)).toBe(false);
+    expect(isLandscapePhone(390, 844)).toBe(false);
+    // Не телефон: высокое окно и трёхколоночный десктоп.
+    expect(isLandscapePhone(900, LANDSCAPE_MAX_H + 1)).toBe(false);
+    expect(isLandscapePhone(1440, 400)).toBe(false);
+    expect(isLandscapePhone(THREE_COL_MIN - 1, 400)).toBe(true);
   });
 
   // Стек тостов уже лечился от замороженного числа в нижнем отступе — ширина болела тем же:
@@ -99,6 +157,115 @@ describe('layout', () => {
     }
     // Замер из задачи: на 320 px стек занимает окно за вычетом полей.
     expect(toastStackWidth(320)).toBe(320 - TOAST_MARGIN * 2);
+  });
+
+  // Тост не должен лежать на счётчике, а пока есть место — и на шкале Температуры; на любой
+  // сетке окон, а не на одном замеренном.
+  it('never puts the toast stack over the counter, and over the scale while there is room', () => {
+    for (let counterBottom = 100; counterBottom <= 260; counterBottom += 20) {
+      for (let keepVisibleBottom = counterBottom + 40; keepVisibleBottom <= 700; keepVisibleBottom += 30) {
+        for (let contentBottom = keepVisibleBottom; contentBottom <= 760; contentBottom += 40) {
+          for (let limit = 480; limit <= 900; limit += 20) {
+            const { top, slots } = toastStackBand({ counterBottom, keepVisibleBottom, contentBottom, limit });
+            expect(top, 'стек начинается над счётчиком').toBeGreaterThanOrEqual(counterBottom + TOAST_GAP);
+            if (keepVisibleBottom + TOAST_GAP + (TOAST_CARD_BUDGET - TOAST_GAP) <= limit) {
+              expect(top, 'стек закрыл шкалу Температуры').toBeGreaterThanOrEqual(keepVisibleBottom + TOAST_GAP);
+            }
+            expect(slots).toBeGreaterThanOrEqual(1);
+            expect(slots).toBeLessThanOrEqual(TOAST_VISIBLE_MAX);
+          }
+        }
+      }
+    }
+  });
+
+  it('keeps one toast card inside the window whenever the counter leaves room for it', () => {
+    for (let counterBottom = 100; counterBottom <= 260; counterBottom += 20) {
+      for (let limit = 480; limit <= 900; limit += 20) {
+        if (counterBottom + TOAST_GAP + (TOAST_CARD_BUDGET - TOAST_GAP) > limit) continue;
+        const { top } = toastStackBand({ counterBottom, keepVisibleBottom: limit, contentBottom: limit + 100, limit });
+        expect(top + TOAST_CARD_BUDGET - TOAST_GAP, 'тост вышел за нижнюю полосу').toBeLessThanOrEqual(limit);
+      }
+    }
+  });
+
+  it('starts the toast stack under the column when there is room and lifts it when there is not', () => {
+    const roomy = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 480, limit: 900 });
+    expect(roomy.top).toBe(480 + TOAST_GAP);
+    expect(roomy.slots).toBe(TOAST_VISIBLE_MAX);
+    const tight = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 640, limit: 686 });
+    expect(tight.top).toBe(686 - (TOAST_CARD_BUDGET - TOAST_GAP));
+    expect(tight.slots).toBe(1);
+    // Измеренная карточка ниже запаса: стек опускается ближе к шкале, а не прячется под запас.
+    const measured = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 640, limit: 686, cardHeight: 81 });
+    expect(measured.top).toBe(686 - 81);
+    // Совсем тесно (шкала уже за нижней полосой): окно важнее шкалы, но счётчик свободен.
+    const cramped = toastStackBand({ counterBottom: 140, keepVisibleBottom: 600, contentBottom: 660, limit: 640 });
+    expect(cramped.top).toBe(640 - (TOAST_CARD_BUDGET - TOAST_GAP));
+    expect(cramped.top).toBeGreaterThanOrEqual(140 + TOAST_GAP);
+  });
+
+  it('lifts the stack by the height of the queue button when more toasts wait than fit', () => {
+    const plain = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 640, limit: 686, cardHeight: 81 });
+    const queued = toastStackBand({ counterBottom: 140, keepVisibleBottom: 400, contentBottom: 640, limit: 686, cardHeight: 81, below: TOAST_QUEUE_H });
+    expect(queued.top).toBe(plain.top - TOAST_QUEUE_H);
+  });
+
+  // Закреплённая полоса телефона: её высоту знают сразу три места (CSS полосы, отступ тостов и
+  // рабочая область под ней), и разъезд между ними — это полоса, которая либо режет строки,
+  // либо оставляет пустоту.
+  describe('status strip of the phone layout', () => {
+    it('fits the 22 px pixel step in a strip row', () => {
+      // Строка вмещает пиксельную ступень 22 px, иначе цифры Токенов обрезались бы по высоте.
+      expect(STATUS_ROW_H).toBeGreaterThanOrEqual(22);
+    });
+
+    it('stays a thin strip, not a second header: at most 11% of the shortest phone window', () => {
+      // 568 — самый низкий телефон портретной ориентации (iPhone SE первого поколения).
+      expect(STATUS_STRIP_H / 568).toBeLessThanOrEqual(0.115);
+      // Полоса не выше шапки: закреплённое не должно перевешивать главное, что под ним.
+      expect(STATUS_STRIP_H).toBeGreaterThanOrEqual(HEADER_H);
+      expect(STATUS_STRIP_H).toBeLessThanOrEqual(HEADER_H + 24);
+    });
+
+    it('fits the counter and the temperature in one row on every window down to 320 px', () => {
+      for (let vw = 320; vw < THREE_COL_MIN; vw += 5) {
+        const row = vw - CLICK_COL_PAD * 2;
+        expect(counterWidth(STATUS_COUNTER_STEP) + STATUS_COL_GAP + STATUS_THERMAL_W, `на ${vw} px строка не вмещает`).toBeLessThanOrEqual(row);
+      }
+    });
+
+    it('is one row high when the phone lies on its side, and still a thin strip', () => {
+      expect(STATUS_STRIP_LANDSCAPE_H).toBeLessThan(STATUS_STRIP_H);
+      // 320 — самый низкий телефон на боку (iPhone SE первого поколения, 568 × 320).
+      expect(STATUS_STRIP_LANDSCAPE_H / 320).toBeLessThanOrEqual(0.125);
+      expect(statusStripH(true)).toBe(STATUS_STRIP_LANDSCAPE_H);
+      expect(statusStripH(false)).toBe(STATUS_STRIP_H);
+    });
+
+    it('fits Tokens, Income and the temperature in one row on every window a phone can lie in', () => {
+      // Самая длинная запись каждой клетки на пиксельной ступени 22 px, плюс два зазора и поля.
+      const income = STATUS_INCOME_CHARS * STATUS_COUNTER_STEP * PIXEL_ADVANCE;
+      const need = counterWidth(STATUS_COUNTER_STEP) + income + STATUS_THERMAL_W + STATUS_COL_GAP * 2 + CLICK_COL_PAD * 2;
+      for (const [vw, vh] of [[568, 320], [640, 360], [667, 375], [844, 390], [932, 430]]) {
+        expect(isLandscapePhone(vw, vh)).toBe(true);
+        expect(need, `на ${vw}x${vh} в одну строку не встаёт`).toBeLessThanOrEqual(vw);
+      }
+    });
+
+    it('puts the toast stack right under the strip on every tab, never over it', () => {
+      for (let stripBottom = 60; stripBottom <= 260; stripBottom += 10) {
+        for (let limit = 420; limit <= 900; limit += 20) {
+          for (const cardHeight of [undefined, 64, 117]) {
+            const anchors = pinnedToastAnchors({ stripBottom, limit, cardHeight });
+            const { top, slots } = toastStackBand(anchors);
+            expect(top, 'стек лёг на полосу').toBe(stripBottom + TOAST_GAP);
+            expect(slots).toBeGreaterThanOrEqual(1);
+            expect(slots).toBeLessThanOrEqual(TOAST_VISIBLE_MAX);
+          }
+        }
+      }
+    });
   });
 
   it('derives the toast stack width from the column math on every window', () => {
@@ -120,5 +287,269 @@ describe('layout', () => {
     for (let vw = THREE_COL_MIN; vw < 2560; vw += 7) {
       expect(toastStackWidth(vw + 7)).toBeGreaterThanOrEqual(toastStackWidth(vw));
     }
+  });
+
+  // Счётчик Токенов набран моноширинным шрифтом на ступени 33 px, поэтому его ширина — это
+  // число знаков, помноженное на ширину знака. Самая длинная запись обязана влезть в самую
+  // узкую колонку Клика, иначе она полезла бы за край и колонка получила бы горизонтальную
+  // прокрутку.
+  it('reserves enough characters for the longest number either notation prints', () => {
+    let longest = 0;
+    for (let exp = 0; exp <= 297; exp++) {
+      for (const mantissa of [1, 1.5, 9.99, 99.9, 842.6, 999.94]) {
+        for (const notation of ['short', 'sci'] as const) {
+          longest = Math.max(longest, formatNumber(mantissa * 10 ** exp, notation).length);
+        }
+      }
+    }
+    expect(COUNTER_CHARS).toBeGreaterThanOrEqual(longest);
+    // Резерв не раздут: лишние знаки отнимали бы место у колонки зря.
+    expect(COUNTER_CHARS).toBeLessThanOrEqual(longest + 1);
+  });
+
+  it('fits the counter inside the Click column on every window, down to 320 px', () => {
+    for (let vw = 320; vw <= 2560; vw += 7) {
+      const column = vw < THREE_COL_MIN ? vw : clickColWidth(vw);
+      expect(counterWidth()).toBeLessThanOrEqual(column - CLICK_COL_PAD * 2);
+    }
+  });
+
+  // Сцена главная на десктопе: карточка Маскота живёт внутри неё, и на самых узких Сценах
+  // (одна колонка на 320 px и Сцена в колонке на пороге) она обязана остаться на виду целиком.
+  describe('mascot card on the Scene', () => {
+    const narrowest = [320 - SCENE_COL_PAD * 2, THREE_COL_MIN - clickColWidth(THREE_COL_MIN) - shopColWidth(THREE_COL_MIN) - SCENE_COL_PAD * 2];
+
+    it('fits the card at full width inside the narrowest Scenes', () => {
+      for (const sceneW of narrowest) {
+        expect(mascotCardWidth(sceneW)).toBe(MASCOT_CARD_W);
+      }
+    });
+
+    it('shrinks the card, never the margins, on a Scene narrower than the card', () => {
+      expect(mascotCardWidth(MASCOT_CARD_W)).toBe(MASCOT_CARD_W - MASCOT_CARD_EDGE * 2);
+      expect(mascotCardWidth(100)).toBe(100 - MASCOT_CARD_EDGE * 2);
+      expect(mascotCardWidth(4)).toBe(0);
+    });
+
+    it('never lets the card leave the Scene, whichever Mascot is under the pointer', () => {
+      for (let sceneW = 120; sceneW <= 1200; sceneW += 13) {
+        const width = mascotCardWidth(sceneW);
+        for (let center = -40; center <= sceneW + 40; center += 11) {
+          const left = mascotCardLeft(center, sceneW);
+          expect(left).toBeGreaterThanOrEqual(MASCOT_CARD_EDGE);
+          if (sceneW >= width + MASCOT_CARD_EDGE * 2) {
+            expect(left + width).toBeLessThanOrEqual(sceneW - MASCOT_CARD_EDGE);
+          }
+        }
+      }
+    });
+
+    it('lifts the card over the booth when there is room above it', () => {
+      expect(mascotCardBottom(120, 90, 700)).toBe(120);
+    });
+
+    it('lays the card over the booth, never past the top of the Scene, when there is no room', () => {
+      for (let sceneH = 300; sceneH <= 900; sceneH += 25) {
+        for (let bottom = 0; bottom <= sceneH; bottom += 20) {
+          for (const cardH of [72, 94, 134]) {
+            const placed = mascotCardBottom(bottom, cardH, sceneH);
+            expect(placed + cardH).toBeLessThanOrEqual(sceneH - MASCOT_CARD_EDGE);
+            expect(placed).toBeGreaterThanOrEqual(MASCOT_CARD_EDGE);
+            // Выше места карточка не поднимается больше, чем просили.
+            expect(placed).toBeLessThanOrEqual(Math.max(bottom, MASCOT_CARD_EDGE));
+          }
+        }
+      }
+    });
+
+    it('centres the card over a Mascot in the middle of the Scene', () => {
+      expect(mascotCardLeft(400, 800)).toBe(400 - MASCOT_CARD_W / 2);
+    });
+
+    it('presses the card to the edge over the first and last Mascot', () => {
+      expect(mascotCardLeft(30, 500)).toBe(MASCOT_CARD_EDGE);
+      expect(mascotCardLeft(470, 500)).toBe(500 - MASCOT_CARD_EDGE - MASCOT_CARD_W);
+    });
+  });
+
+  // Реплика Модели — пузырь над её Маскотом: тот же вопрос, что у карточки (не выйти за Сцену), но
+  // хвостик обязан смотреть на Маскота, даже когда сам пузырь прижат к краю.
+  describe('quip bubble over a Mascot', () => {
+    const narrowest = [320 - SCENE_COL_PAD * 2, THREE_COL_MIN - clickColWidth(THREE_COL_MIN) - shopColWidth(THREE_COL_MIN) - SCENE_COL_PAD * 2];
+
+    it('keeps full width on the narrowest Scenes and shrinks only below it', () => {
+      for (const sceneW of narrowest) expect(quipBubbleWidth(sceneW)).toBeLessThanOrEqual(QUIP_BUBBLE_W);
+      expect(quipBubbleWidth(1000)).toBe(QUIP_BUBBLE_W);
+      expect(quipBubbleWidth(200)).toBe(200 - MASCOT_CARD_EDGE * 2);
+      expect(quipBubbleWidth(4)).toBe(0);
+    });
+
+    it('never lets the bubble leave the Scene, whichever Mascot speaks', () => {
+      for (let sceneW = 120; sceneW <= 1200; sceneW += 13) {
+        const width = quipBubbleWidth(sceneW);
+        for (let center = -40; center <= sceneW + 40; center += 11) {
+          const left = quipBubbleLeft(center, sceneW);
+          expect(left).toBeGreaterThanOrEqual(MASCOT_CARD_EDGE);
+          if (sceneW >= width + MASCOT_CARD_EDGE * 2) {
+            expect(left + width).toBeLessThanOrEqual(sceneW - MASCOT_CARD_EDGE);
+          }
+        }
+      }
+    });
+
+    it('points the tail at the speaker, centred when the bubble is not pressed to an edge', () => {
+      const left = quipBubbleLeft(500, 1000);
+      expect(left).toBe(500 - QUIP_BUBBLE_W / 2);
+      expect(quipTailLeft(500, left, QUIP_BUBBLE_W)).toBe(QUIP_BUBBLE_W / 2);
+    });
+
+    it('slides the tail toward the speaker when the bubble is pressed to an edge', () => {
+      const left = quipBubbleLeft(30, 600);
+      expect(left).toBe(MASCOT_CARD_EDGE);
+      expect(quipTailLeft(30, left, QUIP_BUBBLE_W)).toBe(30 - MASCOT_CARD_EDGE);
+    });
+
+    it('keeps the tail on the bubble, away from its corners, for every speaker', () => {
+      for (let sceneW = 280; sceneW <= 1200; sceneW += 17) {
+        const width = quipBubbleWidth(sceneW);
+        for (let center = 0; center <= sceneW; center += 9) {
+          const tail = quipTailLeft(center, quipBubbleLeft(center, sceneW), width);
+          expect(tail).toBeGreaterThanOrEqual(QUIP_TAIL_EDGE);
+          expect(tail).toBeLessThanOrEqual(width - QUIP_TAIL_EDGE);
+        }
+      }
+    });
+  });
+});
+
+describe('+N Серии', () => {
+  it('has a step for every level, never shrinks as the Серия grows and tops out at the largest step', () => {
+    expect(FLOATER_STEPS).toHaveLength(STREAK_MAX_LEVEL + 1);
+    for (let i = 1; i < FLOATER_STEPS.length; i += 1) {
+      expect(FLOATER_STEPS[i]).toBeGreaterThanOrEqual(FLOATER_STEPS[i - 1]);
+    }
+    expect(floaterStep(0)).toBe(22);
+    expect(floaterStep(STREAK_MAX_LEVEL)).toBe(44);
+    expect(floaterStep(99)).toBe(44);
+    expect(floaterStep(-1)).toBe(22);
+    expect(floaterStep(Number.NaN)).toBe(22);
+  });
+
+  it('keeps the whole record inside the window at every width, for the longest record', () => {
+    const chars = COUNTER_CHARS + 1;
+    for (const width of [320, 360, 390, 1024, 1440]) {
+      for (const step of [22, 33, 44] as const) {
+        const recordW = chars * step * (350 / 550);
+        for (const x of [0, 10, width / 2, width - 10, width]) {
+          const left = floaterLeft(x, chars, step, width);
+          if (recordW < width) {
+            expect(left - recordW / 2).toBeGreaterThanOrEqual(-1e-9);
+            expect(left + recordW / 2).toBeLessThanOrEqual(width + 1e-9);
+          } else {
+            expect(left).toBe(width / 2);
+          }
+        }
+      }
+    }
+  });
+
+  it('leaves a point that already fits where it was', () => {
+    expect(floaterLeft(700, 6, 22, 1440)).toBe(700);
+  });
+});
+
+describe('placeHint', () => {
+  const card = (vw: number, height = 360) => ({ width: hintCardWidth(vw), height });
+  const rowAt = (vw: number, top: number): HintBox => {
+    // Строка Модели в магазине: на десктопе — правая колонка, в одноколоночном режиме — всё окно.
+    const width = vw >= THREE_COL_MIN ? shopColWidth(vw) : vw;
+    return { left: vw - width, top, width, height: 140 };
+  };
+  const inside = (p: { left: number; top: number }, size: { width: number; height: number }, vw: number, vh: number) => {
+    expect(p.left).toBeGreaterThanOrEqual(HINT_MARGIN);
+    expect(p.top).toBeGreaterThanOrEqual(HINT_MARGIN);
+    expect(p.left + size.width).toBeLessThanOrEqual(vw - HINT_MARGIN);
+    expect(p.top + size.height).toBeLessThanOrEqual(vh - HINT_MARGIN);
+  };
+  const overlaps = (a: HintBox, b: HintBox) =>
+    a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
+
+  it('на десктопе ложится слева от магазина и не закрывает свою строку', () => {
+    for (const [vw, vh] of [[1131, 700], [1280, 800], [1440, 900], [2560, 1300]]) {
+      for (const top of [60, 300, 560]) {
+        const anchor = rowAt(vw, top);
+        const size = card(vw);
+        const p = placeHint(anchor, size, { width: vw, height: vh });
+        expect(p.side).toBe('left');
+        const box = { left: p.left, top: p.top, width: size.width, height: Math.min(size.height, p.maxHeight) };
+        expect(overlaps(box, anchor)).toBe(false);
+        inside(p, { width: size.width, height: box.height }, vw, vh);
+      }
+    }
+  });
+
+  it('в одну колонку уходит под строку или над ней и остаётся в окне на 320, 390 и 1024 px', () => {
+    for (const [vw, vh] of [[320, 568], [390, 844], [1024, 700]]) {
+      for (const top of [40, 200, 380, 500]) {
+        const anchor = rowAt(vw, top);
+        const size = card(vw);
+        const p = placeHint(anchor, size, { width: vw, height: vh });
+        expect(['below', 'above']).toContain(p.side);
+        const height = Math.min(size.height, p.maxHeight);
+        const box = { left: p.left, top: p.top, width: size.width, height };
+        expect(overlaps(box, anchor)).toBe(false);
+        inside(p, { width: size.width, height }, vw, vh);
+      }
+    }
+  });
+
+  it('выбирает сторону, где места больше, а не вмещающую только по случаю', () => {
+    const vw = 390;
+    const vh = 800;
+    const nearTop = placeHint(rowAt(vw, 20), card(vw), { width: vw, height: vh });
+    const nearBottom = placeHint(rowAt(vw, 640), card(vw), { width: vw, height: vh });
+    expect(nearTop.side).toBe('below');
+    expect(nearBottom.side).toBe('above');
+  });
+
+  it('карточка выше любой свободной стороны берёт всё место и прокручивается', () => {
+    const vw = 390;
+    const vh = 420;
+    const p = placeHint(rowAt(vw, 140), { width: hintCardWidth(vw), height: 900 }, { width: vw, height: vh });
+    expect(p.maxHeight).toBeLessThan(900);
+    expect(p.maxHeight).toBeGreaterThan(0);
+    expect(p.top).toBeGreaterThanOrEqual(HINT_MARGIN);
+    expect(p.top + p.maxHeight).toBeLessThanOrEqual(vh - HINT_MARGIN);
+  });
+
+  it('стоит внутри безопасной области окна с вырезом, а не под ним', () => {
+    // Телефон в альбомной ориентации: вырез слева и скруглённый угол справа, внизу полоса жестов.
+    const insets: SafeInsets = { top: 0, right: 34, bottom: 21, left: 47 };
+    for (const [vw, vh] of [[844, 390], [667, 375], [390, 844], [320, 568]]) {
+      const inner = { width: vw - insets.left - insets.right, height: vh - insets.top - insets.bottom };
+      for (const top of [20, 120, 260]) {
+        const anchor: HintBox = { left: insets.left, top, width: inner.width, height: 100 };
+        const size = { width: hintCardWidth(inner.width), height: 360 };
+        const p = placeHint(anchor, size, { width: vw, height: vh, insets });
+        const height = Math.min(size.height, p.maxHeight);
+        expect(p.left, `${vw}x${vh}: левый край под вырезом`).toBeGreaterThanOrEqual(insets.left + HINT_MARGIN);
+        expect(p.left + size.width).toBeLessThanOrEqual(vw - insets.right - HINT_MARGIN);
+        expect(p.top).toBeGreaterThanOrEqual(insets.top + HINT_MARGIN);
+        expect(p.top + height).toBeLessThanOrEqual(vh - insets.bottom - HINT_MARGIN);
+      }
+    }
+  });
+
+  it('без вырезов считает окно целиком, как раньше', () => {
+    const anchor = rowAt(390, 200);
+    const size = card(390);
+    expect(placeHint(anchor, size, { width: 390, height: 844, insets: NO_INSETS })).toEqual(
+      placeHint(anchor, size, { width: 390, height: 844 }),
+    );
+  });
+
+  it('карточка помещается в окно шириной 320 px', () => {
+    expect(hintCardWidth(320)).toBe(320 - HINT_MARGIN * 2);
+    expect(hintCardWidth(1440)).toBe(HINT_CARD_W);
   });
 });

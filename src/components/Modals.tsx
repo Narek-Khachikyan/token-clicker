@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useGameStore } from '../store/useGameStore';
+import { useGameStore, useStateSlice, type EffectSwitch, type OfflineReport } from '../store/useGameStore';
 import { ACHIEVEMENTS, nonShadowCount, shadowEarned } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
 import { ThermalSection } from './ThermalSection';
@@ -11,7 +11,6 @@ import {
   computeShortfall,
   discountMult,
   isContentFinale,
-  labIncomeShare,
   maxAffordable,
   offlineCapHours,
   prestigeGain,
@@ -19,7 +18,7 @@ import {
 } from '../economy/engine';
 import { availableUpgrades } from '../economy/upgrades';
 import { SHADOW_ACHIEVEMENTS } from '../economy/shadow';
-import { LABS, LAB_IDS } from '../data/labs';
+import { LABS } from '../data/labs';
 import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
@@ -88,19 +87,25 @@ const AchievementCard: React.FC<{
       style={{
         backgroundColor: background,
         border,
-        borderRadius: '6px',
-        padding: '8px 10px',
+        padding: 'var(--space-2)',
         display: 'flex',
         alignItems: 'flex-start',
-        gap: '10px',
+        gap: 'var(--space-2)',
         listStyle: 'none',
       }}
     >
+      {/* Состояние несут и форма значка, и подпись для слушающего ниже, поэтому сам значок
+          для скринридера скрыт. Золото у кубка и луны — «трофей», приглушённый замок — «ещё
+          нет»: цвет задаёт обёртка, а значок берёт его через currentColor. */}
       <span
         aria-hidden="true"
-        style={{ fontSize: '1.1rem', lineHeight: 1.35, opacity: unlocked ? 1 : 0.55 }}
+        style={{
+          display: 'flex',
+          marginTop: 'var(--space-0)',
+          color: unlocked ? 'var(--gold)' : 'var(--text-muted)',
+        }}
       >
-        {unlocked ? (shadow ? '🌑' : '🏆') : '🔒'}
+        <Icon name={unlocked ? (shadow ? 'moon' : 'trophy') : 'lock'} />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Состояние и для слушающего, а не только для глаза: печать, цвет и рамку
@@ -109,9 +114,8 @@ const AchievementCard: React.FC<{
         <span style={SR_ONLY}>
           {unlocked ? (shadow ? 'Теневое получено' : 'Получено') : 'Ещё не получено'}
         </span>
-        {/* Без pixel-font: название Достижения по-русски, а в Pixelify Sans нет
-            заглавных «О» и «П», и они молча уходили в фолбэк прямо посреди слова
-            («Промпт-джуниор»). Это ровно то, что ADR-0003 запрещает. */}
+        {/* Название Достижения — Nunito: оно мельче 22 px, а пиксельный шрифт бывает только на
+            ступенях 22/33/44 (ADR-0009). */}
         <div
           /* Светлее --green намеренно: так открытое Достижение читается ярче закрытой
              карточки, а --green на подложке сравнялся бы с --text-muted описания рядом.
@@ -129,7 +133,7 @@ const AchievementCard: React.FC<{
         >
           {name}
         </div>
-        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{desc}</div>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{desc}</div>
       </div>
     </li>
   );
@@ -154,12 +158,12 @@ const SETTING_ROW: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
-  gap: '10px',
+  gap: 'var(--space-2)',
   flexWrap: 'wrap',
 };
 const SETTING_CONTROL: React.CSSProperties = {
-  padding: '6px 12px',
-  fontSize: '0.85rem',
+  padding: 'var(--space-1) var(--space-3)',
+  fontSize: 'var(--text-sm)',
   whiteSpace: 'nowrap',
   flexShrink: 0,
   marginLeft: 'auto',
@@ -167,7 +171,79 @@ const SETTING_CONTROL: React.CSSProperties = {
 // У пары кнопок наружным элементом управления считается группа, поэтому прижимать к правому
 // краю надо её, а не каждую кнопку: auto-отступ внутри группы всегда ноль, потому что
 // свободного места в ней нет.
-const SETTING_GROUP: React.CSSProperties = { display: 'flex', gap: '6px', flexShrink: 0, marginLeft: 'auto' };
+const SETTING_GROUP: React.CSSProperties = { display: 'flex', gap: 'var(--space-1)', flexShrink: 0, marginLeft: 'auto' };
+
+/**
+ * Ползунок громкости: подпись, процент и сам ползунок. Общая громкость и оба канала выглядят и
+ * читаются одинаково, а различаются подсказкой: одинаковые три ползунка без неё не объяснили бы,
+ * что два из них лежат поверх третьего.
+ */
+const VolumeSlider: React.FC<{
+  id: string;
+  label: React.ReactNode;
+  hint: string;
+  value: number;
+  onChange: (value: number) => void;
+}> = ({ id, label, hint, value, onChange }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+      <label htmlFor={id} style={{ fontWeight: 600, display: 'flex', gap: 'var(--space-1)' }}>
+        {label}
+      </label>
+      <span style={{ color: 'var(--text-main)' }}>
+        <Num>{Math.round(value * 100)}</Num>%
+      </span>
+    </div>
+    <input
+      id={id}
+      type="range"
+      min={0}
+      max={1}
+      step={0.05}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      style={{ width: '100%', accentColor: 'var(--accent-color)', cursor: 'pointer' }}
+      aria-describedby={`${id}-hint`}
+      aria-valuetext={`${Math.round(value * 100)} процентов`}
+    />
+    <div id={`${id}-hint`} style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+      {hint}
+    </div>
+  </div>
+);
+
+/** Строка с выключателем одного эффекта: то же «Включено / Выключено», что у «Меньше анимации». */
+const EffectRow: React.FC<{
+  effect: EffectSwitch;
+  title: string;
+  hint: string;
+  /** Что гасит выключатель за него самого: «Меньше анимации» сильнее выключателя, и игрок,
+   *  включивший частицы под ним, иначе решил бы, что выключатель сломан. */
+  overriddenByMotion?: boolean;
+}> = ({ effect, title, hint, overriddenByMotion = false }) => {
+  const on = useGameStore((s) => s.state.settings[effect]);
+  const reduced = useGameStore((s) => s.state.settings.reducedMotion);
+  const setEffect = useGameStore((s) => s.setEffect);
+  return (
+    <div style={SETTING_ROW}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600 }}>{title}</div>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+          {hint}
+          {overriddenByMotion && reduced ? ' Сейчас не действует: включено «Меньше анимации».' : ''}
+        </div>
+      </div>
+      <button
+        onClick={() => setEffect(effect, !on)}
+        aria-pressed={on}
+        className={`pixel-btn ${on ? 'pixel-btn-accent' : ''}`}
+        style={SETTING_CONTROL}
+      >
+        {on ? 'Включено' : 'Выключено'}
+      </button>
+    </div>
+  );
+};
 
 // Отложенное размонтирование окна: запрос закрытия лишь взводит closing, а настоящий
 // onClose приходит по одному bounded one-shot таймеру. Очистка в эффекте обязательна —
@@ -175,7 +251,7 @@ const SETTING_GROUP: React.CSSProperties = { display: 'flex', gap: '6px', flexSh
 // Повторный запрос во время выхода — игнор: иначе спам ✕ перезапускал бы выход.
 // Открытие (open поменялся) сбрасывает closing, иначе повторное открытие показало бы
 // выходной кадр вместо окна. Один вызов хука — одно окно, один таймер.
-function useModalExit(
+export function useModalExit(
   open: boolean,
   onClose: () => void,
 ): { closing: boolean; requestClose: () => void } {
@@ -209,10 +285,10 @@ function useModalExit(
 // Итог был не «у окна есть оболочка», а шесть почти одинаковых, но разных каркасов:
 // игрок переучивался расположению крестика при каждом переходе.
 const MODAL_MAX_WIDTH = 520;
-const MODAL_MAX_HEIGHT = '85vh';
-const MODAL_PAD = 20;
-const MODAL_GAP = 14;
-const MODAL_TITLE_SIZE = '1.2rem';
+// Не `85vh`: от видимой области окна (`dvh`), и с запасным значением — это живёт в CSS корня.
+const MODAL_MAX_HEIGHT = 'var(--modal-max-h)';
+const MODAL_PAD = 'var(--space-4)';
+const MODAL_GAP = 'var(--space-3)';
 
 /** Слой окон. Тосты живут на 100 (см. useDialogFocus: тост о Достижении обязан пережить
  *  открытое окно), оверлей Престижа — на 40, поэтому единого 50 хватает всем окнам. Бывшие
@@ -229,14 +305,26 @@ const MODAL_Z = 50;
  */
 type ModalTone = 'plain' | 'gold' | 'accent';
 
-const TONE_BORDER: Record<ModalTone, string> = {
-  plain: '2px solid var(--border)',
-  gold: '2px solid var(--gold)',
-  accent: '2px solid var(--accent-color)',
+/**
+ * Рамка окна по тону. Нейтральному окну рамку не задаём: её даёт `.pixel-card` — рамка и
+ * полоса по верху цвета текущего Поколения (ADR-0008). Золото и акцент перекрашивают рамку
+ * целиком, поэтому задают её сами.
+ */
+const TONE_BORDER: Record<ModalTone, string | undefined> = {
+  plain: undefined,
+  gold: 'var(--frame-w) solid var(--gold)',
+  accent: 'var(--frame-w) solid var(--accent-color)',
 };
 
+/** Заголовок и линия под ним одного цвета: шапка раздела (ADR-0008) красится тоном окна. */
 const TONE_TITLE: Record<ModalTone, string> = {
-  plain: 'var(--text-main)',
+  plain: 'var(--accent-color)',
+  gold: 'var(--gold)',
+  accent: 'var(--accent-color)',
+};
+
+const TONE_RULE: Record<ModalTone, string> = {
+  plain: 'var(--accent-frame)',
   gold: 'var(--gold)',
   accent: 'var(--accent-color)',
 };
@@ -292,7 +380,7 @@ interface ModalFrameProps {
  * оборачивает содержимое в один div и задаёт ритм сам — оболочка не навязывает его
  * содержимому, но и не запрещает ему свой.
  */
-const ModalFrame: React.FC<ModalFrameProps> = ({
+export const ModalFrame: React.FC<ModalFrameProps> = ({
   isOpen,
   closing,
   requestClose,
@@ -315,6 +403,8 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
 
   return (
     <div
+      // Поле от края подложки — в классе: оно считается от безопасной области (вырез экрана).
+      className="modal-scrim"
       style={{
         position: 'fixed',
         inset: 0,
@@ -323,7 +413,6 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: MODAL_Z,
-        padding: '16px',
         animation: fade,
       }}
       onClick={dismissible ? requestClose : undefined}
@@ -354,23 +443,25 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            gap: '10px',
+            gap: 'var(--space-2)',
             flexShrink: 0,
+            paddingBottom: 'var(--space-2)',
+            borderBottom: `var(--frame-w) solid ${TONE_RULE[tone]}`,
           }}
         >
           {/* Настоящий заголовок, а не крупный текст: h1 в игре один (логотип в шапке),
               поэтому окно — второй уровень, и скринридер получает имя из aria-labelledby. */}
           <h2
             id={titleId}
+            className="pixel-22"
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: 'var(--space-2)',
               // Узкий экран: заголовок с длинным счётчиком переносится, а не выдавливает
               // крестик, поэтому minWidth 0 плюс перенос, а не жёсткое nowrap.
               flexWrap: 'wrap',
               minWidth: 0,
-              fontSize: MODAL_TITLE_SIZE,
               color: TONE_TITLE[tone],
               // Капс даёт text-transform, а не текст в DOM: иначе скринридер читал бы
               // «Д О С Т И Ж Е Н И Я» по буквам, а имя окна — это то, что он произносит.
@@ -386,7 +477,7 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
               onClick={requestClose}
               aria-label="Закрыть"
               title="Закрыть"
-              style={{ padding: '4px 10px', flexShrink: 0 }}
+              style={{ padding: 'var(--space-1) var(--space-2)', flexShrink: 0 }}
             >
               <Icon name="close" />
             </button>
@@ -400,7 +491,7 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
             overflowY: 'auto',
             display: 'flex',
             flexDirection: 'column',
-            gap: '10px',
+            gap: 'var(--space-2)',
             // Растягивание по умолчанию нужно строкам статистики, а центрированному окну —
             // по центру: иначе иконка-молния и кубок уехали бы в левый край вместо середины.
             alignItems: centered ? 'center' : 'stretch',
@@ -411,7 +502,7 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
         </div>
 
         {footer && (
-          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>{footer}</div>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', flexShrink: 0 }}>{footer}</div>
         )}
       </div>
     </div>
@@ -420,23 +511,27 @@ const ModalFrame: React.FC<ModalFrameProps> = ({
 
 /**
  * Счётчик рядом с названием окна: «12 из 21». Слово «из», а не слеш, — и для читающего
- * глаза, и для произносимого вслух (слеш скринридер читает как «слэш»). Цифры остаются
- * пиксельным шрифтом: строка из одних чисел такой шрифт по ADR-0003 выдерживает.
+ * глаза, и для произносимого вслух (слеш скринридер читает как «слэш»). Стоит внутри заголовка
+ * окна, набранного Departure Mono на 22 px, а сам мельче ступени, поэтому `body-font` возвращает
+ * его в Nunito (ADR-0009).
  */
 const ModalCount: React.FC<{ earned: number; total: number }> = ({ earned, total }) => (
-  <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+  <span className="body-font" style={{ fontSize: '0.9rem', color: 'var(--text-muted)', fontWeight: 400 }}>
     (<Num>{earned}</Num> из <Num>{total}</Num>)
   </span>
 );
 
 export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
-  const state = useGameStore((s) => s.state);
+  // Окно читает только список Достижений: он меняется, когда выдано новое, а не на каждом тике,
+  // поэтому закрытое окно и открытое не перерисовываются от тика вовсе.
+  const achievements = useGameStore((s) => s.state.achievements);
   // Все пути закрытия (скрим, ✕, Esc из хука) идут через один запрос: мгновенного
   // onClose больше нет ни на одном пути.
   const { closing, requestClose } = useModalExit(isOpen, onClose);
   if (!isOpen) return null;
 
-  const unlockedSet = new Set(state.achievements);
+  const unlockedSet = new Set(achievements);
+  const earned = { achievements };
 
   return (
     <ModalFrame
@@ -450,7 +545,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
          списке, и прямой длиной счётчик шапал бы выше знаменателя. */
       title={
         <>
-          Достижения <ModalCount earned={nonShadowCount(state)} total={ACHIEVEMENTS.length} />
+          Достижения <ModalCount earned={nonShadowCount(earned)} total={ACHIEVEMENTS.length} />
         </>
       }
     >
@@ -464,7 +559,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
           // auto-fill вместо фиксированного числа колонок: на широком окне карточки идут
           // в две, на узком — в одну, и пересчитывать вручную по ширине не нужно.
           gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-          gap: '8px',
+          gap: 'var(--space-2)',
           margin: 0,
           padding: 0,
         }}
@@ -486,21 +581,31 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'baseline',
-          gap: '8px',
-          marginTop: '4px',
-          paddingTop: '10px',
-          borderTop: '1px solid var(--border)',
+          alignItems: 'center',
+          gap: 'var(--space-2)',
+          marginTop: 'var(--space-1)',
+          paddingTop: 'var(--space-2)',
+          borderTop: 'var(--frame-w) solid var(--border)',
         }}
       >
-        {/* Без pixel-font: в строке есть кириллица, а по ADR-0003 пиксельный шрифт
-            допустим только там, где её нет. */}
-        <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
-          <span aria-hidden="true">🌑</span> Теневые Достижения
+        {/* Подпись рядом есть, поэтому значок луны скрыт от скринридера. */}
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 'var(--space-1)',
+            fontSize: '0.95rem',
+            color: 'var(--text-main)',
+          }}
+        >
+          <span aria-hidden="true" style={{ display: 'flex', color: 'var(--gold)' }}>
+            <Icon name="moon" />
+          </span>
+          Теневые Достижения
         </span>
-        <ModalCount earned={shadowEarned(state)} total={SHADOW_ACHIEVEMENTS.length} />
+        <ModalCount earned={shadowEarned(earned)} total={SHADOW_ACHIEVEMENTS.length} />
       </div>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
         Не дают силы и не входят в счёт выше — их берут ради рекордов.
       </div>
 
@@ -509,7 +614,7 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-          gap: '8px',
+          gap: 'var(--space-2)',
           margin: 0,
           padding: 0,
         }}
@@ -529,12 +634,25 @@ export const AchievementsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => 
 };
 
 export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
-  const state = useGameStore((s) => s.state);
   // Все пути закрытия (скрим, ✕, Esc из хука) идут через один запрос: мгновенного
   // onClose больше нет ни на одном пути.
   const { closing, requestClose } = useModalExit(isOpen, onClose);
   if (!isOpen) return null;
+  return <StatsBody closing={closing} requestClose={requestClose} />;
+};
 
+interface ModalBodyProps {
+  closing: boolean;
+  requestClose: () => void;
+}
+
+/**
+ * Тело окна статистики. Отдельным компонентом ради подписки: окно читает почти каждое поле
+ * состояния — кошелёк, часы, счётчики, — поэтому подписывается на него целиком, но только пока
+ * открыто. Закрытое окно сюда не доходит и состояния не слушает.
+ */
+const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
+  const state = useGameStore((s) => s.state);
   const now = Date.now();
   const playTimeSec = (now - state.startedAt) / 1000;
   const runTimeSec = (now - state.runStartedAt) / 1000;
@@ -562,8 +680,7 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   // значило бы держать в компоненте вторую копию формулы, которая разойдётся с ним при первой
   // правке баланса.
   const toNextUnit = computeShortfall(state);
-  // Единица измерения — кириллица, поэтому она стоит рядом с числом, а не внутри него
-  // (ADR-0003): пиксельный шрифт на строке с «ч» ушёл бы в фолбэк.
+  // Единица измерения стоит рядом с числом, а не внутри него: `Num` оборачивает только число.
   const perHour = (v: number | null): React.ReactNode =>
     v === null ? '—' : (
       <>
@@ -571,8 +688,8 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       </>
     );
 
-  // Значение-узел, а не строка: строка целиком из числа остаётся пиксельной (ADR-0003), а
-  // строка со словом («3 ч 12 мин», «1: Рассвет») набирается Nunito.
+  // Значение-узел, а не строка: число обёрнуто в `Num`, а строка со словом («3 ч 12 мин»,
+  // «1: Рассвет») остаётся обычным текстом.
   const statRows: [string, React.ReactNode][] = [
     ['Токенов сейчас', <Num key="tokens">{formatNumber(state.tokens, notation)}</Num>],
     ['Токенов за текущий Забег', <Num key="runTokens">{formatNumber(state.runTokens, notation)}</Num>],
@@ -625,11 +742,10 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       {(runRate !== null || pastRate !== null) && (
         <div
           style={{
-            padding: '8px 10px',
+            padding: 'var(--space-2)',
             backgroundColor: 'var(--tint-gold)',
-            border: '1px solid var(--gold)',
-            borderRadius: '4px',
-            fontSize: '0.85rem',
+            border: 'var(--frame-w) solid var(--gold)',
+            fontSize: 'var(--text-sm)',
             color: 'var(--text-main)',
           }}
         >
@@ -662,10 +778,9 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
           style={{
             display: 'flex',
             justifyContent: 'space-between',
-            padding: '6px 8px',
+            padding: 'var(--space-1) var(--space-2)',
             backgroundColor: 'var(--bg-card)',
-            borderRadius: '4px',
-            fontSize: '0.85rem',
+            fontSize: 'var(--text-sm)',
           }}
         >
           <span style={{ color: 'var(--text-muted)' }}>{label}</span>
@@ -679,25 +794,24 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       {/* Справка по словарю игры. Формулировки сверены с CONTEXT.md — он источник
           правды для словаря, а не этот файл. Живёт в том же прокручиваемом теле,
           чтобы окно не переполнялось на маленьком экране. */}
-      <div style={{ marginTop: '2px' }}>
+      <div style={{ marginTop: 'var(--space-0)' }}>
         {/* Заголовок раздела — тоже заголовок: без него скринридер читает СПРАВКУ
             как ещё одну строку статистики, а не как вложенный раздел. */}
-        <h3 style={{ fontSize: '0.95rem', color: 'var(--text-main)', marginBottom: '6px' }}>
+        <h3 className="section-head" style={{ fontSize: '0.95rem', marginBottom: 'var(--space-2)' }}>
           СПРАВКА
         </h3>
-        <dl style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: 0 }}>
+        <dl style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', margin: 0 }}>
           {GLOSSARY.map((g) => (
             <div
               key={g.term}
               style={{
-                padding: '6px 8px',
+                padding: 'var(--space-1) var(--space-2)',
                 backgroundColor: 'var(--bg-card)',
-                borderRadius: '4px',
-                fontSize: '0.85rem',
+                fontSize: 'var(--text-sm)',
               }}
             >
               <dt style={{ color: 'var(--text-main)', fontWeight: 600 }}>{g.term}</dt>
-              <dd style={{ color: 'var(--text-muted)', margin: '2px 0 0' }}>{g.text}</dd>
+              <dd style={{ color: 'var(--text-muted)', margin: 'var(--space-0) 0 0' }}>{g.text}</dd>
             </div>
           ))}
 </dl>
@@ -707,13 +821,16 @@ export const StatsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
 };
 
 export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
-  const state = useGameStore((s) => s.state);
+  // Настройки — объект, который меняется только настройкой игрока. Остальное, что нужно окну
+  // (выгрузка Забега, проверка перед импортом), читается в момент нажатия, а не подпиской.
+  const settings = useGameStore((s) => s.state.settings);
   // Все пути закрытия (скрим, ✕, Esc из хука, удачные импорт/сброс) идут через один
   // запрос: мгновенного onClose больше нет ни на одном пути.
   const { closing, requestClose } = useModalExit(isOpen, onClose);
   const setNotation = useGameStore((s) => s.setNotation);
   const toggleMute = useGameStore((s) => s.toggleMute);
   const setVolume = useGameStore((s) => s.setVolume);
+  const setChannelVolume = useGameStore((s) => s.setChannelVolume);
   const setReducedMotion = useGameStore((s) => s.setReducedMotion);
   const importSaveData = useGameStore((s) => s.importSaveData);
   const resetGame = useGameStore((s) => s.resetGame);
@@ -752,7 +869,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   const handleExport = () => {
-    const code = exportSave(state);
+    const code = exportSave(useGameStore.getState().state);
     navigator.clipboard.writeText(code).then(
       () => {
         // Повторная копия перевзводит таймер: иначе первый же таймер погасил бы статус
@@ -780,7 +897,8 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
     // Подтверждение рисуется внутри игры, как у сброса: системный диалог блокирующий,
     // оформлен системой, на английской системе говорит по-английски, а во встроенных
     // просмотрах вообще не показывается.
-    if ((state.totalTokens > 0 || state.prestiges > 0) && !confirmImport) {
+    const { totalTokens, prestiges } = useGameStore.getState().state;
+    if ((totalTokens > 0 || prestiges > 0) && !confirmImport) {
       setConfirmImport(true);
       return;
     }
@@ -815,27 +933,27 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
       icon={<Icon name="settings" />}
       title="Настройки"
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
         {/* Настройка нотации чисел */}
         <div style={SETTING_ROW}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>Формат больших чисел</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               1,23 M или 1.23e6
             </div>
           </div>
           <div style={SETTING_GROUP}>
             <button
               onClick={() => setNotation('short')}
-              className={`pixel-btn ${state.settings.notation === 'short' ? 'pixel-btn-accent' : ''}`}
-              style={{ padding: '6px 10px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+              className={`pixel-btn ${settings.notation === 'short' ? 'pixel-btn-accent' : ''}`}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}
             >
               Буквы (M, B)
             </button>
             <button
               onClick={() => setNotation('sci')}
-              className={`pixel-btn ${state.settings.notation === 'sci' ? 'pixel-btn-accent' : ''}`}
-              style={{ padding: '6px 10px', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
+              className={`pixel-btn ${settings.notation === 'sci' ? 'pixel-btn-accent' : ''}`}
+              style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}
             >
               1e6
             </button>
@@ -846,66 +964,83 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         <div style={SETTING_ROW}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>8-битный звук</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               Звуковые эффекты клика и событий
             </div>
           </div>
           <button
             onClick={toggleMute}
-            className={`pixel-btn ${!state.settings.muted ? 'pixel-btn-accent' : ''}`}
+            className={`pixel-btn ${!settings.muted ? 'pixel-btn-accent' : ''}`}
             style={SETTING_CONTROL}
           >
-            <Icon name={state.settings.muted ? 'sound-off' : 'sound-on'} />{' '}
-            {state.settings.muted ? 'выключен' : 'включен'}
+            <Icon name={settings.muted ? 'sound-off' : 'sound-on'} />{' '}
+            {settings.muted ? 'выключен' : 'включен'}
           </button>
         </div>
 
-        {/* Громкость: честная доля, а не только мьют. */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <label htmlFor="settings-volume" style={{ fontWeight: 600, display: 'flex', gap: '6px' }}>
+        {/* Громкость: честная доля, а не только мьют. Общий ползунок — мастер, музыка и эффекты
+            лежат поверх него: игрок слышит произведение, а ноль на любом глушит свой канал. */}
+        <VolumeSlider
+          id="settings-volume"
+          label={
+            <>
               <Icon name="volume" /> Громкость
-            </label>
-            <span style={{ color: 'var(--text-main)' }}>
-              <Num>{Math.round(state.settings.volume * 100)}</Num>%
-            </span>
-          </div>
-          <input
-            id="settings-volume"
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={state.settings.volume}
-            onChange={(e) => setVolume(Number(e.target.value))}
-            style={{ width: '100%', accentColor: 'var(--accent-color)', cursor: 'pointer' }}
-            aria-describedby="settings-volume-hint"
-            aria-valuetext={`${Math.round(state.settings.volume * 100)} процентов`}
-          />
-          <div id="settings-volume-hint" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            Громкость звуковых эффектов и музыки
-          </div>
-        </div>
+            </>
+          }
+          hint="Общая громкость: музыка и эффекты звучат поверх неё"
+          value={settings.volume}
+          onChange={setVolume}
+        />
+        <VolumeSlider
+          id="settings-volume-music"
+          label="Музыка"
+          hint="Только музыка; ноль — без музыки"
+          value={settings.musicVolume}
+          onChange={(v) => setChannelVolume('music', v)}
+        />
+        <VolumeSlider
+          id="settings-volume-sfx"
+          label="Эффекты"
+          hint="Клики, покупки, события и гул жара; ноль — без эффектов"
+          value={settings.sfxVolume}
+          onChange={(v) => setChannelVolume('sfx', v)}
+        />
 
         {/* Настройка анимации */}
         <div style={SETTING_ROW}>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>Меньше анимации</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               Выключает движение в игре
             </div>
           </div>
           <button
-            onClick={() => setReducedMotion(!state.settings.reducedMotion)}
-            className={`pixel-btn ${state.settings.reducedMotion ? 'pixel-btn-accent' : ''}`}
+            onClick={() => setReducedMotion(!settings.reducedMotion)}
+            className={`pixel-btn ${settings.reducedMotion ? 'pixel-btn-accent' : ''}`}
             style={SETTING_CONTROL}
           >
-            {state.settings.reducedMotion ? 'Включено' : 'Выключено'}
+            {settings.reducedMotion ? 'Включено' : 'Выключено'}
           </button>
         </div>
 
+        {/* Эффекты по одному: каждый выключатель гасит свой эффект и не трогает остальные. */}
+        <EffectRow
+          effect="particles"
+          title="Частицы"
+          hint="Искры, пыль в офисе и жар над шкалой."
+          overriddenByMotion
+        />
+        <EffectRow effect="floaters" title="Всплывающие числа" hint="«+N» над кнопкой Клика." />
+        <EffectRow
+          effect="shake"
+          title="Тряска"
+          hint="Толчок экрана на Престиж и дрожь офиса от жара."
+          overriddenByMotion
+        />
+        <EffectRow effect="ticker" title="Новостная лента" hint="Бегущая строка с шуточными новостями." />
+
         {/* Экспорт и Импорт */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           <div style={{ fontWeight: 600 }}>Сохранение данных</div>
 
           <button onClick={handleExport} className="pixel-btn" style={{ width: '100%' }}>
@@ -916,16 +1051,16 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: '4px',
+              gap: 'var(--space-1)',
               flex: 1,
               minWidth: 0,
-              marginTop: '4px',
+              marginTop: 'var(--space-1)',
             }}
           >
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               Вставь код сохранения
             </span>
-            <div style={{ display: 'flex', gap: '6px' }}>
+            <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
               <input
                 type="text"
                 value={importCode}
@@ -939,22 +1074,21 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                   flex: 1,
                   minWidth: 0,
                   backgroundColor: 'var(--bg-card)',
-                  border: '1px solid var(--border)',
+                  border: 'var(--frame-w) solid var(--border)',
                   color: 'var(--text-main)',
-                  padding: '8px',
-                  borderRadius: '4px',
-                  fontSize: '0.85rem',
+                  padding: 'var(--space-2)',
+                  fontSize: 'var(--text-sm)',
                 }}
               />
-              <button onClick={handleImport} className="pixel-btn pixel-btn-accent" style={{ padding: '8px 12px' }}>
+              <button onClick={handleImport} className="pixel-btn pixel-btn-accent" style={{ padding: 'var(--space-2) var(--space-3)' }}>
                 Импорт
               </button>
             </div>
             {/* Второе нажатие подтверждает замену забега — тем же двухшаговым
                 подтверждением, что и сброс выше, а не системным диалогом. */}
             {confirmImport && (
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '6px' }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              <div style={{ display: 'flex', gap: 'var(--space-1)', alignItems: 'center', marginTop: 'var(--space-1)' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
                   Текущий Забег и весь прогресс будут полностью заменены.
                 </span>
                 <button
@@ -964,7 +1098,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                     backgroundColor: 'var(--red-solid)',
                     borderColor: 'var(--red)',
                     color: 'var(--text-main)',
-                    padding: '8px 12px',
+                    padding: 'var(--space-2) var(--space-3)',
                     whiteSpace: 'nowrap',
                   }}
                 >
@@ -973,7 +1107,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 <button
                   onClick={() => setConfirmImport(false)}
                   className="pixel-btn"
-                  style={{ padding: '8px 12px' }}
+                  style={{ padding: 'var(--space-2) var(--space-3)' }}
                 >
                   Отмена
                 </button>
@@ -984,15 +1118,14 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             <div
               role="alert"
               style={{
-                marginTop: '6px',
-                padding: '8px 10px',
+                marginTop: 'var(--space-1)',
+                padding: 'var(--space-2)',
                 backgroundColor: 'var(--tint-red)',
-                border: '1px solid var(--red)',
-                borderRadius: '4px',
-                fontSize: '0.8rem',
+                border: 'var(--frame-w) solid var(--red)',
+                fontSize: 'var(--text-sm)',
                 color: '#fca5a5',
                 display: 'flex',
-                gap: '6px',
+                gap: 'var(--space-1)',
                 alignItems: 'center',
               }}
             >
@@ -1004,11 +1137,11 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
         {/* Чистый сброс в отдельной опасной зоне */}
         <div
           style={{
-            borderTop: '1px solid var(--border)',
-            paddingTop: '12px',
+            borderTop: 'var(--frame-w) solid var(--border)',
+            paddingTop: 'var(--space-3)',
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px',
+            gap: 'var(--space-2)',
           }}
         >
           <div
@@ -1017,7 +1150,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               color: 'var(--red)',
               fontSize: '0.9rem',
               display: 'flex',
-              gap: '6px',
+              gap: 'var(--space-1)',
               alignItems: 'center',
             }}
           >
@@ -1027,7 +1160,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
             Сброс удалит Токены, Агентов, Апгрейды и Compute навсегда. Начнётся новая чистая игра с первого Забега.
           </div>
           {confirmReset ? (
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
               <button
                 onClick={handleReset}
                 className="pixel-btn"
@@ -1036,10 +1169,10 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                   backgroundColor: 'var(--red-solid)',
                   borderColor: 'var(--red)',
                   color: 'var(--text-main)',
-                  padding: '8px',
-                  fontSize: '0.85rem',
+                  padding: 'var(--space-2)',
+                  fontSize: 'var(--text-sm)',
                   display: 'flex',
-                  gap: '6px',
+                  gap: 'var(--space-1)',
                   justifyContent: 'center',
                   alignItems: 'center',
                 }}
@@ -1049,7 +1182,7 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
               <button
                 onClick={() => setConfirmReset(false)}
                 className="pixel-btn"
-                style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                style={{ padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-sm)' }}
               >
                 Отмена
               </button>
@@ -1063,10 +1196,10 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
                 backgroundColor: 'var(--tint-red)',
                 borderColor: 'var(--red)',
                 color: 'var(--red-text)',
-                padding: '8px',
-                fontSize: '0.85rem',
+                padding: 'var(--space-2)',
+                fontSize: 'var(--text-sm)',
                 display: 'flex',
-                gap: '6px',
+                gap: 'var(--space-1)',
                 justifyContent: 'center',
                 alignItems: 'center',
               }}
@@ -1083,32 +1216,39 @@ export const SettingsModal: React.FC<ModalProps> = ({ isOpen, onClose }) => {
 export const OfflineModal: React.FC = () => {
   const offlineReport = useGameStore((s) => s.offlineReport);
   const dismiss = useGameStore((s) => s.dismissOfflineReport);
-  const state = useGameStore((s) => s.state);
-  const notation = state.settings.notation;
   // Esc здесь не закрывает: игрок должен забрать начисленное и увидеть сумму, поэтому окно
   // закрывается только своей кнопкой. Кнопка идёт через тот же closing-путь, что и
   // остальные окна: мгновенного dismiss больше нет.
   const { closing, requestClose } = useModalExit(offlineReport !== null, dismiss);
 
   if (!offlineReport) return null;
+  return <OfflineBody report={offlineReport} closing={closing} requestClose={requestClose} />;
+};
+
+/**
+ * Тело окна возвращения. Подписка на состояние живёт здесь, а не в оболочке: разбор по
+ * Лабораториям и подсказки покупки читают кошелёк, Агентов и Апгрейды, но окно открыто только
+ * после загрузки с простоем, а во все остальные тики оболочка не слушает состояние вовсе.
+ */
+const OfflineBody: React.FC<ModalBodyProps & { report: OfflineReport }> = ({
+  report: offlineReport,
+  closing,
+  requestClose,
+}) => {
+  const state = useGameStore((s) => s.state);
+  const notation = state.settings.notation;
 
   const capHours = offlineCapHours(state);
-  const capSeconds = capHours * 3600;
-  const isCapped = offlineReport.seconds >= capSeconds;
+  // Потолок срезал простой, когда засчитано меньше, чем прошло: сравнение пары из отчёта, а не
+  // с текущим потолком — Перк, купленный уже после возвращения, чужой отчёт не меняет.
+  const isCapped = offlineReport.seconds < offlineReport.elapsed;
 
   const gen = CATALOG[state.generation];
 
-  // Разбор по Лабораториям делит уже начисленную сумму на доли Лабораторий в общем Доходе.
-  // Сырые секунды простоя не пересчитываются: их вместе с капом уже учёл applyOffline, и своя
-  // формула здесь дала бы расхождение с числом выше. Доля считается в движке, а не делением
-  // здесь, иначе пустой общий Доход дал бы NaN прямо на экране. Лаборатории без Агентов
-  // отфильтрованы — нулевой строкой в отчёте смотреть не на что.
-  const labRows = LAB_IDS.map((lab) => {
-    const share = labIncomeShare(state, lab);
-    return { lab, share, earned: offlineReport.earned * share };
-  })
-    .filter((row) => row.share > 0)
-    .sort((a, b) => b.earned - a.earned);
+  // Разбор по Лабораториям лежит в самом отчёте: он посчитан в момент возвращения и в сумме
+  // равен начисленному. Пересчёт здесь по живому состоянию дал бы доли после покупок игрока и
+  // доход с событием и Температурой, то есть числа, не сходящиеся с суммой над ними.
+  const labRows = offlineReport.rows;
 
   // Подсказки покупки — только из движка: цены и доступность в компоненте не считаются.
   // availableUpgrades уже отсортирован по цене, а maxAffordable отвечает за Модели.
@@ -1142,8 +1282,8 @@ export const OfflineModal: React.FC = () => {
       footer={
         <button
           onClick={requestClose}
-          className="pixel-btn pixel-btn-accent"
-          style={{ flex: 1, padding: '12px', fontSize: '1.1rem' }}
+          className="pixel-btn pixel-btn-accent pixel-22"
+          style={{ flex: 1, padding: 'var(--space-3)' }}
         >
           Забрать Токены!
         </button>
@@ -1156,31 +1296,40 @@ export const OfflineModal: React.FC = () => {
       <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
         Пока тебя не было (
         <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
-          {formatDuration(offlineReport.seconds)}
+          {formatDuration(offlineReport.elapsed)}
         </span>
         ), твои ИИ-Агенты усердно трудились и заработали:
+      </div>
+
+      {/* Пара «засчитано из прошло» стоит всегда, а не только у потолка: игрок, у которого
+          потолок не сработал, видит «всё засчитано» и не гадает, не потерял ли он часть. */}
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>
+        Засчитано{' '}
+        <span style={{ color: 'var(--gold)', fontWeight: 700 }}>
+          {formatDuration(offlineReport.seconds)}
+        </span>{' '}
+        из {formatDuration(offlineReport.elapsed)}
       </div>
 
       {isCapped && (
         <div
           style={{
-            fontSize: '0.8rem',
+            fontSize: 'var(--text-sm)',
             color: 'var(--gold)',
             backgroundColor: 'var(--tint-gold)',
-            border: '1px solid var(--gold)',
-            borderRadius: '4px',
-            padding: '6px 10px',
+            border: 'var(--frame-w) solid var(--gold)',
+            padding: 'var(--space-1) var(--space-2)',
             maxWidth: '420px',
             alignSelf: 'center',
           }}
         >
-          Достигнут потолок Оффлайн-дохода (<Num>{capHours}</Num> ч). Время отсутствия сверх лимита было срезано потолком.
+          Достигнут потолок Оффлайн-дохода (<Num>{capHours}</Num> ч). Время сверх потолка не оплачивается.
         </div>
       )}
 
       <div
+        className="pixel-33"
         style={{
-          fontSize: '2rem',
           color: 'var(--green-text)',
           // Ореол — переменная со своим назначением: --tint-green это 10% подложка, а
           // свечению нужно 50%, ради него и заведена --green-glow.
@@ -1196,7 +1345,7 @@ export const OfflineModal: React.FC = () => {
           к Доходу на экране и не понял бы, откуда она. Строка стоит под крупной суммой
           Токенов и до прокручиваемого разбора: кристалл ждал именно этих часов. */}
       {offlineReport.crystals > 0 && (
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
           За простой дозрел{' '}
           <span style={{ color: 'var(--gold)', fontWeight: 600 }}>
             +<Num>{formatNumber(offlineReport.crystals, notation)}</Num>{' '}
@@ -1218,14 +1367,12 @@ export const OfflineModal: React.FC = () => {
           width: '100%',
           display: 'flex',
           flexDirection: 'column',
-          gap: '12px',
+          gap: 'var(--space-3)',
           textAlign: 'left',
         }}
       >
         {labRows.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {/* Без pixel-font: в заголовке есть кириллица, а по ADR-0003 пиксельный шрифт
-                допустим только на строках без неё. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
             <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Кто заработал</div>
             {labRows.map((row) => (
               <div
@@ -1233,11 +1380,10 @@ export const OfflineModal: React.FC = () => {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  padding: '6px 8px',
+                  gap: 'var(--space-2)',
+                  padding: 'var(--space-1) var(--space-2)',
                   backgroundColor: 'var(--bg-card)',
-                  borderRadius: '4px',
-                  fontSize: '0.85rem',
+                  fontSize: 'var(--text-sm)',
                 }}
               >
                 <MascotSprite lab={row.lab} size={20} />
@@ -1246,8 +1392,7 @@ export const OfflineModal: React.FC = () => {
                 <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)' }}>
                   {LABS[row.lab].name}
                 </span>
-                {/* Строка целиком из числа: пиксельный шрифт тут разрешён (ADR-0003). */}
-                <span className="pixel-font" style={{ color: 'var(--green)', fontWeight: 600 }}>
+                <span className="num" style={{ color: 'var(--green)', fontWeight: 600 }}>
                   +{formatNumber(row.earned, notation)}
                 </span>
               </div>
@@ -1255,25 +1400,22 @@ export const OfflineModal: React.FC = () => {
           </div>
         )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
           <div style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>Теперь доступно</div>
 
           {bestModel && (
             <div
               style={{
-                padding: '8px',
+                padding: 'var(--space-2)',
                 backgroundColor: 'var(--tint-gold)',
-                border: '1px solid var(--gold)',
-                borderRadius: '4px',
-                fontSize: '0.85rem',
+                border: 'var(--frame-w) solid var(--gold)',
+                fontSize: 'var(--text-sm)',
               }}
             >
-              {/* Имя Модели без pixel-font: оно склеено со словом «Агент:», а по ADR-0003
-                  пиксельный шрифт допустим только на строках без кириллицы. */}
               <div style={{ color: 'var(--text-main)' }}>
                 Агент: <span>{bestModel.name}</span>
               </div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+              <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
                 {/* После «на» 1 и 2–4 стоят в родительном: 1 Агента, 2 Агента, 5 Агентов.
                     Форма берётся по той же нотации, что и напечатанное число, иначе на
                     больших числах слово и цифры разъедутся. */}
@@ -1291,25 +1433,23 @@ export const OfflineModal: React.FC = () => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                padding: '8px',
+                gap: 'var(--space-2)',
+                padding: 'var(--space-2)',
                 backgroundColor: 'var(--bg-card)',
-                borderRadius: '4px',
-                fontSize: '0.85rem',
+                fontSize: 'var(--text-sm)',
               }}
             >
-              {/* Имя Апгрейда без pixel-font — та же причина, что и у Модели выше. */}
               <span style={{ flex: 1, minWidth: 0, color: 'var(--text-main)' }}>
                 Апгрейд: <span>{u.name}</span>
               </span>
-              <span className="pixel-font" style={{ color: 'var(--accent-color)' }}>
+              <span className="num" style={{ color: 'var(--accent-color)' }}>
                 {formatNumber(u.cost, notation)}
               </span>
             </div>
           ))}
 
           {!bestModel && affordableUpgrades.length === 0 && (
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               Токенов пока не хватает ни на одну покупку — они уйдут в Агентов.
             </div>
           )}
@@ -1328,14 +1468,23 @@ export const OfflineModal: React.FC = () => {
 export const PrestigeModal: React.FC = () => {
   const isOpen = useGameStore((s) => s.prestigePrompt);
   const dismiss = useGameStore((s) => s.dismissPrestigePrompt);
-  const triggerPrestige = useGameStore((s) => s.triggerPrestige);
-  const openFinale = useGameStore((s) => s.openFinale);
-  const state = useGameStore((s) => s.state);
   // Хуки стоят до раннего выхода, иначе окно то ловило бы Esc, то нет. Выход — тем же
   // closing-путём, что и у остальных окон: мгновенный dismiss возвращал бы карточку в DOM
   // без последнего кадра анимации.
   const { closing, requestClose } = useModalExit(isOpen, dismiss);
   if (!isOpen) return null;
+  return <PrestigeBody closing={closing} requestClose={requestClose} />;
+};
+
+/**
+ * Тело окна подтверждения Престижа: разбор читает кошелёк, Агентов и Апгрейды, поэтому
+ * подписано на состояние, но только пока окно открыто.
+ */
+const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
+  const dismiss = useGameStore((s) => s.dismissPrestigePrompt);
+  const triggerPrestige = useGameStore((s) => s.triggerPrestige);
+  const openFinale = useGameStore((s) => s.openFinale);
+  const state = useGameStore((s) => s.state);
 
   const preview = prestigePreview(state);
   const gen = CATALOG[state.generation];
@@ -1396,18 +1545,18 @@ export const PrestigeModal: React.FC = () => {
       tone="gold"
       /* Разрушающее окно, поэтому рамка и заголовок золотые — тот же тон, что у Достижений
          и экрана финала: золото в игре означает «трофей или разрушение Забега». */
-      icon={<span aria-hidden="true">🚀</span>}
+      icon={<Icon name="rocket" />}
       title="Престиж"
       footer={
         <>
-          <button className="pixel-btn" onClick={requestClose} style={{ flex: 1, padding: '12px' }}>
+          <button className="pixel-btn" onClick={requestClose} style={{ flex: 1, padding: 'var(--space-3)' }}>
             Отмена
           </button>
           <button
             onClick={handleConfirm}
             disabled={preview.blocked && !finale}
             className="pixel-btn pixel-btn-gold"
-            style={{ flex: 2, padding: '12px' }}
+            style={{ flex: 2, padding: 'var(--space-3)' }}
           >
             {finale
               ? 'Экран финала'
@@ -1418,7 +1567,7 @@ export const PrestigeModal: React.FC = () => {
         </>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
         <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
           Сейчас Поколение {gen.id}: {gen.name}.
           {!preview.blocked && (
@@ -1435,9 +1584,8 @@ export const PrestigeModal: React.FC = () => {
           <div
             style={{
               backgroundColor: 'var(--tint-red)',
-              border: '1px solid var(--red)',
-              borderRadius: '4px',
-              padding: '10px 12px',
+              border: 'var(--frame-w) solid var(--red)',
+              padding: 'var(--space-2) var(--space-3)',
               fontSize: '0.9rem',
               // Светлее --red намеренно: на собственной красной подложке --red тонет в
               // заливке, а причина отказа обязана читаться.
@@ -1451,47 +1599,43 @@ export const PrestigeModal: React.FC = () => {
             <div
               style={{
                 backgroundColor: 'var(--tint-gold)',
-                border: '1px solid var(--gold)',
-                borderRadius: '4px',
-                padding: '10px 12px',
+                border: 'var(--frame-w) solid var(--gold)',
+                padding: 'var(--space-2) var(--space-3)',
                 display: 'flex',
                 alignItems: 'baseline',
                 justifyContent: 'space-between',
-                gap: '10px',
+                gap: 'var(--space-2)',
               }}
             >
               <span style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
                 Начислим Compute
               </span>
-              <span style={{ fontSize: '1.6rem', color: 'var(--gold)', fontWeight: 700 }}>
+              <span className="pixel-33" style={{ color: 'var(--gold)' }}>
                 <Num>{`+${formatNumber(preview.gain, notation)}`}</Num>
               </span>
             </div>
 
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-main)' }}>Сгорит:</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>Сгорит:</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
               {burns.map(([label, value]) => (
                 <div
                   key={label}
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
-                    gap: '10px',
-                    padding: '6px 8px',
+                    gap: 'var(--space-2)',
+                    padding: 'var(--space-1) var(--space-2)',
                     backgroundColor: 'var(--bg-card)',
-                    borderRadius: '4px',
-                    fontSize: '0.85rem',
+                    fontSize: 'var(--text-sm)',
                   }}
                 >
                   <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-                  {/* Слово рядом с числом — в Nunito: по ADR-0003 пиксельный шрифт живёт
-                      только внутри числа, поэтому Num стоит на самом числе. */}
                   <span style={{ color: 'var(--text-main)', fontWeight: 600 }}>{value}</span>
                 </div>
               ))}
             </div>
 
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
               Останутся: Compute, Перки, Достижения и вся статистика за всё время.
             </div>
           </>
@@ -1511,13 +1655,10 @@ export const PrestigeModal: React.FC = () => {
  * с подтверждением в два шага («Точно начать заново?»), сбрасывающим Забег через resetGame.
  */
 export const FinaleModal: React.FC = () => {
-  const state = useGameStore((s) => s.state);
-  const resetGame = useGameStore((s) => s.resetGame);
   const finaleDismissed = useGameStore((s) => s.finaleDismissed);
   const dismissFinale = useGameStore((s) => s.dismissFinale);
-  const notation = state.settings.notation;
 
-  const isFinale = isContentFinale(state);
+  const isFinale = useStateSlice(isContentFinale);
   const [confirmReset, setConfirmReset] = useState(false);
 
   // Флаг «игрок закрыл» живёт в сторе вместе с openFinale: экран должен открываться сам при
@@ -1531,8 +1672,33 @@ export const FinaleModal: React.FC = () => {
   });
 
   if (!isOpen) return null;
+  return (
+    <FinaleBody
+      closing={closing}
+      requestClose={requestClose}
+      confirmReset={confirmReset}
+      setConfirmReset={setConfirmReset}
+    />
+  );
+};
 
-  const gen = CATALOG[state.generation];
+/**
+ * Тело экрана финала. Итоги — шесть чисел, и все они попадают на экран готовой строкой: открытое
+ * окно перерисовывается, когда меняется напечатанное (Токены всего растут), а не на каждом тике.
+ */
+const FinaleBody: React.FC<
+  ModalBodyProps & { confirmReset: boolean; setConfirmReset: (on: boolean) => void }
+> = ({ closing, requestClose, confirmReset, setConfirmReset }) => {
+  const resetGame = useGameStore((s) => s.resetGame);
+  const summary = useStateSlice((s) => ({
+    generation: s.generation,
+    prestiges: s.prestiges,
+    totalTokens: formatNumber(s.totalTokens, s.settings.notation),
+    compute: formatNumber(s.compute, s.settings.notation),
+    achieved: nonShadowCount(s),
+    quips: s.quipsSeen.length,
+  }));
+  const gen = CATALOG[summary.generation];
 
   const handleResetClick = () => {
     if (!confirmReset) {
@@ -1560,7 +1726,7 @@ export const FinaleModal: React.FC = () => {
             className={`pixel-btn ${confirmReset ? '' : 'pixel-btn-accent'}`}
             style={{
               flex: 1,
-              padding: '10px 14px',
+              padding: 'var(--space-2) var(--space-3)',
               fontSize: '0.95rem',
               ...(confirmReset
                 ? {
@@ -1580,7 +1746,7 @@ export const FinaleModal: React.FC = () => {
             <button
               onClick={() => setConfirmReset(false)}
               className="pixel-btn"
-              style={{ padding: '10px 14px', fontSize: '0.95rem' }}
+              style={{ padding: 'var(--space-2) var(--space-3)', fontSize: '0.95rem' }}
             >
               Отмена
             </button>
@@ -1588,7 +1754,7 @@ export const FinaleModal: React.FC = () => {
             <button
               onClick={requestClose}
               className="pixel-btn"
-              style={{ padding: '10px 14px', fontSize: '0.95rem', color: 'var(--text-muted)' }}
+              style={{ padding: 'var(--space-2) var(--space-3)', fontSize: '0.95rem', color: 'var(--text-muted)' }}
             >
               Продолжить осмотр
             </button>
@@ -1605,7 +1771,7 @@ export const FinaleModal: React.FC = () => {
         <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)' }}>
           Последнее Поколение пройдено, все Модели собраны!
         </div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 'var(--space-1)' }}>
           Твоя империя искусственного интеллекта достигла вершины доступных технологий.
         </div>
       </div>
@@ -1614,11 +1780,10 @@ export const FinaleModal: React.FC = () => {
       <div
         style={{
           width: '100%',
-          padding: '8px 12px',
+          padding: 'var(--space-2) var(--space-3)',
           backgroundColor: 'var(--tint-gold)',
-          border: '1px solid var(--gold)',
-          borderRadius: '4px',
-          fontSize: '0.85rem',
+          border: 'var(--frame-w) solid var(--gold)',
+          fontSize: 'var(--text-sm)',
           color: 'var(--gold)',
           textAlign: 'center',
         }}
@@ -1632,51 +1797,51 @@ export const FinaleModal: React.FC = () => {
           width: '100%',
           display: 'grid',
           gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: '8px',
+          gap: 'var(--space-2)',
           textAlign: 'left',
         }}
       >
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Поколение</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
-            Поколение <Num>{state.generation + 1}</Num>: {gen.name}
+            Поколение <Num>{summary.generation + 1}</Num>: {gen.name}
           </div>
         </div>
 
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Престижей за всё время</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
-            <Num>{state.prestiges}</Num>
+            <Num>{summary.prestiges}</Num>
           </div>
         </div>
 
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Токенов всего</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--green)' }}>
-            <Num>{formatNumber(state.totalTokens, notation)}</Num>
+            <Num>{summary.totalTokens}</Num>
           </div>
         </div>
 
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Compute в запасе</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--accent-color)' }}>
-            <Num>{formatNumber(state.compute, notation)}</Num>
+            <Num>{summary.compute}</Num>
           </div>
         </div>
 
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Достижений</div>
           {/* Числитель — nonShadowCount, а не achievements.length: id теневых лежат в том же
               списке, и прямой длиной счётчик на экране финала показывал «25 / 21». */}
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--gold)' }}>
-            <Num>{nonShadowCount(state)}</Num> / <Num>{ACHIEVEMENTS.length}</Num>
+            <Num>{summary.achieved}</Num> / <Num>{ACHIEVEMENTS.length}</Num>
           </div>
         </div>
 
-        <div style={{ padding: '8px 10px', backgroundColor: 'var(--bg-card)', borderRadius: '4px' }}>
+        <div style={{ padding: 'var(--space-2)', backgroundColor: 'var(--bg-card)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Реплик в Переписке</div>
           <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-main)' }}>
-            <Num>{state.quipsSeen.length}</Num>
+            <Num>{summary.quips}</Num>
           </div>
         </div>
       </div>

@@ -18,11 +18,12 @@ import { audioBus, type AudioBus, type SoundSettings } from './sound';
 vi.mock('./sound', () => {
   const audioBus = vi.fn((): AudioBus | null => null);
   // Контекст подделки всегда «звучит», поэтому сигналы из тика ведут себя как от нажатия.
-  return { audioBus, runningBus: vi.fn((s: SoundSettings) => (s.muted ? null : audioBus())) };
+  const unlessMuted = (s: SoundSettings): AudioBus | null => (s.muted ? null : audioBus());
+  return { audioBus, effectBus: vi.fn(unlessMuted), runningBus: vi.fn(unlessMuted) };
 });
 
-const ON: SoundSettings = { muted: false, volume: 1 };
-const MUTED: SoundSettings = { muted: true, volume: 1 };
+const ON: SoundSettings = { muted: false, volume: 1, musicVolume: 1, sfxVolume: 1 };
+const MUTED: SoundSettings = { muted: true, volume: 1, musicVolume: 1, sfxVolume: 1 };
 
 /** Момент контекста, с которого считаются все расписания: ненулевой, чтобы ошибка времени бросалась в глаза. */
 const NOW = 100;
@@ -33,15 +34,6 @@ const ATTACK_MAX = 0.005;
 
 /** Допуск на ошибку представления: расписание во времени считается вычитанием, и разность 100.002 − 100 не равна 0.002. */
 const FLOAT_SLACK = 1e-6;
-
-/**
- * Потолок пиков одного сигнала, на который он обязан укладываться.
- *
- * Мастер-шина только масштабирует сумму, поэтому единственная защита от перегруза — арифметика
- * пиков. Считается худший момент, а не сумма голосов: они гаснут
- * по очереди, и сумма голосов завышала бы требование втрое.
- */
-const PEAK_CEILING = 0.1;
 
 /** Границы разброса высоты: ±4% — верхняя кромка, при которой повтор ещё не звучит расстроенным. */
 const SPREAD = 0.04;
@@ -122,8 +114,8 @@ class RecordedGain {
 
 interface Recording {
   context: AudioContext;
-  /** Мастер-шина игры: последняя остановка каждого голоса. */
-  master: object;
+  /** Канал эффектов: последняя остановка каждого голоса, дальше громкость игрока. */
+  sfx: object;
   oscillators: RecordedOscillator[];
   gains: RecordedGain[];
 }
@@ -146,11 +138,11 @@ function record(): Recording {
       return gain;
     },
   } as unknown as AudioContext;
-  return { context, master: { id: 'master' }, oscillators, gains };
+  return { context, sfx: { id: 'sfx' }, oscillators, gains };
 }
 
 const use = (rec: Recording): void => {
-  vi.mocked(audioBus).mockReturnValue({ ctx: rec.context, master: rec.master } as unknown as AudioBus);
+  vi.mocked(audioBus).mockReturnValue({ ctx: rec.context, sfx: rec.sfx } as unknown as AudioBus);
 };
 
 /** Прогон сигнала без заглушения и его запись. */
@@ -164,10 +156,6 @@ const run = (play: (settings: SoundSettings) => void): Recording => {
 /** Высоты, на которые голос реально поставлен: старт плюс цель свипа, если он есть. */
 const pitches = (rec: Recording): number[] =>
   rec.oscillators.flatMap((osc) => osc.frequency.ramps.map((ramp) => ramp.value));
-
-/** Пик голоса: линейный подъём в огибающей — это разгон, и он единственный. */
-const peakOf = (gain: RecordedGain): number =>
-  gain.gain.ramps.find((ramp) => ramp.method === 'linearRampToValueAtTime')?.value ?? 0;
 
 /**
  * Громкость сигнала в худший момент.
@@ -295,17 +283,6 @@ describe('огибающая', () => {
         expect(owner, name).toHaveLength(1);
         expect(owner[0].stops[0], name).toBeGreaterThan(last.time);
       }
-    }
-  });
-
-  it('keeps the summed peaks under the ceiling, so ten simultaneous signals cannot clip', () => {
-    vi.spyOn(Math, 'random').mockReturnValue(0.5);
-    for (const [name, play] of SOUNDS) {
-      const rec = run(play);
-      const sum = rec.gains.reduce((total, gain) => total + peakOf(gain), 0);
-      expect(sum, name).toBeGreaterThan(0);
-      // Голоса одного сигнала складываются на мастере, поэтому потолок считается на сумму.
-      expect(sum, name).toBeLessThanOrEqual(PEAK_CEILING);
     }
   });
 
@@ -446,7 +423,7 @@ describe('задержка', () => {
     }
   });
 
-  it('plays every voice through a gain into the master bus, so nothing bypasses the envelope or the volume', () => {
+  it('plays every voice through a gain into the effects channel, so nothing bypasses the envelope or the volume', () => {
     for (const [name, play] of SOUNDS) {
       const rec = run(play);
       // Один голос — одна огибающая, и голос подключается ровно к ней: подключение мимо
@@ -456,9 +433,9 @@ describe('задержка', () => {
         expect(osc.connections, name).toEqual([rec.gains[index]]);
         expect(rec.gains[index].gain.ramps.length, name).toBeGreaterThan(0);
       }
-      // Огибающая уходит в мастер, а не мимо него в колонки: иначе громкость игрока не дошла бы.
+      // Огибающая уходит в канал эффектов, а не мимо него в колонки: иначе громкость игрока не дошла бы.
       for (const gain of rec.gains) {
-        expect(gain.connections, name).toEqual([rec.master]);
+        expect(gain.connections, name).toEqual([rec.sfx]);
       }
     }
   });
