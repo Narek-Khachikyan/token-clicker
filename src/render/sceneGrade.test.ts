@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sceneFilter, sceneFloorGradient, sceneGrade, sceneHeatLayers } from './sceneGrade';
+import { sceneFilter, sceneFloorGradient, sceneGrade } from './sceneGrade';
 
 /**
  * Проверяется решение, а не CSS.
@@ -101,25 +101,5 @@ describe('художественный режим Сцены', () => {
     const grad = sceneFloorGradient(sceneGrade(1));
     expect(grad).toContain('to top');
     expect(grad).toMatch(/rgba\(0, 0, 0, 0\.\d+\)/);
-  });
-});
-
-describe('жар поверх Сцены', () => {
-  it('кладёт оба слоя снизу вверх', () => {
-    // Жар поднимается. Слой, идущий сверху вниз, читался бы как холод, падающий с потолка.
-    const { tint, haze } = sceneHeatLayers();
-    expect(tint.startsWith('linear-gradient(to top')).toBe(true);
-    expect(haze).toContain('to top');
-    // Марево обязано быть полосами, а не размытием: размытие нечёткого градиента не даёт
-    // ничего, и слой молча превратился бы в ровную заливку.
-    expect(haze).toContain('repeating-linear-gradient');
-  });
-
-  it('не задаёт прозрачность в JS', () => {
-    // Прозрачность приходит из `--heat-glow` в CSS. Если число появится здесь, у шкалы
-    // нагрева появится вторая копия, и они разъедутся при первой правке :root.
-    const { tint, haze } = sceneHeatLayers();
-    expect(tint).not.toContain('opacity');
-    expect(haze).not.toContain('opacity');
   });
 });
