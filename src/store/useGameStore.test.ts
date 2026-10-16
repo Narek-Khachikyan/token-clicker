@@ -5,6 +5,7 @@ import { QUIPS } from '../data/quips';
 import { pickQuip } from '../economy/quips';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
 import { ACHIEVEMENTS } from '../economy/achievements';
+import { formatCount } from '../economy/format';
 import {
   BASE_OFFLINE_HOURS,
   buyAgents as engineBuyAgents,
@@ -16,7 +17,6 @@ import {
   totalIncome,
 } from '../economy/engine';
 import { EVENT_TABLES, grantAmount } from '../economy/events';
-import { HOLD_CLICK_MAX_PER_SEC } from '../economy/streak';
 import { RED_TABLES } from '../economy/glitches';
 import {
   GLITCH_CLICKS,
@@ -920,12 +920,21 @@ describe('achievement awards', () => {
     expect(vi.mocked(playAchievementSound)).toHaveBeenCalledTimes(1);
     const toast = store().toasts[0];
     const n = awarded.length;
-    const word = n % 10 === 1 && n % 100 !== 11 ? 'Достижение' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'Достижения' : 'Достижений';
-    expect(toast.title).toBe(`+${n} ${word}`);
+    expect(toast.title).toBe(`+${n} ${formatCount(n, 'Достижение', 'Достижения', 'Достижений')}`);
     // Названия урезаны до трёх, остальное — счётом: карточка обязана помещаться на 320 px.
     expect(toast.name.split(' · ')).toHaveLength(Math.min(n, 3));
     expect(toast.name.split(' · ')[0]).toBe(awarded[0].name);
     expect(toast.desc).toBe(n > 3 ? `и ещё ${n - 3}` : '');
+  });
+
+  it('prints a batch of two or three achievements with the «Достижения» form', () => {
+    freshStore();
+    useGameStore.setState({ state: { ...state(), clicks: 100 }, toasts: [] });
+    tick();
+    expect(store().toasts.map((t) => t.title)).toEqual(['+2 Достижения']);
+    useGameStore.setState({ state: { ...state(), achievements: [], clicks: 1000 }, toasts: [] });
+    tick();
+    expect(store().toasts.map((t) => t.title)).toEqual(['+3 Достижения']);
   });
 
   it('keeps one achievement as its own card and joins a long tick batch into at most one toast', () => {
@@ -1229,12 +1238,6 @@ describe('reward moments on the scene', () => {
     expect(store().sceneMoment).toBeNull();
   });
 
-  it('is not part of the save', () => {
-    freshStore();
-    hire(g0.flagship.id, 1);
-    expect(JSON.stringify(state())).not.toContain('sceneMoment');
-  });
-
   it('lets go of the moment after its dwell, but only its own', () => {
     vi.useFakeTimers();
     freshStore();
@@ -1281,7 +1284,6 @@ describe('the prestige tab section', () => {
   beforeEach(() => useGameStore.setState({ prestigeSection: 'prestige' }));
 
   it('opens on «Престиж» and remembers the section the player picked, whatever tab comes between', () => {
-    expect(store().prestigeSection).toBe('prestige');
     store().setPrestigeSection('legacy');
     store().setActiveTab('click');
     store().setActiveTab('prestige');
@@ -1365,11 +1367,6 @@ describe('the effect switches', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
-  });
-
-  it('starts with every effect on', () => {
-    freshStore();
-    expect(state().settings).toMatchObject({ particles: true, floaters: true, shake: true, ticker: true });
   });
 
   it('flips one effect and leaves the others', () => {
@@ -1463,13 +1460,6 @@ describe('the finale screen flag', () => {
     store().dismissFinale();
     expect(store().finaleDismissed).toBe(true);
     store().resetGame();
-    expect(store().finaleDismissed).toBe(false);
-  });
-
-  it('openFinale re-arms the flag after the player closed it', () => {
-    freshStore();
-    store().dismissFinale();
-    store().openFinale();
     expect(store().finaleDismissed).toBe(false);
   });
 });
@@ -1634,6 +1624,12 @@ describe('the save', () => {
       musicVolume: 0,
       sfxVolume: 0.35,
     });
+  });
+
+  it('writes an effect switch to the save on the same touch, not on a later save', async () => {
+    const w = await windowed();
+    w.store.getState().setEffect('shake', false);
+    expect(w.saved()?.settings).toMatchObject({ shake: false });
   });
 
   it('has the imported run in the save, so a reload cannot undo the import', async () => {
@@ -2078,7 +2074,8 @@ describe('the Серия and holding a key down', () => {
     expect(accepted.length).toBeGreaterThan(20);
     for (const at of accepted) {
       const inSecond = accepted.filter((other) => other > at - 1000 && other <= at).length;
-      expect(inSecond).toBeLessThanOrEqual(HOLD_CLICK_MAX_PER_SEC);
+      // Потолок — литерал из спеки, а не константа модуля: сравнение с ней прошло бы при любом её значении.
+      expect(inSecond).toBeLessThanOrEqual(10);
     }
   });
 

@@ -106,6 +106,12 @@ describe('save effect switches and channel volumes', () => {
     });
   });
 
+  it('reads a missing reduced motion in a current save as off', () => {
+    // Чужой или урезанный файл текущей версии идёт мимо миграций: дефолт обязан держать и разбор.
+    const { reducedMotion: _dropped, ...rest } = newGame(T0).settings;
+    expect(migrate({ ...newGame(T0), settings: rest }, T0).settings.reducedMotion).toBe(false);
+  });
+
   it('starts a new game with every effect on and both channels full', () => {
     expect(newGame(T0).settings).toEqual({
       notation: 'short',
@@ -333,11 +339,14 @@ describe('corrupt storage', () => {
   });
 
   it('reads a valid save as ok', () => {
-    const text = JSON.stringify(newGame(T0));
+    const text = JSON.stringify({ ...newGame(T0), tokens: 4242 });
     const { storage } = mem({ [SAVE_KEY]: text });
     vi.stubGlobal('localStorage', storage);
     const read = readStoredSave();
     expect(read.status).toBe('ok');
+    if (read.status !== 'ok') return;
+    expect(read.text).toBe(text);
+    expect((read.value as { tokens: number }).tokens).toBe(4242);
   });
 
   it('reads truncated JSON as corrupt and quarantines the bytes under a separate key', () => {

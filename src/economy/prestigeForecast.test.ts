@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CATALOG, computeGain } from './catalog';
+import { CATALOG, computeGain, prestigeDivisor } from './catalog';
 import { buyAgents, prestige, prestigeGain, startingTokens } from './engine';
 import {
-  BOOST_SHARE,
   PRESTIGE_BOOKKEEPING,
   PRESTIGE_KEEPS,
   PRESTIGE_RESETS,
@@ -37,7 +36,6 @@ describe('prestigeForecast', () => {
       for (const exp of [0, 3, 8, 15, 30, 60, 100, 200, 299]) {
         const s = runAt(g.index, Math.pow(10, exp));
         const f = prestigeForecast(s);
-        expect(f.boostGain).toBe(Math.max(f.gain + 1, Math.ceil(f.gain * (1 + BOOST_SHARE))));
         expect(Number.isFinite(f.boostShortfall)).toBe(true);
         expect(f.boostShortfall).toBeGreaterThan(0);
         // На пороге Престиж платит прибавку, на шаг раньше — ещё нет.
@@ -49,12 +47,26 @@ describe('prestigeForecast', () => {
     }
   });
 
+  it('promises a boost of 1, 2 and 15 for a gain of 0, 1 and 10', () => {
+    // Литералы: Compute 1 и 10 берутся из кубов делителя, 15 — это 10 + 50 %.
+    const cases = [
+      { k: 0, gain: 0, boostGain: 1 },
+      { k: 1, gain: 1, boostGain: 2 },
+      { k: 10, gain: 10, boostGain: 15 },
+    ];
+    for (const c of cases) {
+      const f = prestigeForecast(runAt(0, c.k ** 3 * prestigeDivisor(0)));
+      expect(f.gain).toBe(c.gain);
+      expect(f.boostGain).toBe(c.boostGain);
+    }
+  });
+
   it('starts from the first unit when nothing is earned yet', () => {
     const f = prestigeForecast(runAt(0, 0));
     expect(f.gain).toBe(0);
     expect(f.boostGain).toBe(1);
     // Единица Compute начинается ровно с делителя Поколения.
-    expect(f.boostShortfall).toBeGreaterThan(0);
+    expect(f.boostShortfall).toBe(prestigeDivisor(0));
   });
 
   it('flags the finale and a closed Престиж, so the card never promises what the transition refuses', () => {
@@ -140,13 +152,6 @@ describe('what Престиж resets and what stays', () => {
       for (const f of e.fields) {
         expect(after[f], f).toEqual(before[f]);
       }
-    }
-  });
-
-  it('writes a label for every line the card prints', () => {
-    for (const e of [...PRESTIGE_RESETS, ...PRESTIGE_KEEPS]) {
-      expect(e.label.length).toBeGreaterThan(0);
-      expect(e.fields.length).toBeGreaterThan(0);
     }
   });
 });

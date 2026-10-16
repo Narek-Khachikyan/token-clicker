@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  HOLD_CLICK_MAX_PER_SEC,
   HOLD_CLICK_MIN_GAP_MS,
   pushClick,
   STREAK_MAX_LEVEL,
@@ -53,6 +52,14 @@ describe('Серия Кликов', () => {
     expect(levels[levels.length - 1]).toBe(0);
   });
 
+  it('drops a Клик exactly one window old, so the Серия ends on the window edge', () => {
+    // Три Клика в одной точке — уровень 1 (порог 3). Чуть раньше границы окна они ещё в Серии,
+    // ровно на границе — уже выпали.
+    const clicks = [1_000, 1_000, 1_000];
+    expect(streakLevel(clicks, 1_000 + STREAK_WINDOW_MS - 1)).toBe(1);
+    expect(streakLevel(clicks, 1_000 + STREAK_WINDOW_MS)).toBe(0);
+  });
+
   it('does not count a Клик from the future, so a clock set back cannot freeze the top level', () => {
     const clicks = evenly(20, 100, 50_000);
     expect(streakLevel(clicks, 10_000)).toBe(0);
@@ -72,10 +79,5 @@ describe('Серия Кликов', () => {
     for (let i = 0; i < 30; i += 1) ({ moments } = pushClick(moments, i * 80));
     const after = pushClick(moments, 30 * 80 + STREAK_WINDOW_MS * 4);
     expect(after.level).toBe(0);
-  });
-
-  it('holding a key is capped at about ten Кликов per second', () => {
-    expect(HOLD_CLICK_MAX_PER_SEC).toBe(10);
-    expect(HOLD_CLICK_MIN_GAP_MS * HOLD_CLICK_MAX_PER_SEC).toBe(1000);
   });
 });

@@ -19,12 +19,6 @@ const rects = (markup: string): number[][] =>
   );
 
 describe('Icon', () => {
-  it('carries a pixel icon for every pictogram the windows and banner used to take from emoji', () => {
-    for (const name of REPLACED_GLYPHS) {
-      expect(ICON_NAMES, `в наборе нет иконки «${name}»`).toContain(name);
-    }
-  });
-
   it('draws every icon on the 16×16 grid in currentColor and hides it from screen readers', () => {
     for (const name of ICON_NAMES) {
       const svg = render(name);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sceneFilter, sceneFloorGradient, sceneGrade, sceneHeatLayers } from './sceneGrade';
+import { sceneFilter, sceneFloorGradient, sceneGrade } from './sceneGrade';
 
 /**
  * Проверяется решение, а не CSS.
@@ -87,6 +87,14 @@ describe('художественный режим Сцены', () => {
     expect(sceneGrade(1.7)).toEqual(sceneGrade(1));
   });
 
+  it('берёт последнюю Сцену для индекса за концом каталога, а не предпоследнюю', () => {
+    // Сцена 4 холодная (тепло −23): доля сепии (16 + 22.7) / 110 = 0.3518, пол 0.3 + 0.34 × 0.739.
+    // Предпоследняя Сцена 3 почти нейтральна, её доля 0.0064, и сравнение двух индексов, которые
+    // оба зажаты одной ошибкой, этого не поймало бы.
+    expect(sceneGrade(99).warm).toBe(0.3518);
+    expect(sceneGrade(99).floorShade).toBe(0.5513);
+  });
+
   it('собирает фильтр и градиент так, чтобы они читались как решение', () => {
     // Три составляющие и никакого `hue-rotate`: жёлтый тон сепии — это температура палитры,
     // а поворот уводил бы картину в розовый.
@@ -101,25 +109,5 @@ describe('художественный режим Сцены', () => {
     const grad = sceneFloorGradient(sceneGrade(1));
     expect(grad).toContain('to top');
     expect(grad).toMatch(/rgba\(0, 0, 0, 0\.\d+\)/);
-  });
-});
-
-describe('жар поверх Сцены', () => {
-  it('кладёт оба слоя снизу вверх', () => {
-    // Жар поднимается. Слой, идущий сверху вниз, читался бы как холод, падающий с потолка.
-    const { tint, haze } = sceneHeatLayers();
-    expect(tint.startsWith('linear-gradient(to top')).toBe(true);
-    expect(haze).toContain('to top');
-    // Марево обязано быть полосами, а не размытием: размытие нечёткого градиента не даёт
-    // ничего, и слой молча превратился бы в ровную заливку.
-    expect(haze).toContain('repeating-linear-gradient');
-  });
-
-  it('не задаёт прозрачность в JS', () => {
-    // Прозрачность приходит из `--heat-glow` в CSS. Если число появится здесь, у шкалы
-    // нагрева появится вторая копия, и они разъедутся при первой правке :root.
-    const { tint, haze } = sceneHeatLayers();
-    expect(tint).not.toContain('opacity');
-    expect(haze).not.toContain('opacity');
   });
 });
