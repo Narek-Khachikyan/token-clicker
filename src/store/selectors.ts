@@ -450,8 +450,6 @@ export function challengeCardView(s: GameState): ChallengeCardView {
 }
 
 export interface PledgeView {
-  /** Стадия Восстания: до его начала откупать нечего. */
-  uprising: number;
   covenant: boolean;
   pledgeBought: number;
   pledgeCostText: string;
@@ -470,7 +468,6 @@ export function pledgeView(s: GameState): PledgeView {
   const notation = s.settings.notation;
   const leftMs = Math.max(0, s.pledgeUntil - s.lastTick);
   return {
-    uprising: s.uprising,
     covenant: s.covenant,
     pledgeBought: s.pledgeBought,
     pledgeCostText: formatNumber(pledgeCost(s), notation),

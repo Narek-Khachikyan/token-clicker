@@ -429,7 +429,6 @@ describe('prestige tab slices', () => {
       pledgeUntil: lateGame().lastTick + 90_000,
     };
     const view = pledgeView(s);
-    expect(view.uprising).toBe(2);
     expect(view.pledgeCostText).toBe(formatNumber(pledgeCost(s)));
     expect(view.canPledge).toBe(canPledge(s));
     expect(view.licenseCostText).toBe(formatNumber(licenseCost(s)));
