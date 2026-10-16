@@ -808,6 +808,14 @@ describe('музыкальный луп', () => {
     expect(ctx.oscillators.length).toBe(before);
   });
 
+  it('остановка снимает таймер лупа, а не только перестаёт его слушать', () => {
+    // Тик без таймера не придёт, но таймер, оставленный висеть, тикал бы до конца сессии.
+    startMusic(SETTINGS);
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    stopMusic();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('повторный startMusic не удваивает ноты', () => {
     startMusic(SETTINGS);
     const once = notesOver(2000).length;
