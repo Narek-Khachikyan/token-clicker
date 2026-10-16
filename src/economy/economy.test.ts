@@ -630,7 +630,13 @@ const hired = (agents = 10): GameState => ({
 const withEvent = (kind: EventKind, red = false, modelId?: string): GameState => ({
   ...hired(),
   event: { kind, startedAt: T0, red, modelId },
+  // Обычное событие платит только пойманное: по умолчанию окно поймано, а пропущенное
+  // собирается явно через `missed`.
+  eventCaughtAt: T0,
 });
+
+/** То же окно, которое игрок упустил: Золотой Токен на экране, но не пойман. */
+const missed = (s: GameState): GameState => ({ ...s, eventCaughtAt: 0 });
 
 /** Один 50-миллисекундный тик, заканчивающийся в момент `now`. */
 const tickTo = (s: GameState, now: number) => advance({ ...s, lastTick: now - 50 }, 0.05);
@@ -642,6 +648,7 @@ describe('transient modifiers', () => {
     const busy: GameState = {
       ...s,
       event: { kind: 'hype', startedAt: T0, red: false },
+      eventCaughtAt: T0,
       glitches: [{ id: 1, stolen: 0.5, clicks: 0 }],
     };
     // Активный тик читает оба: событие ×7 и Глюк, укравший 5% Дохода.
@@ -689,6 +696,48 @@ describe('events', () => {
     // Клик без Апгрейдов Клика состоит только из своей части, и событие её не трогает.
     expect(clickValue(s)).toBeCloseTo(clickValue(hired()));
     expect(clickMultiplierFor(s)).toBe(1);
+  });
+
+  it('pays nothing for an ordinary event the player missed, and the old amount once caught', () => {
+    const plain = hired();
+    const surged = withEvent('surge', false, first.id);
+    // Упущенный Золотой Токен не даёт ничего: множители Дохода и Клика равны единице.
+    expect(eventMultiplierFor(missed(withEvent('hype')))).toBe(1);
+    expect(clickMultiplierFor(missed(withEvent('clickRush')))).toBe(1);
+    expect(surgeMultFor(missed(surged), first.id)).toBe(1);
+    expect(totalIncome(missed(withEvent('hype')))).toBeCloseTo(totalIncome(plain));
+    expect(clickValue(missed(withEvent('clickRush')))).toBeCloseTo(clickValue(plain));
+    expect(modelIncome(missed(surged), first)).toBeCloseTo(modelIncome(plain, first));
+    // Тик платит так же, как и подпись: пропущенное окно не добавляет ни Токена.
+    const tick = tickTo(missed(withEvent('hype')), T0 + 50);
+    expect(tick.tokens - plain.tokens).toBeCloseTo(totalIncome(plain) * 0.05, 6);
+    // С поимкой — прежние числа.
+    expect(eventMultiplierFor(withEvent('hype'))).toBe(EVENT_TABLES.hype.incomeMult);
+    expect(clickMultiplierFor(withEvent('clickRush'))).toBe(EVENT_TABLES.clickRush.clickMult);
+    expect(surgeMultFor(surged, first.id)).toBe(EVENT_TABLES.surge.incomeMult);
+  });
+
+  it('counts a catch of an earlier window as a miss for the current one', () => {
+    // Отметка помнит начало поймавшего окна: от прошлого окна она ничего не платит.
+    const stale: GameState = { ...withEvent('hype'), eventCaughtAt: T0 - 60_000 };
+    expect(eventMultiplierFor(stale)).toBe(1);
+  });
+
+  it('keeps the red events punishing a player who did not catch them', () => {
+    expect(downtimeIncomeMult(missed(withEvent('clickRush', true)))).toBe(0);
+    expect(totalIncome(missed(withEvent('clickRush', true)))).toBe(0);
+    const idle = missed(withEvent('surge', true, first.id));
+    expect(surgeMultFor(idle, first.id)).toBe(RED_TABLES.surge.incomeMult);
+    expect(eventMultiplierFor(missed(withEvent('hype', true)))).toBe(RED_TABLES.hype.incomeMult);
+  });
+
+  it('leaves the offline income alone whether or not the window was caught', () => {
+    const base = hired();
+    for (const kind of ['hype', 'clickRush', 'surge'] as const) {
+      const live = withEvent(kind, false, first.id);
+      expect(offlineIncome(missed(live))).toBeCloseTo(offlineIncome(base));
+      expect(offlineIncome(live)).toBeCloseTo(offlineIncome(base));
+    }
   });
 
   it('moves the click with «Клик-рывок» and leaves the income alone', () => {
@@ -842,7 +891,7 @@ describe('red events', () => {
   it('picks the table by the red flag, not by the uprising', () => {
     // Восстание третьей стадии при обычном событии не показывает красные числа: у них другие и
     // множитель, и длительность.
-    const ordinary: GameState = { ...cold(newGame(T0)), uprising: 3, event: { kind: 'hype', startedAt: T0, red: false } };
+    const ordinary: GameState = { ...cold(newGame(T0)), uprising: 3, event: { kind: 'hype', startedAt: T0, red: false }, eventCaughtAt: T0 };
     const red: GameState = { ...cold(newGame(T0)), event: { kind: 'hype', startedAt: T0, red: true } };
     expect(activeSpec(ordinary)?.name).toBe(EVENT_TABLES.hype.name);
     expect(activeSpec(red)?.name).toBe(RED_TABLES.hype.name);
@@ -991,11 +1040,15 @@ describe('event combo', () => {
     expect(c.combo).toBe(2);
     expect(comboMultFor(c)).toBe(2);
     // Живой эффект умножается на комбо — на «Волне хайпа», «Клик-рывке» и «Прорыве».
-    const hyped: GameState = { ...c, event: { kind: 'hype', startedAt: c.lastTick, red: false } };
+    const hyped: GameState = { ...c, event: { kind: 'hype', startedAt: c.lastTick, red: false }, eventCaughtAt: c.lastTick };
     expect(eventMultiplierFor(hyped)).toBe(EVENT_TABLES.hype.incomeMult * 2);
-    const rushed: GameState = { ...c, event: { kind: 'clickRush', startedAt: c.lastTick, red: false } };
+    const rushed: GameState = { ...c, event: { kind: 'clickRush', startedAt: c.lastTick, red: false }, eventCaughtAt: c.lastTick };
     expect(clickMultiplierFor(rushed)).toBe(EVENT_TABLES.clickRush.clickMult * 2);
-    const surged: GameState = { ...c, event: { kind: 'surge', startedAt: c.lastTick, red: false, modelId: first.id } };
+    const surged: GameState = {
+      ...c,
+      event: { kind: 'surge', startedAt: c.lastTick, red: false, modelId: first.id },
+      eventCaughtAt: c.lastTick,
+    };
     expect(surgeMultFor(surged, first.id)).toBe(EVENT_TABLES.surge.incomeMult * 2);
   });
 
@@ -1017,6 +1070,7 @@ describe('event combo', () => {
       ...hired(),
       combo: 8,
       event: { kind: 'hype', startedAt: T0, red: false },
+      eventCaughtAt: T0,
     };
     expect(comboMultFor(eighth)).toBe(8);
     expect(eventMultiplierFor(eighth)).toBe(EVENT_TABLES.hype.incomeMult * 8);
@@ -1254,6 +1308,7 @@ describe('offline pays no transient bonus', () => {
     const busy: GameState = {
       ...s,
       event: { kind: 'hype', startedAt: T0, red: false },
+      eventCaughtAt: T0,
       glitches: [
         { id: 1, stolen: 1, clicks: 0 },
         { id: 2, stolen: 1, clicks: 0 },
@@ -1273,7 +1328,7 @@ describe('offline pays no transient bonus', () => {
   it('never pays a surge, a click rush or a downtime backwards', () => {
     const s = hired();
     const base = offlineIncome(s);
-    const surged: GameState = { ...s, event: { kind: 'surge', startedAt: T0, red: false, modelId: first.id } };
+    const surged: GameState = { ...s, event: { kind: 'surge', startedAt: T0, red: false, modelId: first.id }, eventCaughtAt: T0 };
     expect(applyOffline(surged, T0 + HOUR).earned).toBeCloseTo(base * 3600);
     expect(totalIncome(surged)).toBeGreaterThan(totalIncome(s));
 
@@ -1733,7 +1788,9 @@ describe('save', () => {
     // после перезагрузки достался бы другой Модели, а Глюк без clicks был бы непобедимым.
     const withEvent = migrate({ version: 3, event: { kind: 'hype', startedAt: T0 } }, T0);
     expect(withEvent.event).toEqual({ kind: 'hype', startedAt: T0, red: false, modelId: undefined });
-    expect(eventMultiplierFor(withEvent)).toBe(EVENT_TABLES.hype.incomeMult);
+    // Старое сохранение отметки поимки не знало: окно, пережившее миграцию, считается упущенным.
+    expect(withEvent.eventCaughtAt).toBe(0);
+    expect(eventMultiplierFor(withEvent)).toBe(1);
     expect(surgeMultFor(withEvent, first.id)).toBe(1);
 
     const withGlitch = migrate({ version: 3, glitches: [{ id: 1, stolen: 0.5 }] }, T0);
