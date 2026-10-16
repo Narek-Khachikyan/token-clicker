@@ -224,3 +224,47 @@ export function formatDuration(seconds: number): string {
   if (m > 0) return `${m} мин ${s % 60} с`;
   return `${s} с`;
 }
+
+/** Разделитель групп в полной записи: неразрывный пробел, чтобы «1 234» не рвалось по строке на тысяче. */
+const GROUP_SEP = ' ';
+
+const groupThousands = (digits: string): string => digits.replace(/\B(?=(\d{3})+$)/g, GROUP_SEP);
+
+/**
+ * Полная запись числа для подсказки при наведении: все цифры, группами по три, без суффиксов яруса.
+ * Короткая запись «4,67 Sx» прячет порядок; тут он виден целиком.
+ *
+ * Double держит около 15–17 значащих цифр, поэтому у чисел крупнее 1e15 печатаются пятнадцать
+ * честных цифр и нули: последующие знаки double — шум округления, и выдавать его за значение
+ * значило бы показать точность, которой нет. Дробная часть — до двух знаков, как и у
+ * `formatNumber`, только не отсекается, пока число меньше тысячи: у такого числа короткая запись и
+ * полная — одно и то же, а при наведении важно, чтобы оно не расходилось с тем, что на экране.
+ */
+export function formatFull(n: number): string {
+  if (!Number.isFinite(n)) return '∞';
+  const sign = n < 0 ? '-' : '';
+  const a = Math.abs(n);
+  if (a >= 1e15) {
+    const [mantissa, exp] = a.toExponential(14).split('e');
+    const digits = mantissa.replace('.', '');
+    const order = Number(exp);
+    return sign + groupThousands(digits.padEnd(order + 1, '0'));
+  }
+  const [whole, fraction = ''] = (Math.round(a * 100) / 100).toFixed(2).split('.');
+  const tail = fraction.replace(/0+$/, '');
+  return sign + groupThousands(whole) + (tail === '' ? '' : `,${tail}`);
+}
+
+/**
+ * Множитель для строки разбивки: «×2», «×1,5», «×1,24», «×0,9».
+ *
+ * `formatNumber` под десятью печатает один знак, и множитель 1,24 превратился бы в «1,2» — а
+ * разбивка Дохода обещает, что произведение строк равно итогу, и сотые в ней видны. Поэтому
+ * до десяти — два знака без хвостовых нулей, дальше обычная запись игрока.
+ */
+export function formatMultiplier(m: number, notation: Notation = 'short'): string {
+  if (!Number.isFinite(m)) return '×∞';
+  if (m >= 10) return `×${formatNumber(m, notation)}`;
+  const text = String(Math.round(m * 100) / 100);
+  return `×${text.replace('.', ',')}`;
+}

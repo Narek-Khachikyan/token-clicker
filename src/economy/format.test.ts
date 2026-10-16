@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOG } from './catalog';
 import { bulkCost, discountMult } from './engine';
-import { formatCount, formatNumber } from './format';
+import { formatCount, formatFull, formatMultiplier, formatNumber } from './format';
 import { newGame } from './state';
 
 /**
@@ -295,5 +295,57 @@ describe('format', () => {
     expect(tokens(1010)).toBe('Токенов');
     expect(tokens(1021)).toBe('Токен');
     expect(tokens(111)).toBe('Токенов');
+  });
+});
+
+
+describe('formatFull: полная запись числа в подсказке', () => {
+  const NBSP = '\u00A0';
+  const digitsOf = (text: string): string => text.replace(/[^\d]/g, '');
+
+  it('пишет все цифры группами по три, а дробь — до двух знаков', () => {
+    expect(formatFull(0)).toBe('0');
+    expect(formatFull(7.5)).toBe('7,5');
+    expect(formatFull(999)).toBe('999');
+    expect(formatFull(1234)).toBe(`1${NBSP}234`);
+    expect(formatFull(1234.5)).toBe(`1${NBSP}234,5`);
+    expect(formatFull(1234.567)).toBe(`1${NBSP}234,57`);
+    expect(formatFull(-1234567)).toBe(`-1${NBSP}234${NBSP}567`);
+    expect(formatFull(Infinity)).toBe('∞');
+  });
+
+  it('на каждом ярусе суффиксов показывает порядок целиком, и сокращённая запись — его начало', () => {
+    // Каждый ярус лестницы «K … Vg» и научная запись до 1e300 — тот же вопрос игрока: «сколько это».
+    for (let exp = 3; exp <= 300; exp++) {
+      const n = 4.671 * Math.pow(10, exp);
+      const full = digitsOf(formatFull(n));
+      expect(full.length, `1e${exp}`).toBe(exp + 1);
+      // Мантисса короткой записи без запятой — первые цифры полной.
+      const short = digitsOf(formatNumber(n, 'short').split(' ')[0]);
+      if (exp < 66) expect(full.startsWith(short.replace(/0+$/, '').slice(0, 4)), `${formatNumber(n)}`).toBe(true);
+      const sci = digitsOf(formatNumber(n, 'sci').split('e')[0]);
+      expect(full.startsWith(sci.replace(/0+$/, '').slice(0, 4)), formatNumber(n, 'sci')).toBe(true);
+    }
+  });
+
+  it('за пределами точности double печатает пятнадцать честных цифр и нули, а не шум округления', () => {
+    const text = digitsOf(formatFull(Number.MAX_SAFE_INTEGER * 1e10));
+    expect(text).toBe('900719925474099' + '0'.repeat(text.length - 15));
+    expect(formatFull(1e300).replace(new RegExp(NBSP, 'g'), '')).toBe('1' + '0'.repeat(300));
+  });
+});
+
+describe('formatMultiplier: строка разбивки Дохода', () => {
+  it('держит сотые, пока множитель меньше десяти, и не печатает хвостовых нулей', () => {
+    expect(formatMultiplier(2)).toBe('×2');
+    expect(formatMultiplier(1.5)).toBe('×1,5');
+    expect(formatMultiplier(1.2399)).toBe('×1,24');
+    expect(formatMultiplier(0.9)).toBe('×0,9');
+  });
+
+  it('от десяти и выше говорит так же, как весь остальной экран', () => {
+    expect(formatMultiplier(32)).toBe(`×${formatNumber(32)}`);
+    expect(formatMultiplier(48_000_000)).toBe(`×${formatNumber(48_000_000)}`);
+    expect(formatMultiplier(48_000_000, 'sci')).toBe(`×${formatNumber(48_000_000, 'sci')}`);
   });
 });

@@ -329,16 +329,29 @@ export interface ModelView {
   goalPct: number;
 }
 
+/** Числа карточки Модели до форматирования: то, что печатает `modelView`, и то, что покажет полная запись. */
+export interface ModelFigures {
+  owned: number;
+  count: number;
+  cost: number;
+  canAfford: boolean;
+  showsGain: boolean;
+  /** Прирост общего Дохода от этой покупки; 0, пока строка прироста не показывается. */
+  gain: number;
+  refund: number;
+  /** Сколько не хватает; 0, когда хватает или идёт продажа. */
+  missing: number;
+}
+
 /**
- * Что показывает карточка Модели при данных множителе и режиме.
+ * Сырые числа карточки Модели при данных множителе и режиме. Прирост Дохода — единственное дорогое
+ * число (два полных Дохода на каждую Модель), поэтому считается только когда его строка видна.
  *
- * Прирост Дохода — единственное дорогое число (два полных Дохода на каждую Модель), поэтому
- * считается только когда его строка видна. Кошелёк входит во всё остальное, но наружу выходит
- * форматом и делениями рельса, поэтому карточка перерисовывается, когда меняется напечатанное, а
- * не когда Токенов стало на тик больше.
+ * Отдельно от `modelView` потому, что полная запись числа при наведении читает те же значения:
+ * цена, прирост и дефицит в подсказке обязаны быть теми, что напечатаны на кнопке, а не
+ * пересчитанными вторично другой формулой.
  */
-export function modelView(s: GameState, m: Model, buyAmount: BuyAmount, sellMode: boolean): ModelView {
-  const notation = s.settings.notation;
+export function modelFigures(s: GameState, m: Model, buyAmount: BuyAmount, sellMode: boolean): ModelFigures {
   const d = discountMult(s);
   const owned = s.agents[m.id] ?? 0;
   const count = buyAmount === 'max' ? (sellMode ? owned : maxAffordable(m, owned, s.tokens, d)) : buyAmount;
@@ -353,25 +366,44 @@ export function modelView(s: GameState, m: Model, buyAmount: BuyAmount, sellMode
   // Строка прироста описывает действие, которое кнопка действительно выполнит. Продать нечего —
   // и обе цифры, и кнопка были бы пустыми.
   const showsGain = sellMode ? owned > 0 : count > 0;
-  // Доля для полосы цели — из движка, по той же цене, что и покупка.
-  const missingShare = progressToNextAgent(s, m);
-
   return {
     owned,
-    ownedWord: formatCount(owned, 'Агент', 'Агента', 'Агентов', notation),
-    sell: sellMode,
     count,
+    cost,
     canAfford,
     showsGain,
     // Прирост общего Дохода именно от этой покупки, посчитанный движком. Продажа ограничена тем,
     // что есть: sellAgents берёт min(n, owned), и подпись про большую сделку, чем возможна,
     // вводила бы в заблуждение.
-    gainText: showsGain
-      ? formatNumber(incomeGain(s, m.id, sellMode ? Math.min(count, owned) : count, s.lastTick, incomeOf(s)), notation)
-      : '',
-    costText: formatNumber(cost, notation),
-    refundText: formatNumber(sellRefund(m, owned, count, d), notation),
-    missingText: !canAfford && missing > 0 ? formatNumber(missing, notation) : '',
+    gain: showsGain ? incomeGain(s, m.id, sellMode ? Math.min(count, owned) : count, s.lastTick, incomeOf(s)) : 0,
+    refund: sellRefund(m, owned, count, d),
+    missing,
+  };
+}
+
+/**
+ * Что показывает карточка Модели при данных множителе и режиме.
+ *
+ * Кошелёк входит во всё, но наружу выходит форматом и делениями рельса, поэтому карточка
+ * перерисовывается, когда меняется напечатанное, а не когда Токенов стало на тик больше.
+ */
+export function modelView(s: GameState, m: Model, buyAmount: BuyAmount, sellMode: boolean): ModelView {
+  const notation = s.settings.notation;
+  const f = modelFigures(s, m, buyAmount, sellMode);
+  // Доля для полосы цели — из движка, по той же цене, что и покупка.
+  const missingShare = progressToNextAgent(s, m);
+
+  return {
+    owned: f.owned,
+    ownedWord: formatCount(f.owned, 'Агент', 'Агента', 'Агентов', notation),
+    sell: sellMode,
+    count: f.count,
+    canAfford: f.canAfford,
+    showsGain: f.showsGain,
+    gainText: f.showsGain ? formatNumber(f.gain, notation) : '',
+    costText: formatNumber(f.cost, notation),
+    refundText: formatNumber(f.refund, notation),
+    missingText: !f.canAfford && f.missing > 0 ? formatNumber(f.missing, notation) : '',
     // Двенадцать делений, а не десять: при десяти на Моделях ранга 1 шаг заметно грубее, чем у
     // поздних. Точное число читается в подписи для скринридера, поэтому рельс округляет.
     goalTicks: Math.round((1 - missingShare) * GOAL_TICK_COUNT),

@@ -1,9 +1,10 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { motionAllowed, reduceMotionMedia, useGameStore, useStateSlice } from '../store/useGameStore';
-import { clickButtonView, incomeView, purchaseProgressView } from '../store/selectors';
+import { clickButtonView, incomeOf, incomeView, purchaseProgressView } from '../store/selectors';
 import { formatNumber } from '../economy/format';
 import { COUNTER_CHARS, COUNTER_STEP } from '../layout';
 import { Num } from './Num';
+import { FullNumber } from './FullNumber';
 import { Icon } from './Icon';
 import { GoldenToken } from './GoldenToken';
 import { QuipBubble } from './QuipBubble';
@@ -120,15 +121,17 @@ const TokenCounter: React.FC = () => {
       {/* Пустой узел: текст сюда пишет только requestAnimationFrame, и любой ререндер
           React затирал бы его своими детьми. `pre` оставляет дополняющие пробелы ячейками, а
           не схлопывает их. */}
-      <div
-        ref={counterRef}
-        className={`pixel-${COUNTER_STEP}`}
-        style={{
-          color: 'var(--accent-color)',
-          whiteSpace: 'pre',
-          textShadow: '0 0 12px var(--accent-glow)',
-        }}
-      />
+      <FullNumber value={(s) => s.tokens} as="div" style={{ width: 'fit-content' }}>
+        <div
+          ref={counterRef}
+          className={`pixel-${COUNTER_STEP}`}
+          style={{
+            color: 'var(--accent-color)',
+            whiteSpace: 'pre',
+            textShadow: '0 0 12px var(--accent-glow)',
+          }}
+        />
+      </FullNumber>
       <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: 'var(--space-0)' }}>
         Токенов
       </div>
@@ -142,7 +145,11 @@ const IncomeLine: React.FC = () => {
   return (
     <>
       <div className="pixel-22" style={{ color: 'var(--green)', marginTop: 'var(--space-2)', whiteSpace: 'nowrap' }}>
-        +<Num bump>{text}</Num> / сек
+        +
+        <FullNumber value={incomeOf}>
+          <Num bump>{text}</Num>
+        </FullNumber>{' '}
+        / сек
       </div>
       {/* Подсказка при нулевом Доходе: игрок без Агентов иначе видит голый «+0/сек»
           без следующего шага. Только текст, без анимаций. */}
