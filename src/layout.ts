@@ -81,6 +81,28 @@ export const PIXEL_ADVANCE = 350 / 550;
  */
 export const COUNTER_CHARS = 11;
 
+/**
+ * Ступень всплывающего `+N` по уровню Серии (индекс = уровень): 22, 33, 44 px — те же три
+ * ступени пиксельного шрифта, что и везде (ADR-0009), без промежуточных масштабов, которые
+ * размыли бы пиксельную сетку. Число уровней сторожит тест против `STREAK_MAX_LEVEL`.
+ */
+export const FLOATER_STEPS: readonly (22 | 33 | 44)[] = [22, 22, 33, 33, 44];
+
+/** Ступень `+N` на уровне Серии; уровень за краем таблицы берёт ступень с её края. */
+export const floaterStep = (level: number): 22 | 33 | 44 =>
+  FLOATER_STEPS[Math.min(FLOATER_STEPS.length - 1, Math.max(0, Math.floor(level) || 0))];
+
+/**
+ * Левая кромка точки привязки `+N`, px: число центрируется на ней (`translate(-50%)` в
+ * float-up), поэтому точку держим не ближе половины ширины записи к краю окна. Запись шире
+ * окна встаёт по центру: обрезаться ей всё равно, но не одной стороной.
+ */
+export const floaterLeft = (x: number, chars: number, step: 22 | 33 | 44, viewportW: number): number => {
+  const half = (chars * step * PIXEL_ADVANCE) / 2;
+  if (half * 2 >= viewportW) return viewportW / 2;
+  return Math.min(viewportW - half, Math.max(half, x));
+};
+
 /** Горизонтальное поле колонки Клика, px: она же полоса одноколоночного режима. */
 export const CLICK_COL_PAD = 16;
 

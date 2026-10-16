@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { formatNumber } from './economy/format';
+import { STREAK_MAX_LEVEL } from './economy/streak';
 import {
+  FLOATER_STEPS,
+  floaterLeft,
+  floaterStep,
   CLICK_COL_MAX,
   CLICK_COL_MIN,
   CLICK_COL_PAD,
@@ -281,6 +285,42 @@ describe('layout', () => {
       expect(mascotCardLeft(30, 500)).toBe(MASCOT_CARD_EDGE);
       expect(mascotCardLeft(470, 500)).toBe(500 - MASCOT_CARD_EDGE - MASCOT_CARD_W);
     });
+  });
+});
+
+describe('+N Серии', () => {
+  it('has a step for every level, never shrinks as the Серия grows and tops out at the largest step', () => {
+    expect(FLOATER_STEPS).toHaveLength(STREAK_MAX_LEVEL + 1);
+    for (let i = 1; i < FLOATER_STEPS.length; i += 1) {
+      expect(FLOATER_STEPS[i]).toBeGreaterThanOrEqual(FLOATER_STEPS[i - 1]);
+    }
+    expect(floaterStep(0)).toBe(22);
+    expect(floaterStep(STREAK_MAX_LEVEL)).toBe(44);
+    expect(floaterStep(99)).toBe(44);
+    expect(floaterStep(-1)).toBe(22);
+    expect(floaterStep(Number.NaN)).toBe(22);
+  });
+
+  it('keeps the whole record inside the window at every width, for the longest record', () => {
+    const chars = COUNTER_CHARS + 1;
+    for (const width of [320, 360, 390, 1024, 1440]) {
+      for (const step of [22, 33, 44] as const) {
+        const recordW = chars * step * (350 / 550);
+        for (const x of [0, 10, width / 2, width - 10, width]) {
+          const left = floaterLeft(x, chars, step, width);
+          if (recordW < width) {
+            expect(left - recordW / 2).toBeGreaterThanOrEqual(-1e-9);
+            expect(left + recordW / 2).toBeLessThanOrEqual(width + 1e-9);
+          } else {
+            expect(left).toBe(width / 2);
+          }
+        }
+      }
+    }
+  });
+
+  it('leaves a point that already fits where it was', () => {
+    expect(floaterLeft(700, 6, 22, 1440)).toBe(700);
   });
 });
 
