@@ -588,6 +588,13 @@ describe('roster slice', () => {
     expect(Math.abs(shares.reduce((sum, v) => sum + v, 0) - 100)).toBeLessThanOrEqual(LAB_IDS.length);
   });
 
+  it('prints every lab share as a whole percent, never a tenth', () => {
+    for (const lab of LAB_IDS) {
+      const share = labShareView(lateGame(), lab);
+      if (share >= 0) expect(Number.isInteger(share)).toBe(true);
+    }
+  });
+
   it('gives the one lab in the office the whole income and every other lab no share', () => {
     const model = CATALOG[0].models[0];
     const s = {
