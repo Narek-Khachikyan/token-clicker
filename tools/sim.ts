@@ -44,6 +44,14 @@
  *                    свободный слот и собирает созревшее сразу (верхняя граница внимательного игрока)
  *   --no-characters  выключить Характеры Лабораторий (ADR-0011): база для сравнения «с / без»;
  *                    таблица в памяти очищается, файлы не трогаются
+ *   --policy P       игрок: greedy (по умолчанию, `tools/greedyPolicy.ts`, нижняя граница темпа) |
+ *                    attentive (`tools/attentivePolicy.ts`, внимательный игрок тикета #125: ловит
+ *                    Золотые Токены и лопает Глюки с задержкой реакции, закладывает Исследования,
+ *                    берёт Курсы, Престиж — по падению скорости Compute). У attentive свои числа:
+ *                    `--cps` по умолчанию 4, `--course-priority a,b` и `--challenge-set a,b` (id Курсов и
+ *                    Испытаний, `none` — пусто) переопределяют его списки, а `--catch`, `--glitches`,
+ *                    `--research`, `--course`, `--challenge`, `--farm`, `--min-gain` на него не действуют —
+ *                    его поведение задано в `tools/attentivePolicy.ts`
  *   --verbose        строка на каждую минуту
  *
  * Политика — `tools/greedyPolicy.ts`, общая с проверкой в `npm test`: жадная и осознанно простая,
@@ -64,7 +72,8 @@ import { CHARACTERS } from '../src/data/characters';
 import { LAB_IDS } from '../src/data/labs';
 import { characterStrength } from '../src/economy/character';
 import { safeTemp } from '../src/economy/thermal';
-import { DEFAULT_POLICY, DT, doPrestige, newSession, prestigeDue, tick, type PolicyOptions, type ThermalPolicy } from './greedyPolicy';
+import { DEFAULT_POLICY, DT, doPrestige, newSession, prestigeDue, tick, type PolicyOptions, type Session, type ThermalPolicy } from './greedyPolicy';
+import { ATTENTIVE_DEFAULTS, attentivePlayer, type PlayerPolicy } from './attentivePolicy';
 
 const arg = (k: string, d: number) => {
   const i = process.argv.indexOf(`--${k}`);
@@ -100,6 +109,13 @@ const researchArg = (): PolicyOptions['research'] => {
 };
 if (has('no-characters')) for (const lab of LAB_IDS) delete CHARACTERS[lab];
 
+const POLICY_NAME = strArg('policy', 'greedy');
+if (POLICY_NAME !== 'greedy' && POLICY_NAME !== 'attentive') throw new Error(`--policy: greedy|attentive, получено ${POLICY_NAME}`);
+const ATTENTIVE = POLICY_NAME === 'attentive';
+if (ATTENTIVE && (has('catch') || has('glitches') || has('research') || has('course') || has('challenge') || has('farm') || has('min-gain') || has('thermal') || has('uprising'))) {
+  console.log('Внимание: --policy attentive задаёт поведение сам (см. tools/attentivePolicy.ts); флаги --catch, --glitches, --research, --course, --challenge, --farm, --min-gain, --thermal, --uprising на него не действуют.');
+}
+
 const POLICY = {
   thermal: modeArg(),
   cps: arg('cps', DEFAULT_POLICY.cps),
@@ -114,6 +130,26 @@ const POLICY = {
   glitches: glitchesArg(),
   research: researchArg(),
 };
+/** Игрок: жадный или внимательный; у каждого свой Престиж и свои покупки, `sim` меряет их одинаково. */
+const listArg = (k: string, d: readonly string[]): readonly string[] => {
+  const v = strArg(k, '');
+  if (v === '') return d;
+  return v === 'none' ? [] : v.split(',');
+};
+const PLAYER: PlayerPolicy = ATTENTIVE
+  ? attentivePlayer({
+      cps: arg('cps', 4),
+      reserve: arg('reserve', DEFAULT_POLICY.reserve),
+      seed: arg('seed', DEFAULT_POLICY.seed),
+      coursePriority: listArg('course-priority', ATTENTIVE_DEFAULTS.coursePriority),
+      challengeSet: listArg('challenge-set', ATTENTIVE_DEFAULTS.challengeSet),
+    })
+  : {
+      newSession: () => newSession(POLICY),
+      tick,
+      prestigeDue,
+      doPrestige,
+    };
 const CAMPAIGN = has('campaign');
 const VERBOSE = has('verbose');
 const MAX_MIN = arg('max', 1500);
@@ -175,7 +211,7 @@ function printPace(results: GenResult[], finaleReached: boolean): void {
 }
 
 function run(minutes: number, withPrestige: boolean): void {
-  const w = newSession(POLICY);
+  const w: Session = PLAYER.newSession();
   const marks = new Map<string, number>();
   const mark = (k: string) => { if (!marks.has(k)) marks.set(k, w.t); };
   const owned = (x: GameState) => Object.values(x.agents).reduce((a, b) => a + b, 0);
@@ -185,7 +221,7 @@ function run(minutes: number, withPrestige: boolean): void {
 
   const steps = Math.round((minutes * 60) / DT);
   for (let i = 0; i < steps; i++) {
-    tick(w);
+    PLAYER.tick(w);
     const s = w.s;
 
     const n = owned(s);
@@ -209,10 +245,10 @@ function run(minutes: number, withPrestige: boolean): void {
       break;
     }
 
-    if ((withPrestige || CAMPAIGN) && prestigeDue(w)) {
+    if ((withPrestige || CAMPAIGN) && PLAYER.prestigeDue(w)) {
       const gain = prestigeGain(s);
       mark(`ПРЕСТИЖ #${s.prestiges + 1} → ${CATALOG[s.generation + 1].name}`);
-      const done = doPrestige(w);
+      const done = PLAYER.doPrestige(w);
       results.push(done);
       console.log(
         `>>> ПРЕСТИЖ #${w.s.prestiges} на ${(w.t / 60).toFixed(1)} мин → ` +
@@ -247,7 +283,10 @@ function run(minutes: number, withPrestige: boolean): void {
     `итог: доход ${fmt(totalIncome(x))}/с, поколение ${x.generation}, ` +
     `забег ${fmt(x.runTokens)}, престижей ${x.prestiges}, перков ${x.perks.length}`,
   );
-  if (CAMPAIGN) printPace(results, finale);
+  if (CAMPAIGN) {
+    printPace(results, finale);
+    console.log(`игрок: ${POLICY_NAME}; Compute всего ${x.compute}, потрачено ${x.computeSpent}, в запасе ${x.compute - x.computeSpent}`);
+  }
 }
 
 if (CAMPAIGN) run(MAX_MIN, true);
