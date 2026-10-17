@@ -5,6 +5,7 @@ import { DT, newSession, tick } from '../../tools/greedyPolicy';
 import { newGame, type GameState } from './state';
 import { arenaOutlook, generationRule, holdThought, ruleIncomeMult, rulePriceMult, thoughtOutlook } from './rules';
 import { exportSave, importSave } from './save';
+import { characterIncomeMult } from './character';
 import { newsPool } from './news';
 import { GENERATION_RULES } from '../data/generationRules';
 import { LABS } from '../data/labs';
@@ -390,7 +391,9 @@ describe('Правило «Разнообразие» (Мультимодаль�
     expect(mult).toBeGreaterThan(1);
     for (const m of g.models) {
       const alone = modelIncome(loneAgent(runAt(multimodal), m.id), m);
-      expect(modelIncome(full, m)).toBeCloseTo(alone * mult, -1);
+      // Агенты Meta в офисе усиливают чужие Модели («Открытые веса»): это Характер, а не Правило,
+      // и тест называет его отдельным сомножителем, а не прячет в допуске.
+      expect(modelIncome(full, m)).toBeCloseTo(alone * mult * characterIncomeMult(full, m), -1);
     }
     expect(modelIncome(runAt(multimodal), g.models[0])).toBe(0);
   });
@@ -399,7 +402,10 @@ describe('Правило «Разнообразие» (Мультимодаль�
     const g = CATALOG[multimodal];
     const full = fullRoster(runAt(multimodal));
     const mult = ruleIncomeMult(full);
-    const withoutRule = g.models.reduce((sum, m) => sum + modelIncome(loneAgent(runAt(multimodal), m.id), m), 0);
+    const withoutRule = g.models.reduce(
+      (sum, m) => sum + modelIncome(loneAgent(runAt(multimodal), m.id), m) * characterIncomeMult(full, m),
+      0,
+    );
     expect(offlineIncome(full)).toBeCloseTo(withoutRule * mult, -1);
     expect(offlineIncome(full)).toBeGreaterThan(withoutRule);
     const away = applyOffline({ ...full, lastTick: T0 }, T0 + 3600_000);

@@ -28,6 +28,10 @@
  *   --reserve N      сколько свободного Compute политика не тратит на Перки (по умолчанию 25)
  *   --min-gain N     Престиж только если он даст не меньше N Compute (по умолчанию 40)
  *   --seed N         зерно генератора Событий (по умолчанию 1); тот же seed — тот же прогон
+ *   --thermal MODE   как политика крутит Температуру: off (по умолчанию) | safe | ride | max;
+ *                    safe держит безопасную Температуру офиса, ride — 1,0, max — предел шкалы
+ *   --no-characters  выключить Характеры Лабораторий (ADR-0011): база для сравнения «с / без»;
+ *                    таблица в памяти очищается, файлы не трогаются
  *   --verbose        строка на каждую минуту
  *
  * Политика — `tools/greedyPolicy.ts`, общая с проверкой в `npm test`: жадная и осознанно простая,
@@ -44,7 +48,11 @@ import { CATALOG } from '../src/economy/catalog';
 import type { GameState } from '../src/economy/state';
 import { canPrestige, isContentFinale, prestigeGain, totalIncome, clickValue } from '../src/economy/engine';
 import { FIRST_PRESTIGE_WINDOW_MIN, PACE_CURVE, PACE_TOLERANCE, paceTotalMinutes } from '../src/data/paceCurve';
-import { DEFAULT_POLICY, DT, doPrestige, newSession, prestigeDue, tick } from './greedyPolicy';
+import { CHARACTERS } from '../src/data/characters';
+import { LAB_IDS } from '../src/data/labs';
+import { characterStrength } from '../src/economy/character';
+import { safeTemp } from '../src/economy/thermal';
+import { DEFAULT_POLICY, DT, doPrestige, newSession, prestigeDue, tick, type ThermalPolicy } from './greedyPolicy';
 
 const arg = (k: string, d: number) => {
   const i = process.argv.indexOf(`--${k}`);
@@ -52,7 +60,16 @@ const arg = (k: string, d: number) => {
 };
 const has = (k: string) => process.argv.includes(`--${k}`);
 
+const modeArg = (): ThermalPolicy => {
+  const i = process.argv.indexOf('--thermal');
+  const v = i >= 0 ? process.argv[i + 1] : 'off';
+  if (v !== 'off' && v !== 'safe' && v !== 'ride' && v !== 'max') throw new Error(`--thermal: off|safe|ride|max, получено ${v}`);
+  return v;
+};
+if (has('no-characters')) for (const lab of LAB_IDS) delete CHARACTERS[lab];
+
 const POLICY = {
+  thermal: modeArg(),
   cps: arg('cps', DEFAULT_POLICY.cps),
   reserve: arg('reserve', DEFAULT_POLICY.reserve),
   minGain: arg('min-gain', DEFAULT_POLICY.minGain),
@@ -163,6 +180,8 @@ function run(minutes: number, withPrestige: boolean): void {
         `>>> ПРЕСТИЖ #${w.s.prestiges} на ${(w.t / 60).toFixed(1)} мин → ` +
         `${CATALOG[w.s.generation].name}, прирост ${gain}, Compute ${w.s.compute}, Перков ${w.s.perks.length}`,
       );
+      const strengths = LAB_IDS.filter((l) => CHARACTERS[l]).map((l) => `${l} ${characterStrength(s, l).toFixed(2)}`).join(', ');
+      console.log(`    Характеры в офисе перед Престижем: ${strengths || 'выключены'}; безопасная Температура ${safeTemp(s).toFixed(3)}`);
       mark('первый Compute');
       mark(`престиж #${w.s.prestiges}`);
       lastLog = -1;

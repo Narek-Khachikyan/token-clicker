@@ -2,6 +2,7 @@ import React from 'react';
 import { THERMAL_COPY, THERMAL_RISKS, thermalZone } from '../data/thermalCopy';
 import { useGameStore } from '../store/useGameStore';
 import { isOverloaded, overloadShare } from '../economy/thermal';
+import { thermalView } from '../store/selectors';
 
 /**
  * Справка по Температуре для окна «Инфо».
@@ -17,6 +18,8 @@ import { isOverloaded, overloadShare } from '../economy/thermal';
 export const ThermalSection: React.FC = () => {
   const temp = useGameStore((s) => s.state.temp);
   const heat = useGameStore((s) => s.state.heat);
+  // Срез целиком, а не state: справка стоит в «Инфо» и обновляется со сменой состава, а не каждый тик.
+  const safeNow = useGameStore((s) => thermalView(s.state).safe);
   const here = thermalZone(temp);
   const share = Math.round(overloadShare() * 100);
 
@@ -102,7 +105,7 @@ export const ThermalSection: React.FC = () => {
       <p style={{ margin: 'var(--space-2) 0 0', fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
         Сейчас: {here.label.toLowerCase()}
         {isOverloaded(temp) ? ` (зона перегруза начинается с ${share}% шкалы)` : ''}, перегрев{' '}
-        {Math.round(heat * 100)}%.
+        {Math.round(heat * 100)}%. {safeNow}.
       </p>
     </section>
   );
