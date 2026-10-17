@@ -271,7 +271,7 @@ export const ReturnGenerationCard: React.FC = () => {
 
 const ChallengeOption: React.FC<{ def: ChallengeDef; canStart: boolean }> = ({ def, canStart }) => {
   const toggleChallenge = useGameStore((s) => s.toggleChallenge);
-  const { active, done } = useStateSlice((s) => challengeView(s, def));
+  const { active, inherited } = useStateSlice((s) => challengeView(s, def));
 
   return (
     <div
@@ -295,7 +295,7 @@ const ChallengeOption: React.FC<{ def: ChallengeDef; canStart: boolean }> = ({ d
         </span>
       </span>
       <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{def.desc}</div>
-      {done && (
+      {inherited && (
         <div style={{ fontSize: '0.875rem', color: 'var(--green-text)' }}>
           Закрывалось раньше: +<Num>{INHERITED_REWARD_PCT}</Num>% к Доходу уже у тебя.
         </div>
@@ -321,7 +321,7 @@ const ChallengeOption: React.FC<{ def: ChallengeDef; canStart: boolean }> = ({ d
  * гасит кнопки. Решение «можно ли» — за ядром (`toggleChallenge` в сторе): здесь только показ.
  */
 export const ChallengeCard: React.FC = () => {
-  const { canStart, none, risk, multText, capped, inheritedText, doneCount } = useStateSlice(challengeCardView);
+  const { canStart, none, risk, multText, capped, inheritedText, inheritedCount } = useStateSlice(challengeCardView);
   // Открытые Исследованием Испытания (ТЗ #118): список переписывается только при открытии, а не каждый тик.
   const unlocks = useStateSlice((s) => s.researchUnlocks);
 
@@ -336,7 +336,7 @@ export const ChallengeCard: React.FC = () => {
       <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
         Добровольные ограничения на весь Забег; взять можно несколько сразу. Престиж закроет взятые
         и заплатит за них Compute — тем больше, чем выше Класс риска.
-        {doneCount > 0 && (
+        {inheritedCount > 0 && (
           <>
             {' '}
             Закрывалось раньше: +<Num>{inheritedText}</Num>% к Доходу навсегда.
