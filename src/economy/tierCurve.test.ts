@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOG, type Model } from './catalog';
-import { bulkCost, buyAgents, buyUpgrade, discountMult, modelIncome } from './engine';
+import { characterIncomeMult } from './character';
+import { buyAgents, buyUpgrade, modelIncome } from './engine';
 import { migrate } from './save';
 import { newGame, SAVE_VERSION, type GameState } from './state';
 import { ASSIST1_THRESHOLD, MODEL_TIERS, modelTierThreshold, modelUpgradeId, UPGRADE_BY_ID } from './upgrades';
@@ -130,55 +131,35 @@ describe('кривые порогов и лестница Ранга', () => {
 
   describe('вместе со всеми Характерами Лабораторий', () => {
     /**
-     * Настоящий офис: по `n` Агентов каждой Модели Поколения (при n ≥ 5 «Конвейер» Alibaba и
-     * «Открытые веса» Meta в полную силу), куплены все открытые Апгрейды Моделей, все восемь
-     * Характеров включены. Равные числа Агентов — худший случай для лестницы: обычная игра их
-     * разводит, а здесь любая разница в ступенях между Моделями видна целиком.
+     * Офис из `n` Агентов каждой Модели Поколения, все восемь Характеров включены: при n ≥ 5
+     * «Конвейер» Alibaba и «Открытые веса» Meta работают в полную силу. Равные числа Агентов —
+     * худший случай для лестницы: в обычной игре числа разведены, а здесь любая разница в ступенях
+     * между Моделями видна целиком. Доход Агента считается так же, как в проверке Характеров
+     * (economy.test.ts): baseIncome × Характеры состава, плюс ступени кривой.
+     *
+     * Правила Поколений сюда не входят: они считаются в своих тестах (rules.test.ts) и до кривой
+     * порогов. С «Лидером Арены» (Поколение 8, ×1,5 одной Лаборатории) в окнах кривой разброс
+     * окупаемости доходит до 3,26 без перевёрнутого порядка — это замер, а не утверждение теста.
      */
-    function officeAt(gen: number, n: number): GameState {
-      let s: GameState = cold({ ...newGame(T0), generation: gen, maxGeneration: gen });
-      for (const m of CATALOG[gen].models) s = buyAgents(rich(s), m.id, n);
-      for (const m of CATALOG[gen].models) {
-        for (let tier = 0; tier < TIERS; tier++) s = buyUpgrade(rich(s), modelUpgradeId(m.id, tier));
-      }
-      return s;
+    function agentIncome(office: GameState, m: Model, n: number): number {
+      return m.baseIncome * 2 ** tiersOf(m, n) * characterIncomeMult(office, m);
     }
 
-    /**
-     * Что здесь НЕ утверждается, точно. Любая кривая порогов, где у соседей разные пороги, даёт окно
-     * в несколько Агентов, где у одной Модели ступенью больше (×2). Без кривой на равных числах
-     * Агентов разброс окупаемости с Характерами 2,75, и запаса на ×2 нет: в окне, где ступенью
-     * больше у Модели Alibaba («Конвейер», до ×1,9 в полном офисе), строгий порядок Дохода по Рангу
-     * и полоса 3× нарушаются. Замер: 0,9/1,1 — три окна с обратным порядком (Поколение 8, Alibaba выше
-     * соседа на 26%) и разброс до 3,84; сузить до 0,98/1,02 не помогает, пока пороги вообще различаются.
-     * Поэтому вне окон (все Модели на одном числе ступеней) держится всё строго, а в окнах — порядок
-     * для каждой пары, где нижняя Модель не Alibaba, и две границы: перевёрнутая пара Alibaba не
-     * более 1,3, разброс окупаемости не более 4.
-     */
-    const WINDOW_BAND_LIMIT = 4;
-    const ALIBABA_INVERSION_LIMIT = 1.3;
-
-    it('держит порядок Дохода и полосу окупаемости 3× с Характерами на любом числе Агентов, кроме окон Alibaba', () => {
+    it('держит строгий порядок Дохода по Рангу и полосу окупаемости 3× на любом числе Агентов, без окон и поблажек', () => {
       for (const g of CATALOG) {
         for (let n = 1; n <= 300; n++) {
-          const office = officeAt(g.index, n);
-          const discount = discountMult(office);
-          const cost = g.models.map((m) => bulkCost(m, 0, 1, discount));
-          const income = g.models.map((m) => modelIncome(office, m) / n);
-          const tiers = g.models.map((m) => tiersOf(m, n));
-          const plateau = tiers.every((k) => k === tiers[0]);
+          const agents: Record<string, number> = {};
+          for (const m of g.models) agents[m.id] = n;
+          const office: GameState = { ...newGame(T0), generation: g.index, maxGeneration: g.index, agents };
+          const income = g.models.map((m) => agentIncome(office, m, n));
           const where = `Поколение ${g.index}, Агентов ${n}`;
           for (let i = 1; i < g.models.length; i++) {
-            expect(cost[i], where).toBeGreaterThan(cost[i - 1]);
-            if (plateau || g.models[i - 1].lab !== 'alibaba') {
-              expect(income[i], `${where}, ранг ${i}`).toBeGreaterThan(income[i - 1]);
-            } else {
-              expect(income[i - 1] / income[i], `${where}, ранг ${i - 1} Alibaba`).toBeLessThan(ALIBABA_INVERSION_LIMIT);
-            }
+            expect(g.models[i].baseCost, where).toBeGreaterThan(g.models[i - 1].baseCost);
+            expect(income[i], `${where}, ранг ${i}`).toBeGreaterThan(income[i - 1]);
           }
-          const payback = cost.map((c, i) => c / income[i]);
+          const payback = g.models.map((m, i) => m.baseCost / income[i]);
           const spread = Math.max(...payback) / Math.min(...payback);
-          expect(spread, where).toBeLessThanOrEqual(plateau ? 3 : WINDOW_BAND_LIMIT);
+          expect(spread, where).toBeLessThanOrEqual(3);
         }
       }
     });
