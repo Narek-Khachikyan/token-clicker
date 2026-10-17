@@ -13,6 +13,7 @@ import { queueAgent, queueCapacity } from './purchaseQueue';
 import { activeRules, holdThought, rulePriceMult, thoughtOutlook } from './rules';
 import { newGame, type GameState } from './state';
 import { COURSES } from '../data/courses';
+import { GENERATION_RULES } from '../data/generationRules';
 import { safeTemp, thermalModsFor, thermalRead } from './thermal';
 
 const T0 = 1_700_000_000_000;
@@ -154,6 +155,42 @@ describe('Курс-Правило: пройденное Правило дейс�
     const next = prestige(chooseCourse(at, 'rule:scarcity'), T0 + 10_000);
     expect(next.course).toBe('rule:scarcity');
     expect(activeRules(next).map((r) => r.id)).toEqual(['price-war', 'scarcity']);
+  });
+});
+
+describe('Правило-Курс и Правило того же Поколения не задваиваются', () => {
+  // Предложение не отдаёт Правило Поколения, куда ведёт Престиж, но обратный Престиж с Финала
+  // (слой 5, ADR-0013) вернёт игрока в Поколение, чьё Правило он уже взял Курсом: тогда Правило
+  // действует и само, и по Курсу. Читанное через `ruleEffect` множится единожды, а ряд правил
+  // (`activeRules`) обязан его показывать один раз: «дважды» — это ровно удвоение, которого
+  // критерий не допускает ни в списке, ни в числах.
+  const cases = GENERATION_RULES.map((rule) => ({
+    rule,
+    // Пятнадцатая минута: «Ценовая война» уже подешевела, и задвоение было бы видно в цене —
+    // 0,75 в квадрате против 0,75.
+    doubled: under(rule.generation, `rule:${rule.id}`, 15),
+    plain: under(rule.generation, null, 15),
+  }));
+
+  it('ряд действующих Правил называет одинаковое Правило один раз и один его эффект', () => {
+    for (const { rule, doubled } of cases) {
+      const acting = activeRules(doubled);
+      expect(acting.map((r) => r.id), rule.id).toEqual([rule.id]);
+      expect(acting[0]?.effect, rule.id).toEqual(rule.effect);
+    }
+  });
+
+  it('цена и Доход такие же, как у Забега без Курса: множитель один, а не квадрат', () => {
+    for (const { doubled, plain } of cases) {
+      expect(rulePriceMult(doubled), `Поколение ${doubled.generation}`).toBeCloseTo(rulePriceMult(plain), 9);
+      const officeWith = office(doubled);
+      const officeWithout = office(plain);
+      for (const m of CATALOG[doubled.generation].models) {
+        expect(modelIncome(officeWith, m), `${m.name}, Поколение ${doubled.generation}`).toBe(
+          modelIncome(officeWithout, m),
+        );
+      }
+    }
   });
 });
 
