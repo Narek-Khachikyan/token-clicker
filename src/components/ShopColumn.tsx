@@ -16,6 +16,7 @@ import {
 import { useMotionAllowed } from './EventSprites';
 import { CATALOG, type Model } from '../economy/catalog';
 import type { GameState, Notation } from '../economy/state';
+import { CHARACTERS } from '../data/characters';
 import { LABS, type LabId } from '../data/labs';
 import { bonusLossOf, canPrestige, computeBonus, isContentFinale } from '../economy/engine';
 import { openUi } from '../economy/reveal';
@@ -406,6 +407,7 @@ const ModelCard: React.FC<{
   const view = useStateSlice((s) => modelView(s, m, buyAmount, sellMode));
   const { owned, count, canAfford, showsGain, goalTicks } = view;
   const lab = LABS[m.lab];
+  const character = CHARACTERS[m.lab];
   // Полная запись читает те же числа, что напечатаны на кнопке, но только в момент наведения.
   const figure = (pick: (f: ReturnType<typeof modelFigures>) => number) => (s: GameState) =>
     pick(modelFigures(s, m, buyAmount, sellMode));
@@ -494,6 +496,15 @@ const ModelCard: React.FC<{
           <div>{view.ownedWord}</div>
         </div>
       </div>
+
+      {/* Характер Лаборатории виден до найма (ADR-0011): название цветом Лаборатории, потом одна
+          фраза о том, что он делает с Температурой. Статичный текст из таблицы, поэтому узел не
+          подписан на тик. На узком экране фраза переносится по словам, а не обрезается. */}
+      {character && (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }} data-testid="lab-character">
+          <span style={{ color: lab.color, fontWeight: 700 }}>{character.name}</span>: {character.summary}
+        </div>
+      )}
 
       {/* Обёртка ловит Клик по недоступной покупке на погружении: сама кнопка
           при этом остаётся disabled, поэтому a11y-контракт не ломается, а отказ

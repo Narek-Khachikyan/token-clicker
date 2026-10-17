@@ -214,6 +214,8 @@ export interface ThermalView {
    *  на ширине колонки — меньше двух пикселей, поэтому шаг глазом не читается, а перерисовок
    *  вместо двадцати в секунду остаётся одна-две. */
   heatBar: number;
+  /** Безопасная Температура офиса словами: её двигают Характеры Лабораторий и Перки. */
+  safe: string;
   /** Целые проценты перегрева для озвучки и подписи. */
   heatNow: number;
   /** Перегрев за 0.75: полоса переходит на цвет жара. */
@@ -248,6 +250,7 @@ export function thermalView(s: GameState): ThermalView {
     status,
     heatBar: Math.round(heatPct * 2) / 2,
     heatNow: Math.round(heatPct),
+    safe: `безопасно до ${formatNumber(read.safeTemp, s.settings.notation)}`,
     heatHigh: read.heat > 0.75,
     mult: formatNumber(read.mult, s.settings.notation),
     valueText: `${read.temp.toFixed(2)} из ${TEMP_MAX}, Доход ×${read.mult.toFixed(2)}, ${status}`,

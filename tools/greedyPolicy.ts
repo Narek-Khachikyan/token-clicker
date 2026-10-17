@@ -26,13 +26,25 @@ import {
 } from '../src/economy/engine';
 import { availableUpgrades } from '../src/economy/upgrades';
 import { PERKS, perkLock } from '../src/economy/perks';
+import { clampTemp, safeTemp, TEMP_MAX } from '../src/economy/thermal';
 import { migrate } from '../src/economy/save';
 
 export const T0 = 1_700_000_000_000;
 /** Шаг симуляции, секунд: двадцать тиков в секунду, как у игры. */
 export const DT = 1 / 20;
 
+/**
+ * Как политика крутит Температуру. `off` — не трогает (по умолчанию: так мерится минимальный темп
+ * и так играет `pace.test.ts`): шкала остаётся на стартовых 0,45 до первого перегрева, потом в нуле.
+ * `safe` — «поставил и забыл» на безопасной Температуре офиса (`safeTemp`): Характеры сдвигают её.
+ * `ride` — держит 1,0 и возвращает шкалу туда же после каждого перегрева; `max` — то же на пределе.
+ * `ride` и `max` — внимательный игрок, который мгновенно поднимает шкалу после сброса.
+ */
+export type ThermalPolicy = 'off' | 'safe' | 'ride' | 'max';
+
 export interface PolicyOptions {
+  /** Как политика крутит Температуру; см. `ThermalPolicy`. */
+  thermal: ThermalPolicy;
   /** Кликов в секунду. */
   cps: number;
   /** Свободный Compute, который политика не тратит на Перки. */
@@ -52,6 +64,7 @@ export interface PolicyOptions {
 export const PRESTIGE_WORTH_COMPUTE = 40;
 
 export const DEFAULT_POLICY: PolicyOptions = {
+  thermal: 'off',
   cps: 5,
   reserve: 25,
   minGain: PRESTIGE_WORTH_COMPUTE,
@@ -145,8 +158,24 @@ export function newSession(opts: Partial<PolicyOptions> = {}): Session {
   };
 }
 
+/**
+ * Запас под безопасной Температурой для `safe`. Ровно на ней перегрев не копится, но и не уходит:
+ * тепло Галлюцинации (+0,3) осталось бы в шкале навсегда и душило Доход. На 85% шкала остывает.
+ */
+const SAFE_MARGIN = 0.85;
+
+/** Температура, которую политика выставляет перед тиком; `null` — не трогать. */
+function thermalTarget(s: GameState, policy: ThermalPolicy): number | null {
+  if (policy === 'safe') return SAFE_MARGIN * safeTemp(s);
+  if (policy === 'ride') return 1;
+  if (policy === 'max') return TEMP_MAX;
+  return null;
+}
+
 /** Один тик: клики, время движка, покупки. */
 export function tick(w: Session): void {
+  const target = thermalTarget(w.s, w.opts.thermal);
+  if (target !== null && w.s.temp !== clampTemp(target)) w.s = { ...w.s, temp: clampTemp(target) };
   w.clickCarry += w.opts.cps * DT;
   while (w.clickCarry >= 1) { w.clickCarry -= 1; w.s = click(w.s); }
   w.s = advanceTime(w.s, DT, w.rnd);

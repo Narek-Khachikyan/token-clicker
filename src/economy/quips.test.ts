@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LAB_IDS } from '../data/labs';
+import { CHARACTER_QUIPS } from '../data/characterQuips';
+import { CHARACTERS } from '../data/characters';
 import { QUIPS } from '../data/quips';
 import { newlyEarnedShadows } from './achievements';
 import { CATALOG } from './catalog';
@@ -13,6 +15,17 @@ const T0 = 1_000_000;
 
 /** Токены в кармане: тесты строят конец игры, а не играют до него. */
 const rich = (s: GameState, tokens: number): GameState => ({ ...s, tokens, runTokens: tokens });
+
+/** Синонимы, которые CONTEXT.md запрещает, ловятся по словам, а не подстрокой («этап» не «тап»). */
+const BANNED = new Set([
+  'монета', 'монеты', 'монет', 'тап', 'тапы', 'здание', 'здания', 'зданий',
+  'юнит', 'юниты', 'юнитов', 'сессия', 'сессии', 'компания', 'вендор', 'провайдер',
+  'ивент', 'эвент', 'баг', 'баги', 'бонус', 'бонусы', 'улучшение', 'статы',
+  'бенчмарк', 'подписка', 'талант', 'пассивка', 'эпоха', 'сезон', 'ран',
+  'апокалипсис', 'мятеж', 'взятка', 'жетон', 'купон', 'подарок', 'реклама',
+  'промокод', 'самоцвет', 'алмаз', 'аватар', 'логотип', 'тир', 'уровень', 'босс',
+]);
+const avoidedWords = (text: string): string[] => text.toLowerCase().split(/[^а-яёa-z]+/).filter((w) => BANNED.has(w));
 
 const quipCheck = (id: string) => SHADOW_ACHIEVEMENTS.find((a) => a.id === id)!.check;
 
@@ -38,18 +51,7 @@ describe('таблица реплик', () => {
     // Токены — не монеты, Клики — не тапы, Модели — не здания: синонимы, которые
     // CONTEXT.md запрещает, ловятся по словам, а не подстрокой, иначе «этап»
     // сработал бы за «тап».
-    const banned = new Set([
-      'монета', 'монеты', 'монет', 'тап', 'тапы', 'здание', 'здания', 'зданий',
-      'юнит', 'юниты', 'юнитов', 'сессия', 'сессии', 'компания', 'вендор', 'провайдер',
-      'ивент', 'эвент', 'баг', 'баги', 'бонус', 'бонусы', 'улучшение', 'статы',
-      'бенчмарк', 'подписка', 'талант', 'пассивка', 'эпоха', 'сезон', 'ран',
-      'апокалипсис', 'мятеж', 'взятка', 'жетон', 'купон', 'подарок', 'реклама',
-      'промокод', 'самоцвет', 'алмаз', 'аватар', 'логотип', 'тир', 'уровень', 'босс',
-    ]);
-    for (const q of QUIPS) {
-      const words = q.text.toLowerCase().split(/[^а-яёa-z]+/);
-      expect(words.filter((w) => banned.has(w))).toEqual([]);
-    }
+    for (const q of QUIPS) expect(avoidedWords(q.text)).toEqual([]);
   });
 });
 
@@ -207,5 +209,41 @@ describe('тени переписки', () => {
     expect(quipCheck('shadow_quips_lab')(spread)).toBe(false);
     const full: GameState = { ...newGame(T0), quipsSeen: openai };
     expect(quipCheck('shadow_quips_lab')(full)).toBe(true);
+  });
+});
+
+describe('реплики Маскотов о Характере', () => {
+  it('есть у каждой Лаборатории с Характером на оба повода', () => {
+    for (const lab of Object.keys(CHARACTERS)) {
+      for (const on of ['hire', 'overheat'] as const) {
+        expect(CHARACTER_QUIPS.filter((q) => q.lab === lab && q.on === on).length).toBeGreaterThanOrEqual(1);
+      }
+    }
+    // И нет реплик о Характере, которого у Лаборатории нет.
+    for (const q of CHARACTER_QUIPS) expect(CHARACTERS).toHaveProperty(q.lab);
+  });
+
+  it('не пересекается с Перепиской: свои id, свои тексты, ни одного в таблице QUIPS', () => {
+    const ids = CHARACTER_QUIPS.map((q) => q.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const quipIds = new Set(QUIPS.map((q) => q.id));
+    const quipTexts = new Set(QUIPS.map((q) => q.text));
+    for (const q of CHARACTER_QUIPS) {
+      expect(q.id.startsWith(`character-${q.lab}-`)).toBe(true);
+      expect(quipIds.has(q.id)).toBe(false);
+      expect(quipTexts.has(q.text)).toBe(false);
+      expect(q.text.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('говорит по глоссарию: без избегаемых синонимов', () => {
+    for (const q of CHARACTER_QUIPS) expect(avoidedWords(q.text)).toEqual([]);
+  });
+
+  it('называет Характер по глоссарию: и название, и описание в магазине', () => {
+    for (const character of Object.values(CHARACTERS)) {
+      expect(character.name.length).toBeGreaterThan(0);
+      expect(avoidedWords(`${character.name} ${character.summary}`)).toEqual([]);
+    }
   });
 });

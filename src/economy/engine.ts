@@ -11,7 +11,7 @@ import {
   heatRate,
   halluRate,
   thermalRead,
-  thermalMods,
+  thermalModsFor,
 } from './thermal';
 import { perkEffects, perkLock, PERK_BY_ID, START_TOKENS_UNITS, type PerkEffect } from './perks';
 import type { GameState } from './state';
@@ -815,7 +815,7 @@ function applyHallucination(state: GameState): GameState {
  */
 function advanceThermal(state: GameState, dt: number, rnd: () => number, now: number): GameState {
   const temp = state.temp;
-  const mods = thermalMods(state.perks);
+  const mods = thermalModsFor(state);
   // Нижняя граница обязательна: без неё перегрев уходил бы в минус, и отрицательный
   // перегрев резал бы Доход сильнее полного — то есть охлаждение платило бы игроку.
   const heat = Math.min(1, Math.max(0, state.heat + (heatRate(temp, mods) - HEAT_COOL_RATE) * dt));

@@ -43,7 +43,7 @@ import {
 } from './upgrades';
 import { GENERATIONS } from '../data/generations';
 import { LAB_IDS, type LabId } from '../data/labs';
-import { HEAT_COOL_SEC, HEAT_PENALTY, heatRate, OVERHEAT_STUN_SEC, overheatStunMult, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX } from './thermal';
+import { HEAT_COOL_SEC, HEAT_PENALTY, heatRate, OVERHEAT_STUN_SEC, overheatStunMult, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX, thermalRead } from './thermal';
 import { claimMilestones, MILESTONES, milestoneHint, nextMilestone } from './milestones';
 import { GLOSSARY } from '../data/glossary';
 import { GEN_SCALE } from './catalog';
@@ -2539,6 +2539,78 @@ describe('temperature', () => {
     // Вех у живого сейва не было, и выдумывать выполненные означало бы раздать награды,
     // которых игрок не зарабатывал: список обязан быть пуст, а не заполнен по таблице.
     expect(legacy.milestones).toEqual([]);
+  });
+});
+
+// Характер Лаборатории (ADR-0011) живёт только в Температуре и не смеет тронуть базовые цену и Доход
+// Модели: Ранги разных Лабораторий перемежаются, и любой сдвиг цены или Дохода по Лаборатории
+// ставит монотонность по Рангу под вопрос. Проверка идёт по ВСЕМУ каталогу и по ВСЕМ наборам из
+// восьми Лабораторий (256 офисов на Поколение), потому что вред Характера виден только в том
+// составе, где он включён.
+describe('lab character keeps the rank ladder', () => {
+  const labSubsets: LabId[][] = Array.from({ length: 1 << LAB_IDS.length }, (_, mask) =>
+    LAB_IDS.filter((_, i) => mask & (1 << i)),
+  );
+  /** Офис из 30 Агентов каждой Модели набора в Поколении `gen`. */
+  const officeOf = (gen: number, labs: LabId[]): GameState => {
+    const agents: Record<string, number> = {};
+    for (const m of CATALOG[gen].models) if (labs.includes(m.lab)) agents[m.id] = 30;
+    return { ...newGame(T0), generation: gen, maxGeneration: gen, agents, temp: 0, heat: 0 };
+  };
+
+  it('holds strict cost and income order and the 3x payback band with any set of characters on', () => {
+    for (const g of CATALOG) {
+      for (const labs of labSubsets) {
+        for (const temp of [0.45, 1, TEMP_MAX]) {
+          const office = { ...officeOf(g.index, labs), temp };
+          // Температура множит весь Доход сразу, поэтому один и тот же множитель обязан стоять
+          // у каждой Модели: Ранг сравнивается на общем основании.
+          const thermal = thermalRead(office).mult;
+          const cost = g.models.map((m) => bulkCost(m, 0, 1, discountMult(office)));
+          const income = g.models.map((m) => m.baseIncome * thermal);
+          for (let i = 1; i < g.models.length; i++) {
+            expect(cost[i]).toBeGreaterThan(cost[i - 1]);
+            expect(income[i]).toBeGreaterThan(income[i - 1]);
+          }
+          const payback = cost.map((c, i) => c / income[i]);
+          const cheapest = Math.min(...payback);
+          const dearest = Math.max(...payback);
+          for (const p of payback) {
+            expect(p).toBeLessThanOrEqual(cheapest * 3);
+            expect(p).toBeGreaterThanOrEqual(dearest / 3);
+          }
+        }
+      }
+    }
+  });
+
+  it('pays every model the same whichever laboratories fill the rest of the office', () => {
+    // Агент m и баласт из двух Агентов другой Лаборатории: Доход m обязан быть одним и тем же
+    // при любом балласте, в том числе с Характером. Меняется только Температура (она общая).
+    for (const g of CATALOG) {
+      for (const m of g.models) {
+        let reference: number | null = null;
+        for (const ballast of g.models.filter((b) => b.lab !== m.lab)) {
+          const office: GameState = {
+            ...cold(newGame(T0)),
+            generation: g.index,
+            maxGeneration: g.index,
+            agents: { [m.id]: 5, [ballast.id]: 2 },
+          };
+          const income = modelIncome(office, m);
+          reference ??= income;
+          expect(income).toBe(reference);
+        }
+      }
+    }
+  });
+
+  it('shows up in the income only through the temperature multiplier', () => {
+    for (const labs of [['anthropic'], ['xai'], ['mistral'], ['anthropic', 'xai', 'mistral', 'meta']] as LabId[][]) {
+      const office = { ...officeOf(2, labs), temp: 1 };
+      const sum = CATALOG[2].models.reduce((s, m) => s + modelIncome(office, m), 0);
+      expect(totalIncome(office)).toBeCloseTo(sum * thermalRead(office).mult, 6);
+    }
   });
 });
 

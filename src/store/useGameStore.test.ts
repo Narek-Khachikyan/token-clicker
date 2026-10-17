@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { effectAllowed, SAVE_INTERVAL_MS, SCENE_MOMENT_MS, useGameStore } from './useGameStore';
 import { CATALOG } from '../economy/catalog';
+import { CHARACTER_QUIPS } from '../data/characterQuips';
 import { QUIPS } from '../data/quips';
 import { pickQuip } from '../economy/quips';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
@@ -1212,6 +1213,56 @@ describe('quips', () => {
     expect(store().lastQuip).toBeNull();
     expect(state().quipsSeen).toEqual(heard);
     expect(vi.mocked(playQuipSound)).not.toHaveBeenCalled();
+  });
+});
+
+describe('lab character lines', () => {
+  const anthropic = CATALOG[0].models.find((m) => m.lab === 'anthropic')!;
+  const meta = CATALOG[0].models.find((m) => m.lab === 'meta')!;
+
+  it('has the mascot of a lab with a character name it on the first hire, without a click', () => {
+    hire(anthropic.id, 1);
+    const line = store().lastQuip;
+    expect(line?.lab).toBe('anthropic');
+    expect(CHARACTER_QUIPS.find((q) => q.id === line?.id)?.on).toBe('hire');
+    expect(vi.mocked(playQuipSound)).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the character lines out of the correspondence and out of the quip table', () => {
+    hire(anthropic.id, 1);
+    expect(state().quipsSeen).toEqual([]);
+    const spoken = store().lastQuip!;
+    expect(QUIPS.some((q) => q.id === spoken.id || q.text === spoken.text)).toBe(false);
+    // Клик после реплики Характера не находит её в Переписке и не засчитывает её услышанной.
+    for (let i = 0; i < 4; i++) store().clickPrompt(10, 10);
+    expect(state().quipsSeen).not.toContain(spoken.id);
+  });
+
+  it('stays quiet for a lab without a character and for a second agent of the same lab', () => {
+    hire(meta.id, 1);
+    expect(store().lastQuip).toBeNull();
+    hire(anthropic.id, 1);
+    const nonce = store().lastQuip?.nonce;
+    expect(nonce).toBeDefined();
+    hire(anthropic.id, 1);
+    expect(store().lastQuip?.nonce).toBe(nonce);
+  });
+
+  it('changes nothing in the economy: the same hire pays the same with and without the line', () => {
+    hire(anthropic.id, 10);
+    const income = totalIncome(state());
+    useGameStore.setState({ lastQuip: null });
+    expect(totalIncome(state())).toBe(income);
+  });
+
+  it('has the loudest character lab comment when the office overheats', () => {
+    hire(anthropic.id, 10);
+    useGameStore.setState({ lastQuip: null, state: { ...state(), temp: 1.6, heat: 0.9999 } });
+    tick(0.5);
+    expect(state().overheatedAt).toBeGreaterThan(0);
+    const line = CHARACTER_QUIPS.find((q) => q.id === store().lastQuip?.id);
+    expect(line?.on).toBe('overheat');
+    expect(line?.lab).toBe('anthropic');
   });
 });
 
