@@ -94,14 +94,11 @@ describe('вход в Поколение с Правилом', () => {
     });
   }
 
-  it('«Рассвет» и Поколение без Правила Престиж встречает обычной лентой и без реплики Правила', () => {
-    atFlagship(0);
-    // Флагман Рассвета — Агент Лаборатории с Характером: его реплика о найме не относится к Правилу.
-    useGameStore.setState({ lastQuip: null });
-    store().triggerPrestige();
-    expect(state().generation).toBe(1);
-    expect(GENERATION_RULES.some((r) => r.generation === 1)).toBe(false);
-    expect(GENERATION_RULES.map((r) => r.news)).not.toContain(store().news);
+  it('«Рассвет» остаётся без Правила: ни ленты, ни реплики Правила в нём нет', () => {
+    freshStore();
+    expect(state().generation).toBe(0);
+    expect(GENERATION_RULES.some((r) => r.generation === 0)).toBe(false);
+    for (const r of GENERATION_RULES) expect(newsPool(state())).not.toContain(r.news);
     expect(store().lastQuip).toBeNull();
   });
 });

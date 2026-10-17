@@ -30,7 +30,7 @@ import { THERMAL_HOT_HEAT, THERMAL_STATE_LABEL, thermalState, type ThermalStateI
 import { prestigeForecast } from '../economy/prestigeForecast';
 import { milestoneHint, milestoneReward, nextMilestone, type Milestone } from '../economy/milestones';
 import { queueCapacity } from '../economy/purchaseQueue';
-import { arenaOutlook } from '../economy/rules';
+import { activeRule, arenaOutlook, buyStreakNow, thoughtOutlook } from '../economy/rules';
 import type { GameState, Glitch } from '../economy/state';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
 import {
@@ -809,7 +809,69 @@ export function ruleStatusText(s: GameState): string {
       : `Лидер: ${leader} · ещё ${Math.ceil(arena.secondsLeft / 60)} мин`;
   }
   const capacity = queueCapacity(s);
-  return capacity > 0 ? `Очередь: ${s.purchaseQueue.length} из ${capacity}` : '';
+  if (capacity > 0) return `Очередь: ${s.purchaseQueue.length} из ${capacity}`;
+  const scarcity = scarcityView(s);
+  return scarcity.extra > 0 ? `Цены +${scarcity.extra}%` : '';
+}
+
+export interface ScarcityView {
+  /** Действует ли «Дефицит GPU» в этом Поколении. */
+  active: boolean;
+  /** Надбавка к цене в целых процентах; 0 — ряд покупок не идёт или остыл. */
+  extra: number;
+  /** Секунд до остывания цены, целых вверх; 0 — надбавки нет. */
+  seconds: number;
+}
+
+/**
+ * Карточка «Дефицита GPU» в магазине: на сколько процентов подорожали Модели и когда цена остынет.
+ * Считается теми же `buyStreakNow` и параметрами Правила, что цена покупки, поэтому подпись не
+ * может разойтись с карточками Моделей. Секунды меняют срез раз в секунду, и только пока надбавка
+ * жива: после паузы срез неподвижен.
+ */
+export function scarcityView(s: GameState): ScarcityView {
+  const effect = activeRule(s)?.effect;
+  if (effect?.kind !== 'buyStreak') return { active: false, extra: 0, seconds: 0 };
+  const streak = buyStreakNow(s);
+  if (streak === 0) return { active: true, extra: 0, seconds: 0 };
+  return {
+    active: true,
+    extra: Math.round(Math.min(effect.maxExtra, effect.perAgent * streak) * 100),
+    seconds: Math.max(0, Math.ceil((s.lastBuyAt + effect.resetSec * 1000 - s.lastTick) / 1000)),
+  };
+}
+
+export interface ThoughtMeterView {
+  /** Действует ли «Подумай ещё» в этом Поколении. */
+  active: boolean;
+  /** Идёт ли удержание: порция размышления пришла только что. */
+  holding: boolean;
+  /** Накопленные секунды с десятой долей, в нотации игрока. */
+  seconds: string;
+  /** Множитель выплаты за накопленное. */
+  mult: string;
+  /** Заполнение копилки в процентах, кратных пяти: полоса не дёргается на каждый тик. */
+  width: number;
+}
+
+/**
+ * Полоса размышления под кнопкой Клика. Секунды печатаются с десятой долью, поэтому срез меняется
+ * десять раз в секунду, но только пока идёт удержание; в покое он неподвижен.
+ */
+export function thoughtMeterView(s: GameState): ThoughtMeterView {
+  const effect = activeRule(s)?.effect;
+  const outlook = thoughtOutlook(s);
+  if (effect?.kind !== 'heldThought' || !outlook) {
+    return { active: false, holding: false, seconds: '', mult: '', width: 0 };
+  }
+  const notation = s.settings.notation;
+  return {
+    active: true,
+    holding: outlook.holding,
+    seconds: formatNumber(Math.round(outlook.seconds * 10) / 10, notation),
+    mult: formatNumber(Math.round(outlook.mult * 10) / 10, notation),
+    width: Math.round((outlook.seconds / effect.maxSec) * 20) * 5,
+  };
 }
 
 /** Плоский срез очереди для карточек Моделей: есть ли она и осталось ли в ней место. */

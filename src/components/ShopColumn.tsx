@@ -13,6 +13,7 @@ import {
   pledgeView,
   queueEntries,
   queueSlots,
+  scarcityView,
   upgradeView,
 } from '../store/selectors';
 import { useMotionAllowed } from './EventSprites';
@@ -32,7 +33,8 @@ import {
 import { BRANCHES, perkDepth, perkLock, PERK_BY_ID, PERKS, type Perk, type PerkBranch, type PerkLock } from '../economy/perks';
 import { PLEDGE_GROWTH, PLEDGE_MAX } from '../economy/glitches';
 import { CRYSTAL_STOCK_CAP, CRYSTAL_UPGRADES, type CrystalUpgrade } from '../economy/crystal';
-import { formatNumber } from '../economy/format';
+import { formatDuration, formatNumber } from '../economy/format';
+import { generationRule } from '../economy/rules';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { Hint } from './Hint';
@@ -743,6 +745,39 @@ const PurchaseQueueCard: React.FC = () => {
   );
 };
 
+/** «Дефицит GPU»: на сколько подорожали Модели ради ряда покупок и через сколько цена остынет. */
+const ScarcityCard: React.FC = () => {
+  const { active, extra, seconds } = useStateSlice(scarcityView);
+  const generation = useGameStore((s) => s.state.generation);
+  if (!active) return null;
+  return (
+    <section
+      aria-label="Дефицит GPU"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-1)',
+        padding: 'var(--space-2)',
+        border: 'var(--frame-w) solid var(--border)',
+        fontSize: 'var(--text-sm)',
+      }}
+    >
+      <div>
+        {extra > 0 ? (
+          <>
+            Дефицит GPU: цены <Num>{`+${formatNumber(extra, 'short')}`}</Num>% · остынут через <Num>{formatDuration(seconds)}</Num>
+          </>
+        ) : (
+          <>Дефицит GPU: цены без надбавки</>
+        )}
+      </div>
+      <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
+        {generationRule(generation)?.summary}
+      </div>
+    </section>
+  );
+};
+
 /** Вкладка Моделей: список карточек Поколения и атрибуция AA. */
 const ModelsTab: React.FC<{
   expandedAA: Record<string, boolean>;
@@ -757,6 +792,7 @@ const ModelsTab: React.FC<{
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
       <PurchaseQueueCard />
+      <ScarcityCard />
       {CATALOG[generation].models.slice(0, shown).map((m, i) => (
         <ModelCard
           key={m.id}

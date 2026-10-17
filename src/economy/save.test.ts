@@ -365,6 +365,94 @@ describe('migration of the purchase queue', () => {
   });
 });
 
+describe('migration of the generation-rule state of GPT-4 and Reasoning', () => {
+  /** Сохранение v11 в форме, какой его писала игра: ни ряда покупок, ни размышления в нём ещё нет. */
+  const v11Save = (over: Record<string, unknown>) => {
+    const { buyStreak: _a, lastBuyAt: _b, thought: _c, thoughtAt: _d, ...base } = newGame(T0);
+    return { ...base, version: 11, ...over };
+  };
+
+  const gpt4 = CATALOG[1].models;
+
+  it('gives a save of the previous version an empty streak and no held thought, and keeps everything the player had', () => {
+    const raw = v11Save({
+      generation: 5,
+      maxGeneration: 5,
+      tokens: 4e20,
+      agents: { [CATALOG[5].models[0].id]: 7 },
+      purchaseQueue: [CATALOG[5].models[1].id],
+      compute: 90,
+      computeSpent: 30,
+      perks: ['start_tokens'],
+      crystals: 3,
+      achievements: ['click_1'],
+    });
+    const s = migrate(raw, T0);
+    expect(s.version).toBe(SAVE_VERSION);
+    expect([s.buyStreak, s.lastBuyAt, s.thought, s.thoughtAt]).toEqual([0, 0, 0, 0]);
+    expect(s.generation).toBe(5);
+    expect(s.tokens).toBe(4e20);
+    expect(s.agents).toEqual({ [CATALOG[5].models[0].id]: 7 });
+    expect(s.purchaseQueue).toEqual([CATALOG[5].models[1].id]);
+    expect(s.compute).toBe(90);
+    expect(s.computeSpent).toBe(30);
+    expect(s.perks).toEqual(['start_tokens']);
+    expect(s.crystals).toBe(3);
+    expect(s.achievements).toEqual(['click_1']);
+  });
+
+  it('loads an export code of the previous version without loss', () => {
+    const raw = v11Save({ generation: 4, maxGeneration: 6, tokens: 12345, crystals: 2, prestiges: 4, purchaseQueue: [] });
+    const s = importSave(encodeRaw(raw), T0)!;
+    expect(s).not.toBeNull();
+    expect(s.version).toBe(SAVE_VERSION);
+    expect([s.buyStreak, s.thought]).toEqual([0, 0]);
+    expect(s.generation).toBe(4);
+    expect(s.maxGeneration).toBe(6);
+    expect(s.tokens).toBe(12345);
+    expect(s.crystals).toBe(2);
+    expect(s.prestiges).toBe(4);
+  });
+
+  it('keeps the streak and the held thought through a save, an export and an import', () => {
+    const streak = { ...newGame(T0), generation: 1, maxGeneration: 1, buyStreak: 12, lastBuyAt: T0 - 5_000, lastTick: T0 };
+    const back = migrate(JSON.parse(JSON.stringify(streak)), T0);
+    expect([back.buyStreak, back.lastBuyAt]).toEqual([12, T0 - 5_000]);
+    const reloaded = importSave(exportSave(streak), T0)!;
+    expect([reloaded.buyStreak, reloaded.lastBuyAt]).toEqual([12, T0 - 5_000]);
+
+    const thinking = { ...newGame(T0), generation: 4, maxGeneration: 4, thought: 2.5, thoughtAt: T0 - 100 };
+    const again = importSave(exportSave(thinking), T0)!;
+    expect([again.thought, again.thoughtAt]).toEqual([2.5, T0 - 100]);
+  });
+
+  it('drops the state of a rule the save is not under', () => {
+    const elsewhere = migrate({ ...newGame(T0), generation: 3, buyStreak: 9, lastBuyAt: T0, thought: 2, thoughtAt: T0 }, T0);
+    expect([elsewhere.buyStreak, elsewhere.lastBuyAt, elsewhere.thought, elsewhere.thoughtAt]).toEqual([0, 0, 0, 0]);
+  });
+
+  it('clamps junk: a negative or non-number streak, a thought beyond the limit, a mark from the future', () => {
+    const junk = migrate({ ...newGame(T0), generation: 1, buyStreak: -4, lastBuyAt: 'x' }, T0);
+    expect([junk.buyStreak, junk.lastBuyAt]).toEqual([0, 0]);
+    const huge = migrate({ ...newGame(T0), generation: 1, buyStreak: 1e9, lastBuyAt: T0 + 9e9 }, T0);
+    expect(huge.buyStreak).toBeLessThanOrEqual(100);
+    expect(huge.lastBuyAt).toBe(T0);
+    const over = migrate({ ...newGame(T0), generation: 4, thought: 99, thoughtAt: T0 + 9e9 }, T0);
+    expect(over.thought).toBeLessThanOrEqual(4);
+    expect(over.thoughtAt).toBe(T0);
+    const noStamp = migrate({ ...newGame(T0), generation: 4, thought: 3, thoughtAt: 0 }, T0);
+    expect(noStamp.thought).toBe(0);
+    const nan = migrate({ ...newGame(T0), generation: 4, thought: 'много', thoughtAt: T0 }, T0);
+    expect(nan.thought).toBe(0);
+  });
+
+  it('keeps a GPT-4 save under its rule with the models it owns', () => {
+    const s = migrate({ ...newGame(T0), generation: 1, agents: { [gpt4[0].id]: 4 }, buyStreak: 4, lastBuyAt: T0 }, T0);
+    expect(s.agents).toEqual({ [gpt4[0].id]: 4 });
+    expect(s.buyStreak).toBe(4);
+  });
+});
+
 describe('import rejects non-saves', () => {
   it('rejects an empty object, an empty array and arbitrary JSON without progress fields', () => {
     expect(importSave(encodeRaw({}), T0)).toBeNull();

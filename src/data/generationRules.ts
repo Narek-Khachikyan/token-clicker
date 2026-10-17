@@ -38,10 +38,23 @@ export type RuleEffect =
    * цене ручной покупки, как только хватает Токенов. Исполняется только в живом тике: пока игры
    * нет, очередь стоит, как Температура и События, а Оффлайн-доход идёт по общему потолку.
    */
-  | { kind: 'purchaseQueue'; capacity: number };
+  | { kind: 'purchaseQueue'; capacity: number }
+  /**
+   * Дефицит: каждый нанятый Агент подряд удорожает следующие покупки на `perAgent`, пока ряд не
+   * упрётся в `maxExtra` (цена не выше `1 + maxExtra`). Ряд обрывается, если `resetSec` секунд
+   * игровых часов не было ни одной покупки: пауза возвращает цену. Множитель общий для всех Моделей.
+   */
+  | { kind: 'buyStreak'; perAgent: number; maxExtra: number; resetSec: number }
+  /**
+   * «Подумай ещё»: удержание Клика (Пробел, Enter или палец на кнопке) не платит по Клику, а копит
+   * размышление — до `maxSec` секунд, по `clicksPerSec` Кликов в секунду. Размышление платится одним
+   * ударом, когда удержание оборвалось дольше чем на `releaseSec`, или на пределе, и тем больше,
+   * чем дольше копилось: множитель `1 + bonusPerSec · секунды`. Живёт только в активной игре.
+   */
+  | { kind: 'heldThought'; clicksPerSec: number; bonusPerSec: number; maxSec: number; releaseSec: number };
 
 export interface GenerationRule {
-  id: 'variety' | 'price-war' | 'agents' | 'router' | 'arena';
+  id: 'scarcity' | 'variety' | 'price-war' | 'think' | 'agents' | 'router' | 'arena';
   /** Индекс Поколения, как в `CATALOG` и `GameState.generation`. */
   generation: number;
   name: string;
@@ -55,6 +68,15 @@ export interface GenerationRule {
 }
 
 export const GENERATION_RULES: readonly GenerationRule[] = [
+  {
+    id: 'scarcity',
+    generation: 1,
+    name: 'Дефицит GPU',
+    summary: 'Каждый нанятый подряд Агент удорожает следующие покупки, до +25%. Пауза в 20 секунд возвращает цену.',
+    effect: { kind: 'buyStreak', perAgent: 0.01, maxExtra: 0.25, resetSec: 20 },
+    news: 'Правило Поколения «Дефицит GPU»: карт не хватает, и каждая покупка подряд дорожает — сделай паузу, и цена вернётся.',
+    quip: { lab: 'openai', text: 'Видеокарты разобрали! Покупай пачкой, потом переведи дух: цена сама остынет.' },
+  },
   {
     id: 'variety',
     generation: 2,
@@ -72,6 +94,15 @@ export const GENERATION_RULES: readonly GenerationRule[] = [
     effect: { kind: 'priceDecay', floor: 0.5, halfLifeMin: 15 },
     news: 'Правило Поколения «Ценовая война»: Лаборатории режут цены, и с каждой минутой Забега Модели дешевеют.',
     quip: { lab: 'alibaba', text: 'Война цен! Покупать сейчас дорого, ждать — тоже. Считай, а не гадай.' },
+  },
+  {
+    id: 'think',
+    generation: 4,
+    name: 'Подумай ещё',
+    summary: 'Удержание Клика копит размышление: пока держишь, Клики не платят, зато потом всё сразу и крупнее — до ×2 за 4 секунды.',
+    effect: { kind: 'heldThought', clicksPerSec: 8, bonusPerSec: 0.25, maxSec: 4, releaseSec: 0.4 },
+    news: 'Правило Поколения «Подумай ещё»: удерживай Клик, пусть модель размышляет — ответ придёт реже, зато крупнее.',
+    quip: { lab: 'deepseek', text: 'Не торопи меня. Подержи кнопку — я подумаю как следует, и ответ будет стоить ожидания.' },
   },
   {
     id: 'agents',

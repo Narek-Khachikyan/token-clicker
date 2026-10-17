@@ -5,7 +5,7 @@ import { MILESTONE_BY_ID } from './milestones';
 import { PERK_BY_ID } from './perks';
 import { DEFAULT_CHANNEL_VOLUME, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
 import { QUIPS_SEEN_CAP } from './quips';
-import { generationRule } from './rules';
+import { buyStreakLimit, generationRule } from './rules';
 import { clampTemp, TEMP_START } from './thermal';
 import { UPGRADE_BY_ID } from './upgrades';
 
@@ -155,6 +155,18 @@ export const MIGRATIONS: Record<number, Migration> = {
     version: 11,
     purchaseQueue: raw.purchaseQueue ?? [],
   }),
+  // Состояние Правил «Дефицит GPU» (ряд покупок) и «Подумай ещё» (размышление) пришло в v12
+  // (ADR-0013, слой 3). У живого сохранения его нет, а ноль в каждом поле — ровно то, как игра
+  // выглядела до Правил: ни ряда, ни удержания. Чистое добавление, присутствующее поле остаётся:
+  // разбор ниже сам отсеет то, что Правило Поколения держать не может.
+  11: (raw) => ({
+    ...raw,
+    version: 12,
+    buyStreak: raw.buyStreak ?? 0,
+    lastBuyAt: raw.lastBuyAt ?? 0,
+    thought: raw.thought ?? 0,
+    thoughtAt: raw.thoughtAt ?? 0,
+  }),
 };
 
 /** Особых Перков Поколения в прошлых версиях: по числу Поколений тогдашнего каталога. */
@@ -230,6 +242,30 @@ const queueOf = (v: unknown, generation: number): string[] => {
   return strList(v)
     .filter((id) => hasOwn(MODEL_BY_ID, id) && MODEL_BY_ID[id].generation === generation)
     .slice(0, effect.capacity);
+};
+
+/**
+ * Ряд покупок «Дефицита GPU» из сохранения: целая, не длиннее предела Правила и только пока Поколение
+ * под этим Правилом, с отметкой времени не из будущего. Без отметки ряда нет: он держится на паре.
+ */
+const streakOf = (data: Record<string, unknown>, generation: number, clampFuture: (v: number) => number) => {
+  const effect = generationRule(generation)?.effect;
+  const lastBuyAt = clampFuture(stamp(data.lastBuyAt));
+  if (effect?.kind !== 'buyStreak' || lastBuyAt <= 0) return { buyStreak: 0, lastBuyAt: 0 };
+  const buyStreak = Math.min(buyStreakLimit(effect), count(data.buyStreak));
+  return buyStreak > 0 ? { buyStreak, lastBuyAt } : { buyStreak: 0, lastBuyAt: 0 };
+};
+
+/**
+ * Размышление «Подумай ещё» из сохранения: секунды в пределах копилки и только под этим Правилом.
+ * Без отметки удержания копить нечего, а мусорное число читается как пустая копилка: выплата из него
+ * создала бы Токены, которых игрок не копил.
+ */
+const thoughtOf = (data: Record<string, unknown>, generation: number, clampFuture: (v: number) => number) => {
+  const effect = generationRule(generation)?.effect;
+  const thoughtAt = clampFuture(stamp(data.thoughtAt));
+  if (effect?.kind !== 'heldThought' || thoughtAt <= 0) return { thought: 0, thoughtAt: 0 };
+  return { thought: Math.min(effect.maxSec, Math.max(0, num(data.thought, 0))), thoughtAt };
 };
 
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -344,6 +380,8 @@ export function migrate(raw: unknown, now: number): GameState {
     computeSpent: Math.min(Math.max(0, num(data.compute, 0)), Math.max(0, num(data.computeSpent, 0))),
     perks: idList(data.perks, PERK_BY_ID),
     purchaseQueue: queueOf(data.purchaseQueue, generation),
+    ...streakOf(data, generation, clampFuture),
+    ...thoughtOf(data, generation, clampFuture),
     perkResetUsed: !!data.perkResetUsed,
     prestiges: num(data.prestiges, 0),
     achievements: [...new Set(strList(data.achievements))],

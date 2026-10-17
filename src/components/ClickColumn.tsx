@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { motionAllowed, reduceMotionMedia, useGameStore, useStateSlice } from '../store/useGameStore';
-import { clickButtonView, incomeOf, incomeView, purchaseProgressView } from '../store/selectors';
+import { clickButtonView, incomeOf, incomeView, purchaseProgressView, thoughtMeterView } from '../store/selectors';
 import { formatNumber } from '../economy/format';
 import { COUNTER_CHARS, COUNTER_STEP, floaterLeft, floaterStep } from '../layout';
 import { holdClickAllowed, isHoldKey, readKeyTarget } from './holdClickKeys';
@@ -254,7 +254,12 @@ const ClickSparks: React.FC = () => {
 const ClickButton: React.FC = () => {
   const clickPrompt = useGameStore((s) => s.clickPrompt);
   const holdClick = useGameStore((s) => s.holdClick);
+  const setPointerHold = useGameStore((s) => s.setPointerHold);
+  const consumeHeldClick = useGameStore((s) => s.consumeHeldClick);
   const { value, word, tier, power } = useStateSlice(clickButtonView);
+  // «Подумай ещё»: пока Клик держат, подпись под названием называет накопленное. Подпись, а не полоса
+  // над кнопкой: на телефоне то, что над причалом, прячется под ним, а высота причала на счету.
+  const thought = useStateSlice(thoughtMeterView);
   const btnRef = useRef<HTMLButtonElement>(null);
 
   /** Точка Клика на кнопке и сквош: общие для мыши и для удержанной клавиши. */
@@ -275,8 +280,18 @@ const ClickButton: React.FC = () => {
   const handleClick = () => {
     // Пробел и Enter на кнопке обслуживает слушатель ниже и гасит их родное нажатие, поэтому
     // сюда доходит мышь, касание и вспомогательные технологии — их `click` без клавиши.
+    // Отпускание долгого нажатия при «Подумай ещё» — конец удержания, а не новый Клик.
+    if (consumeHeldClick()) return;
     press((x, y) => clickPrompt(x, y));
   };
+
+  // Удержание мышью или пальцем: стор сам решает, держат ли достаточно долго и действует ли Правило.
+  const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setPointerHold(true, rect.left + rect.width / 2, rect.top + 10);
+  };
+  const handlePointerUp = () => setPointerHold(false);
 
   // Удержание Пробела/Enter повторяет Клик. Слушатель на окне, а не на кнопке: Клик должен идти,
   // и когда фокус в никуда (после клика мышью по Сцене). Потолок в секунду держит действие стора,
@@ -289,7 +304,8 @@ const ClickButton: React.FC = () => {
       // Без preventDefault Пробел прокрутил бы страницу, а Enter на кнопке дал бы второй Клик.
       e.preventDefault();
       handled.add(e.key);
-      press((x, y) => holdClick(x, y));
+      // `repeat` отличает первое нажатие (обычный Клик) от автоповтора удержанной клавиши («Подумай ещё»).
+      press((x, y) => holdClick(x, y, e.repeat));
     };
     // Firefox нажимает кнопку на keyup Пробела, даже если keydown отменён, поэтому отмена и здесь.
     const onKeyUp = (e: KeyboardEvent) => {
@@ -317,6 +333,10 @@ const ClickButton: React.FC = () => {
     <button
       ref={btnRef}
       onClick={handleClick}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerLeave={handlePointerUp}
       onAnimationEnd={handleSquashEnd}
       aria-label="Отправить промпт"
       data-power-tier={tier}
@@ -351,7 +371,15 @@ const ClickButton: React.FC = () => {
             видит буквально на первой кнопке первой минуты. Величина может быть дробной
             («1,44 B»), и там множественное верно, поэтому одна форма на «1» сломала бы
             вторую половину диапазона. */}
-        +<Num>{value}</Num> {word} за клик
+        {thought.holding ? (
+          <>
+            Размышление: <Num>{thought.seconds}</Num> с · ×<Num>{thought.mult}</Num>
+          </>
+        ) : (
+          <>
+            +<Num>{value}</Num> {word} за клик
+          </>
+        )}
       </span>
     </button>
   );
@@ -394,6 +422,45 @@ const PurchaseProgress: React.FC = () => {
           <>
             До следующей покупки: не хватает <Num>{missingText}</Num> {missingWord}
           </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Полоса размышления Правила «Подумай ещё»: сколько секунд накопило удержание и во сколько раз
+ * вырастет выплата. Вне Правила её нет. Высота одна и та же с удержанием и без: строка либо
+ * объясняет жест, либо называет накопленное, поэтому колонка не прыгает, когда игрок нажимает.
+ */
+const ThoughtMeter: React.FC = () => {
+  const { active, holding, seconds, mult, width } = useStateSlice(thoughtMeterView);
+  if (!active) return null;
+  return (
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+      <div
+        role="progressbar"
+        aria-label="Размышление"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={width}
+        style={{
+          width: '100%',
+          height: '8px',
+          backgroundColor: 'var(--bg-card)',
+          border: 'var(--frame-w) solid var(--border)',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ width: `${width}%`, height: '100%', backgroundColor: 'var(--accent-color)' }} />
+      </div>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', textAlign: 'center' }}>
+        {holding ? (
+          <>
+            Размышление: <Num>{seconds}</Num> с · ×<Num>{mult}</Num>
+          </>
+        ) : (
+          <>Держи Клик (Пробел, Enter или палец) — ответ придёт крупнее</>
         )}
       </div>
     </div>
@@ -484,6 +551,7 @@ const ClickColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
           При пустом кошельке первого запуска полоска нулевая, но подсказка уже стоит —
           пустой полоски без текста здесь не бывает. */}
       <PurchaseProgress />
+      <ThoughtMeter />
 
       {/* Телефон: причал внизу колонки — шкала Температуры над кнопкой Клика, а кнопка самая
           нижняя на экране, ближе всего к большому пальцу. Причал прибит к низу колонки
