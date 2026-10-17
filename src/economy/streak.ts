@@ -55,3 +55,12 @@ export function pushClick(
   const next = [...moments.filter((at) => now - at < STREAK_WINDOW_MS && now - at >= 0), now].slice(-KEEP);
   return { moments: next, level: streakLevel(next, now) };
 }
+
+/**
+ * Сколько кнопка Клика должна быть нажата мышью или пальцем, мс, чтобы это было удержание «Подумай
+ * ещё», а не обычный Клик: короче — касание, и отпускание платит как всегда.
+ */
+export const POINTER_HOLD_ARM_MS = 350;
+
+/** Сколько после отпускания удержания `click` ещё считается его концом, а не новым Кликом, мс. */
+export const POINTER_HOLD_RELEASE_MS = 500;

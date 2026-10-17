@@ -8,7 +8,7 @@ this file disagrees with it, fix this file in the same change.
 
 1. **Save.** Read `src/economy/state.ts` (`GameState`, `newGame(now)`, `SAVE_VERSION`) and
    `save.ts` (`migrate`, `MIGRATIONS`, import/export, the `CORRUPT_SAVE_KEY` quarantine) together.
-   `migrate` silently drops model, upgrade and perk ids that have left the catalog; `importSave`
+   `migrate` silently drops model, upgrade and perk ids that have left the catalog (the one exception is the v9→v10 step, which turns the dropped `gen_*` perks back into Compute through `computeSpent`); `importSave`
    rejects a whole export over one bad `generation`; a `SAVE_VERSION` bump with no matching
    `MIGRATIONS` entry rewrites old saves. Nothing in the repo recovers a lost run, so the migration
    and its test land in the same commit as the change.
@@ -19,10 +19,13 @@ this file disagrees with it, fix this file in the same change.
    payback (cost ÷ income) stays within 3× of every other in its Поколение — the bound that keeps
    the Флагман, the only key to Престиж, reachable. Each Поколение scales ×1000; the real price
    bends cost within ±30% only, and speed is reference-only. `catalog.ts` is ADR-0001 in code
-   (`buildCatalog`, `GEN_SCALE`, `MOD_SPREAD`, `PRESTIGE_DIVISOR_UNITS`). Before changing the
+   (`buildCatalog`, `GEN_SCALE`, `MOD_SPREAD`, `PRESTIGE_DIVISOR_UNITS`, and `PRESTIGE_PACE`, the per-Поколение
+   pace correction of the Престиж divisor). Before changing the
    ladder, run `tools/sim.ts`: the real engine with no renderer, printing when each milestone
    lands; its header gives the flags, and it runs under `npx tsx`, which is not a declared
-   dependency.
+   dependency. Its player is `tools/greedyPolicy.ts`, which `src/economy/pace.test.ts` also
+   drives: the first Престиж on that policy must land inside the window of `src/data/paceCurve.ts`, and every Поколение with a
+   Престиж must land inside its tolerance.
 4. **AA data.** The snapshot is public (see Снимок in `CONTEXT.md`). `npm run sync:aa` is
    maintainer-only and takes the key inline or from a gitignored `.env`. Vite hands only
    `VITE_`-prefixed variables to the bundle, so the key stays unprefixed and out of `index.html`.
@@ -88,6 +91,12 @@ components/    presentation: reads state, calls actions
   `position` of anything they touch live in the class.
 - **Content tables move in pairs:** a new Лаборатория edits the `LabId` union and `LABS` together;
   `data/glossary.ts` timings are asserted against the code constants, so change both.
+- **A Правило is read through `ruleEffect(state, kind)`** (`economy/rules.ts`), never by looking up
+  the Поколение's own Правило: a Курс can carry the Правило of a passed Поколение (ADR-0013), and the
+  two act together. A Курс (`data/courses.ts`, offer and choice in `economy/course.ts`) changes only
+  what the player pays or earns, the same for every Модель, so the rank ladder stays; `courseLadder.test.ts`
+  asserts it for every Курс the pool can offer. Only `prestige` writes `GameState.course`; the store
+  refuses a Престиж until the offered Курс is chosen (`courseMissing`), the pure transition does not.
 - **Type is two faces and three steps** (ADR-0009). Departure Mono — headings, tabs, buttons,
   labels, numbers — only through `pixel-22`, `pixel-33` or `pixel-44`: the class sets family and size
   together, and there is no other way to name the face. Everything under 22 px is Nunito, never

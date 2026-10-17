@@ -3,8 +3,10 @@ import { motionAllowed, useGameStore, useStateSlice } from '../store/useGameStor
 import { CATALOG } from '../economy/catalog';
 import { ACHIEVEMENTS, nonShadowCount } from '../economy/achievements';
 import { formatNumber } from '../economy/format';
+import { computeBonus } from '../economy/engine';
 import { Num } from './Num';
 import { Icon } from './Icon';
+import { Hint } from './Hint';
 
 interface HeaderProps {
   onOpenAchievements: () => void;
@@ -20,7 +22,9 @@ const HeaderView: React.FC<HeaderProps> = ({
   // Шапка читает пять чисел, а не состояние: тик двигает Токены и часы, и подписка на
   // `s.state` перерисовывала бы её двадцать раз в секунду ради тех же самых цифр.
   const generation = useGameStore((s) => s.state.generation);
-  const compute = useGameStore((s) => s.state.compute);
+  // Бонус к Доходу даёт свободный Compute (ADR-0010): начисленное минус потраченное на Перки.
+  // Два числа, а не состояние: свободный Compute меняется покупкой, а не тиком.
+  const compute = useGameStore((s) => s.state.compute - s.state.computeSpent);
   const isMuted = useGameStore((s) => s.state.settings.muted);
   // Бейдж Compute печатается нотацией игрока, а не значением по умолчанию: иначе в научном
   // режиме вся игра показывала «1.00e4», а шапка — «10,00 K», то есть два разных числа на
@@ -85,13 +89,18 @@ const HeaderView: React.FC<HeaderProps> = ({
               </span>
             </span>
           </span>
+          {/* Подсказка — Hint, а не title: title не открывается на телефоне и не стилизуется под игру. Класс
+              уходит на сам Hint, чтобы бейдж остался одним узлом в столбике узкой шапки. */}
           {compute > 0 && (
-            <span
+            <Hint
+              as="span"
+              variant="text"
               className="pixel-22 header-compute"
-              title={`Бонус к доходу от Compute: +${compute}%`}
+              content="Бонус к Доходу даёт только свободный Compute: потраченный на Перки в него не входит"
             >
-              <Num>{formatNumber(compute, notation)}</Num> Compute
-            </span>
+              <Num>{formatNumber(compute, notation)}</Num> Compute (+
+              <Num>{formatNumber(computeBonus(compute) * 100, notation)}</Num>%)
+            </Hint>
           )}
         </div>
       </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { effectAllowed, useGameStore, useStateSlice, type BuyAmount } from '../store/useGameStore';
 import {
   availableUpgradesOf,
@@ -6,18 +6,24 @@ import {
   crystalShatterView,
   crystalStockView,
   crystalUpgradeView,
+  finetuneChoiceViews,
   GOAL_TICK_COUNT,
   modelFigures,
   modelView,
   pledgeAlert,
   pledgeView,
+  queueEntries,
+  queueSlots,
+  scarcityView,
   upgradeView,
 } from '../store/selectors';
 import { useMotionAllowed } from './EventSprites';
 import { CATALOG, type Model } from '../economy/catalog';
-import type { GameState } from '../economy/state';
+import { finetuneName, finetuneOf } from '../economy/finetune';
+import type { GameState, Notation } from '../economy/state';
+import { CHARACTERS } from '../data/characters';
 import { LABS, type LabId } from '../data/labs';
-import { canPrestige, isContentFinale } from '../economy/engine';
+import { bonusLossOf, canPrestige, computeBonus, isContentFinale } from '../economy/engine';
 import { openUi } from '../economy/reveal';
 import {
   labAgents,
@@ -26,10 +32,11 @@ import {
   UPGRADES_BY_GEN,
   type Upgrade,
 } from '../economy/upgrades';
-import { countGenPerks, genPerkCost, genPerkGeneration, genPerkId, isGenPerkId, PERK_BY_ID, PERKS } from '../economy/perks';
+import { BRANCHES, perkDepth, perkLock, PERK_BY_ID, PERKS, type Perk, type PerkBranch, type PerkLock } from '../economy/perks';
 import { PLEDGE_GROWTH, PLEDGE_MAX } from '../economy/glitches';
 import { CRYSTAL_STOCK_CAP, CRYSTAL_UPGRADES, type CrystalUpgrade } from '../economy/crystal';
-import { formatNumber } from '../economy/format';
+import { formatDuration, formatNumber } from '../economy/format';
+import { ruleOfKind } from '../economy/rules';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { Hint } from './Hint';
@@ -38,8 +45,9 @@ import { ModelHintCard } from './ModelHintCard';
 import { Icon } from './Icon';
 import { CoachArrow } from './CoachArrow';
 import { onTabRowKeyDown } from './tabRow';
-import { ChallengeCard, PrestigeForecastCard, PrestigeSectionNav } from './PrestigeTab';
+import { ChallengeCard, CourseCard, PrestigeForecastCard, PrestigeSectionNav, ReturnGenerationCard } from './PrestigeTab';
 import { playDenySound } from '../audio/sound';
+import { thirdSlotBusy } from '../economy/research';
 import { buyAmountFor } from '../hotkeys';
 
 // 8 искр из точки покупки. Радиус 14–26 px — чуть больше самой кнопки, поэтому жест читается
@@ -389,6 +397,37 @@ const AAReferenceView: React.FC<{ model: Model }> = ({ model: m }) => (
 const AAReference = React.memo(AAReferenceView);
 
 /**
+ * Применение Заготовки Файнтюна к этой Модели (ТЗ #116). Строка видна, только пока есть Заготовка, Модель
+ * нанята и Файнтюна у неё ещё нет; две кнопки — два архетипа, у каждой названа отдача. Одна Заготовка — один
+ * Файнтюн, и применить его можно только к нанятой Модели: отказы ядра стор молчит, поэтому строка их не дублирует.
+ */
+const FinetuneRow: React.FC<{ model: Model }> = ({ model: m }) => {
+  const stock = useStateSlice((s) => s.finetuneStock);
+  const owned = useStateSlice((s) => s.agents[m.id] ?? 0);
+  const archetype = useStateSlice((s) => finetuneOf(s, m.id));
+  const applyFinetune = useGameStore((s) => s.applyFinetune);
+  if (stock < 1 || owned < 1 || archetype !== null) return null;
+  return (
+    <div role="group" aria-label={`Файнтюн: ${m.name}`} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--space-1)' }}>
+      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Файнтюн:</span>
+      {finetuneChoiceViews().map((c) => (
+        <button
+          key={c.archetype}
+          onClick={() => applyFinetune(m.id, c.archetype)}
+          className="pixel-btn"
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'left' }}
+        >
+          <span style={{ color: 'var(--text-main)' }}>{c.label}</span>
+          <span style={{ color: 'var(--text-muted)' }}>
+            {c.incomeText}, {c.heatText}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+};
+
+/**
  * Карточка Модели. Подписана на свой срез `modelView` (множитель и режим берёт из стора), а не на
  * состояние: на тике перерисовывается, только когда в ней изменилась напечатанная цифра.
  */
@@ -404,8 +443,13 @@ const ModelCard: React.FC<{
   const buyAgents = useGameStore((s) => s.buyAgents);
   const sellAgents = useGameStore((s) => s.sellAgents);
   const view = useStateSlice((s) => modelView(s, m, buyAmount, sellMode));
+  const queueAgent = useGameStore((s) => s.queueAgent);
+  const queue = useStateSlice(queueSlots);
   const { owned, count, canAfford, showsGain, goalTicks } = view;
   const lab = LABS[m.lab];
+  const character = CHARACTERS[m.lab];
+  // Архетип Файнтюна меняет имя Модели: «Claude Sonnet 4.5 Thinking» (ТЗ #116).
+  const archetype = useStateSlice((s) => finetuneOf(s, m.id));
   // Полная запись читает те же числа, что напечатаны на кнопке, но только в момент наведения.
   const figure = (pick: (f: ReturnType<typeof modelFigures>) => number) => (s: GameState) =>
     pick(modelFigures(s, m, buyAmount, sellMode));
@@ -422,7 +466,7 @@ const ModelCard: React.FC<{
                   словам: в 22 px «Claude 3 Haiku» шире колонки телефона, а многоточие
                   отрезало бы ровно то, что отличает одну Модель от соседней. */}
               <span className="pixel-22" style={{ color: 'var(--text-main)' }}>
-                {m.name}
+                {finetuneName(m.name, archetype)}
               </span>
               {m.isFlagship && (
                 <span style={{ color: 'var(--gold)', flexShrink: 0 }} title="Флагман">
@@ -494,6 +538,15 @@ const ModelCard: React.FC<{
           <div>{view.ownedWord}</div>
         </div>
       </div>
+
+      {/* Характер Лаборатории виден до найма (ADR-0011): название цветом Лаборатории, потом одна
+          фраза о том, что он делает с Температурой. Статичный текст из таблицы, поэтому узел не
+          подписан на тик. На узком экране фраза переносится по словам, а не обрезается. */}
+      {character && (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }} data-testid="lab-character">
+          <span style={{ color: lab.color, fontWeight: 700 }}>{character.name}</span>: {character.summary}
+        </div>
+      )}
 
       {/* Обёртка ловит Клик по недоступной покупке на погружении: сама кнопка
           при этом остаётся disabled, поэтому a11y-контракт не ломается, а отказ
@@ -645,6 +698,21 @@ const ModelCard: React.FC<{
         </div>
       </div>
 
+      {/* Файнтюн — не покупка, поэтому строка вне обёртки отказа выше. */}
+      <FinetuneRow model={m} />
+
+      {/* Очередь закупок («Агенты сами»): один Агент в конец очереди по цене ручной покупки. */}
+      {queue.active && !sellMode && (
+        <button
+          onClick={() => queueAgent(m.id)}
+          disabled={queue.full}
+          className="pixel-btn"
+          style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)' }}
+        >
+          {queue.full ? 'Очередь заполнена' : 'В очередь'}
+        </button>
+      )}
+
       {/* Прогресс до синергий Лаборатории: одиночный датасет — счёт одной лабы,
           совместный — состав пары. Только чтение состояния, без своих таймеров. */}
       <SynergyNotes model={m} />
@@ -664,6 +732,94 @@ const ModelCard: React.FC<{
   );
 };
 
+/** Очередь закупок Правила «Агенты сами»: записи в порядке найма, их можно снять. Исполняется только пока игрок в игре. */
+const PurchaseQueueCard: React.FC = () => {
+  const slots = useStateSlice(queueSlots);
+  const ids = useGameStore((s) => s.state.purchaseQueue);
+  const entries = useMemo(() => queueEntries(ids), [ids]);
+  const unqueueAgent = useGameStore((s) => s.unqueueAgent);
+  const clearQueue = useGameStore((s) => s.clearQueue);
+  if (!slots.active) return null;
+  return (
+    <section
+      aria-label="Очередь закупок"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-1)',
+        padding: 'var(--space-2)',
+        border: 'var(--frame-w) solid var(--border)',
+        fontSize: 'var(--text-sm)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-2)' }}>
+        <span>
+          Очередь закупок: <Num>{slots.count}</Num> из <Num>{slots.capacity}</Num>
+        </span>
+        {slots.count > 0 && (
+          <button onClick={clearQueue} className="pixel-btn" style={{ padding: 'var(--space-0) var(--space-2)' }}>
+            Очистить
+          </button>
+        )}
+      </div>
+      <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
+        Агенты нанимаются сами, по порядку, пока ты в игре. Без тебя очередь стоит.
+      </div>
+      {entries.map((e) => (
+        <div key={e.index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>
+            {e.index + 1}. {e.name}
+          </span>
+          <button
+            onClick={() => unqueueAgent(e.index)}
+            className="pixel-btn"
+            aria-label={`Снять из очереди: ${e.name}`}
+            style={{ padding: 'var(--space-0) var(--space-2)' }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </section>
+  );
+};
+
+/** «Дефицит GPU»: на сколько подорожали Модели ради ряда покупок и через сколько цена остынет. */
+const ScarcityCard: React.FC = () => {
+  const { active, extra, seconds } = useStateSlice(scarcityView);
+  // Правило может быть и своим для Поколения, и взятым Курсом: описание берётся у того, чьё оно.
+  const generation = useGameStore((s) => s.state.generation);
+  const course = useGameStore((s) => s.state.course);
+  const rule = ruleOfKind({ generation, course }, 'buyStreak');
+  if (!active) return null;
+  return (
+    <section
+      aria-label="Дефицит GPU"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-1)',
+        padding: 'var(--space-2)',
+        border: 'var(--frame-w) solid var(--border)',
+        fontSize: 'var(--text-sm)',
+      }}
+    >
+      <div>
+        {extra > 0 ? (
+          <>
+            Дефицит GPU: цены <Num>{`+${formatNumber(extra, 'short')}`}</Num>% · остынут через <Num>{formatDuration(seconds)}</Num>
+          </>
+        ) : (
+          <>Дефицит GPU: цены без надбавки</>
+        )}
+      </div>
+      <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
+        {rule?.summary}
+      </div>
+    </section>
+  );
+};
+
 /** Вкладка Моделей: список карточек Поколения и атрибуция AA. */
 const ModelsTab: React.FC<{
   expandedAA: Record<string, boolean>;
@@ -677,6 +833,8 @@ const ModelsTab: React.FC<{
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+      <PurchaseQueueCard />
+      <ScarcityCard />
       {CATALOG[generation].models.slice(0, shown).map((m, i) => (
         <ModelCard
           key={m.id}
@@ -1103,209 +1261,217 @@ const CrystalCard: React.FC = () => {
   );
 };
 
-/** Магазин Перков: Compute и список купленных меняются покупкой и Престижем, а не тиком. */
-const PerkShop: React.FC = () => {
-  const buyPerk = useGameStore((s) => s.buyPerk);
-  const perks = useGameStore((s) => s.state.perks);
-  const unspentCompute = useGameStore((s) => s.state.compute - s.state.computeSpent);
-  // Особые перки живут в том же PERKS, но с другой ценой и условием: список делится здесь, в
-  // render, без нового состояния: обычные — со своей статичной ценой, особые — отдельной
-  // подсекцией ниже.
-  const regularPerks = PERKS.filter((p) => !isGenPerkId(p.id));
+/**
+ * Строка «Бонус к Доходу: −N%» на карточке Перка (ADR-0010).
+ *
+ * Цена Перка в бонусе: игрок видит, сколько Дохода уйдёт вместе с Compute, до нажатия кнопки.
+ * Под потолком та же цена стоит копейки, и тогда строка так и говорит, а не округляет до нуля.
+ */
+const PerkBonusLoss: React.FC<{ loss: number; notation: Notation }> = ({ loss, notation }) => {
+  const pct = loss * 100;
+  return (
+    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+      Бонус к Доходу:{' '}
+      {pct < 0.1 ? (
+        'почти не изменится'
+      ) : (
+        <>
+          <Num>−{formatNumber(pct, notation)}</Num>%
+        </>
+      )}
+    </div>
+  );
+};
+
+/** Отступ карточки по глубине в дереве: ступени лестницы отступов, чтобы на узком экране не уйти вбок. */
+const DEPTH_INDENT = ['0', 'var(--space-2)', 'var(--space-3)', 'var(--space-4)'] as const;
+
+/** Карточка Перка дерева: что даёт, чего ждёт от игрока и почему не продаётся. */
+const PerkCard: React.FC<{
+  perk: Perk;
+  owned: boolean;
+  lock: PerkLock | null;
+  unspentCompute: number;
+  notation: Notation;
+  onBuy: (id: string) => void;
+}> = ({ perk, owned, lock, unspentCompute, notation, onBuy }) => {
+  const locked = !owned && lock !== null;
+  const canAfford = !owned && !locked && unspentCompute >= perk.cost;
+  const depth = Math.min(perkDepth(perk.id), DEPTH_INDENT.length - 1);
 
   return (
-    <div>
+    <div
+      data-perk={perk.id}
+      style={{
+        backgroundColor: 'var(--bg-card)',
+        border: owned ? 'var(--frame-w) solid var(--green)' : 'var(--frame-w) solid var(--border)',
+        marginLeft: DEPTH_INDENT[depth],
+        padding: 'var(--space-2)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-1)',
+        minWidth: 0,
+        ...(locked ? { opacity: 0.7 } : undefined),
+      }}
+    >
+      <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>
+        {perk.name}
+        {perk.top && <span style={{ color: 'var(--gold)' }}> · верхний Перк</span>}
+      </span>
+
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{perk.desc}</div>
+
+      {/* Причина отказа словами: молча приглушённая карточка не объяснила бы, что делать. */}
+      {lock?.kind === 'needs' && (
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+          Сначала: {lock.ids.map((id) => PERK_BY_ID[id].name).join(', ')}
+        </div>
+      )}
+      {lock?.kind === 'rival' && (
+        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+          Занято: куплен верхний Перк «{PERK_BY_ID[lock.id].name}». Сбросьте дерево, чтобы выбрать другую Ветвь.
+        </div>
+      )}
+      {!owned && !locked && <PerkBonusLoss loss={bonusLossOf(unspentCompute, perk.cost)} notation={notation} />}
+
+      {/* Отказ — той же обёрткой, что у Моделей/Апгрейдов: кнопка остаётся disabled, Клик ловится
+          на погружении, вспышка — на самой кнопке. По «Куплено» обёртка молчит. */}
       <div
-        style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: 'var(--space-2)' }}
+        onClickCapture={handleDeny(owned || canAfford)}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          ...(owned || canAfford ? undefined : { cursor: 'not-allowed' }),
+        }}
       >
-        Постоянные перки (Свободно: <Num>{unspentCompute}</Num> Compute)
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        {regularPerks.map((p) => {
-          const owned = perks.includes(p.id);
-          const canAfford = !owned && unspentCompute >= p.cost;
-
-          return (
-            <div
-              key={p.id}
-              style={{
-                backgroundColor: 'var(--bg-card)',
-                border: owned ? 'var(--frame-w) solid var(--green)' : 'var(--frame-w) solid var(--border)',
-                padding: 'var(--space-2)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 'var(--space-1)',
-              }}
-            >
-              <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
-
-              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-                {p.desc}
-              </div>
-
-              {/* Отказ — той же обёрткой, что у Моделей/Апгрейдов: кнопка остаётся
-                  disabled, Клик ловится на погружении, вспышка — на самой кнопке
-                  (строки дефицита здесь нет). По «Куплено» обёртка молчит: owned гасит
-                  и звук, и вспышку. */}
-              <div
-                onClickCapture={handleDeny(owned || canAfford)}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-end',
-                  ...(owned || canAfford ? undefined : { cursor: 'not-allowed' }),
-                }}
-              >
-                <button
-                  onClick={(e) => {
-                    restartSquash(e);
-                    buyPerk(p.id);
-                  }}
-                  onAnimationEnd={handleSquashEnd}
-                  disabled={owned || !canAfford}
-                  className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
-                  style={{
-                    padding: 'var(--space-1) var(--space-2)',
-                    fontSize: 'var(--text-sm)',
-                    alignSelf: 'flex-end',
-                    // Недоступная кнопка прозрачна для указателя: иначе браузер подавил бы
-                    // Клик точно в неё и deny-обёртка выше его бы не увидела.
-                    pointerEvents: owned || canAfford ? undefined : 'none',
-                  }}
-                >
-                  {owned ? 'Куплено' : <>Купить перк (<Num>{p.cost}</Num> Compute)</>}
-                </button>
-              </div>
-            </div>
-          );
-        })}
+        <button
+          onClick={(e) => {
+            restartSquash(e);
+            onBuy(perk.id);
+          }}
+          onAnimationEnd={handleSquashEnd}
+          disabled={owned || !canAfford}
+          className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
+          style={{
+            padding: 'var(--space-1) var(--space-2)',
+            fontSize: 'var(--text-sm)',
+            alignSelf: 'flex-end',
+            // Недоступная кнопка прозрачна для указателя: иначе браузер подавил бы Клик точно в
+            // неё и deny-обёртка выше его бы не увидела.
+            pointerEvents: owned || canAfford ? undefined : 'none',
+          }}
+        >
+          {owned ? 'Куплено' : <>Купить перк (<Num>{perk.cost}</Num> Compute)</>}
+        </button>
       </div>
     </div>
   );
 };
 
-/**
- * Наследие поколений: особые перки переживают Престиж и усиливают только своё Поколение. Цена
- * общая на всех — genPerkCost за следующий некупленный, поэтому карточка показывает её, а не
- * статичный cost из таблицы. Покупка идёт тем же buyPerk (движок сам сверяет Поколение и
- * флагмана), новых экшенов нет.
- */
-const LegacyPerks: React.FC = () => {
+/** Сброс дерева: раз за Забег, бесплатно, с подтверждением, потому что снимает все Перки разом. */
+const PerkTreeReset: React.FC = () => {
+  const resetPerkTree = useGameStore((s) => s.resetPerkTree);
+  const used = useGameStore((s) => s.state.perkResetUsed);
+  const owned = useGameStore((s) => s.state.perks.length);
+  const spent = useGameStore((s) => s.state.computeSpent);
+  const notation = useGameStore((s) => s.state.settings.notation);
+  // Сброс снял бы Перк третьего слота, а Исследование в нём осталось бы без него: пока оно идёт, сброс ждёт.
+  const busy = useGameStore((s) => thirdSlotBusy(s.state));
+  const [sure, setSure] = useState(false);
+
+  if (used) {
+    return (
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+        Сброс дерева использован. Он снова откроется после Престижа.
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+        Раз за Забег дерево сбрасывается бесплатно: все Перки снимаются, а потраченный Compute возвращается.
+      </div>
+      {busy && (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>
+          Третий слот занят Исследованием: сброс снял бы его Перк, поэтому ждёт, пока Исследование соберут.
+        </div>
+      )}
+      <button
+        onClick={() => {
+          if (!sure) {
+            setSure(true);
+            return;
+          }
+          setSure(false);
+          resetPerkTree();
+        }}
+        onBlur={() => setSure(false)}
+        disabled={owned === 0 || busy}
+        className="pixel-btn"
+        style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', alignSelf: 'flex-start' }}
+      >
+        {sure ? (
+          <>Вернуть <Num>{formatNumber(spent, notation)}</Num> Compute?</>
+        ) : (
+          'Сбросить дерево'
+        )}
+      </button>
+    </div>
+  );
+};
+
+/** Дерево Перков: ствол и три Ветви. Compute и список купленных меняются покупкой и Престижем, а не тиком. */
+const PerkShop: React.FC = () => {
   const buyPerk = useGameStore((s) => s.buyPerk);
   const perks = useGameStore((s) => s.state.perks);
-  const generation = useGameStore((s) => s.state.generation);
   const unspentCompute = useGameStore((s) => s.state.compute - s.state.computeSpent);
-  const prestigeReady = useStateSlice(canPrestige);
-  const genPerks = CATALOG.flatMap((g) => {
-    const p = PERK_BY_ID[genPerkId(g.index)];
-    return p ? [p] : [];
-  });
-  const boughtGenPerks = countGenPerks(perks);
-  const nextGenPerkCost = genPerkCost(perks);
+  const notation = useGameStore((s) => s.state.settings.notation);
+  // Бонус к Доходу от свободного Compute и цена покупки в нём (ADR-0010): Перк отнимает ровно
+  // столько бонуса, сколько стоит, поэтому цифры берутся у движка, а не считаются здесь.
+  const computeBonusPct = computeBonus(unspentCompute) * 100;
+
+  const group = (title: string, hint: string, branch: PerkBranch) => (
+    <section key={branch} aria-label={title} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+      <div>
+        <div className="pixel-22" style={{ color: 'var(--text-main)' }}>{title}</div>
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>{hint}</div>
+      </div>
+      {PERKS.filter((p) => p.branch === branch).map((p) => (
+        <PerkCard
+          key={p.id}
+          perk={p}
+          owned={perks.includes(p.id)}
+          lock={perkLock(perks, p.id)}
+          unspentCompute={unspentCompute}
+          notation={notation}
+          onBuy={buyPerk}
+        />
+      ))}
+    </section>
+  );
 
   return (
-    <div>
-      <div
-        style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: 'var(--space-1)' }}
-      >
-        Наследие поколений (Куплено: <Num>{boughtGenPerks}</Num> из{' '}
-        <Num>{genPerks.length}</Num>)
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+      <div>
+        <div style={{ fontSize: '1rem', color: 'var(--text-main)', marginBottom: 'var(--space-2)' }}>
+          Дерево Перков (Свободно: <Num>{unspentCompute}</Num> Compute)
+        </div>
+        {/* Свободный Compute даёт бонус к Доходу, Перк его отнимает: игрок видит обе стороны
+            выбора «копить или тратить» до покупки, а не в упавшем Доходе после. */}
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+          Свободный Compute даёт <Num>+{formatNumber(computeBonusPct, notation)}</Num>% к Доходу; покупка Перка
+          отнимает от бонуса его цену. Выше +100% бонус растёт всё медленнее.
+        </div>
       </div>
-      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginBottom: 'var(--space-2)' }}>
-        Усиливают только своё Поколение навсегда. Следующий —{' '}
-        <Num>{nextGenPerkCost}</Num> Compute: цена растёт с числом купленных.
+
+      <PerkTreeReset />
+
+      {group('Ствол', 'Общие Перки для любой сборки', 'trunk')}
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+        Верхние Перки Ветвей взаимоисключающие: из трёх можно взять один. Нижние Перки разных Ветвей уживаются.
       </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        {genPerks.map((p) => {
-          const owned = perks.includes(p.id);
-          // Поколение особого перка: null быть не может (список собран через genPerkId
-          // по каталогу), но чужой id из старого сохранения разбираем в 0, чтобы
-          // карточка не упала, а ушла в приглушённые.
-          const perkGen = genPerkGeneration(p.id) ?? 0;
-          const genName = CATALOG[perkGen]?.name ?? '';
-          const isCurrentGen = perkGen === generation;
-          const isFutureGen = perkGen > generation;
-          // Флагман — то же условие, что у кнопки Престижа, но только для перка
-          // ТЕКУЩЕГО Поколения: прошлые докупаются позже без флагмана, ведь сам
-          // переход дальше уже доказал мастерство (Престиж требовал флагмана).
-          const needFlagship = !owned && isCurrentGen && !prestigeReady;
-          // Приглушены только будущие (ещё не открыты) и текущее без флагмана;
-          // прошлые некупленные — обычные покупаемые, «упущенности» нет.
-          const locked = !owned && (isFutureGen || needFlagship);
-          const canAfford = !locked && unspentCompute >= nextGenPerkCost;
-
-          return (
-            <div
-              key={p.id}
-              style={{
-                backgroundColor: 'var(--bg-card)',
-                border: owned ? 'var(--frame-w) solid var(--green)' : 'var(--frame-w) solid var(--border)',
-                padding: 'var(--space-2)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 'var(--space-1)',
-                ...(locked ? { opacity: 0.6 } : undefined),
-              }}
-            >
-              <span style={{ fontSize: '0.95rem', color: 'var(--text-main)' }}>{p.name}</span>
-
-              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-                {p.desc}
-              </div>
-
-              {/* Подпись причины: будущее Поколение и missing флагман текущего —
-                  разные тупики, и молча приглушённая карточка не объяснила бы, что
-                  делать. Прошлые Поколения подписи не получают: они покупаемы как
-                  обычные, упущенности нет. */}
-              {locked && (
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                  {isFutureGen
-                    ? <>Откроется в поколении «{genName}»</>
-                    : needFlagship
-                      ? 'Нужен флагман поколения'
-                      : null}
-                </div>
-              )}
-
-              <div
-                onClickCapture={handleDeny(owned || canAfford)}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'flex-end',
-                  ...(owned || canAfford ? undefined : { cursor: 'not-allowed' }),
-                }}
-              >
-                <button
-                  onClick={(e) => {
-                    restartSquash(e);
-                    buyPerk(p.id);
-                  }}
-                  onAnimationEnd={handleSquashEnd}
-                  disabled={owned || !canAfford}
-                  className={`pixel-btn ${owned ? '' : 'pixel-btn-gold'}`}
-                  style={{
-                    padding: 'var(--space-1) var(--space-2)',
-                    fontSize: 'var(--text-sm)',
-                    alignSelf: 'flex-end',
-                    pointerEvents: owned || canAfford ? undefined : 'none',
-                  }}
-                >
-                  {owned ? (
-                    'Куплено'
-                  ) : (
-                    <>
-                      Купить перк (<Num>{nextGenPerkCost}</Num> Compute)
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {BRANCHES.map((b) => group(b.name, b.focus, b.id))}
     </div>
   );
 };
@@ -1325,17 +1491,14 @@ const PrestigeShopTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToMod
       >
         {section === 'prestige' && (
           <>
+            <CourseCard />
+            <ReturnGenerationCard />
             <PrestigeForecastCard onBackToModels={onBackToModels} />
             <ChallengeCard />
           </>
         )}
         {section === 'perks' && <PerkShop />}
-        {section === 'legacy' && (
-          <>
-            <LegacyPerks />
-            <CrystalCard />
-          </>
-        )}
+        {section === 'crystals' && <CrystalCard />}
       </div>
     </div>
   );
@@ -1385,8 +1548,8 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
   // Вкладка «Престиж» появляется вместе с Флагманом в списке Моделей, но пока Флагман не нанят,
   // она приглушена: игрок видит цель, а подсказка на ней говорит, чего не хватает. На финале
-  // контента Престиж недоступен навсегда, поэтому приглушение там не снимается.
-  const prestigeLocked = finale || !prestigeReady;
+  // контента Престиж открыт: он возвращает в пройденное Поколение, поэтому приглушения там нет.
+  const prestigeLocked = !prestigeReady;
 
   // Престиж открывает окно подтверждения, а не выполняется здесь: сброс Забега необратим,
   // и игрок должен увидеть, сколько Compute начислит, что сгорит и в какое Поколение он
@@ -1498,7 +1661,7 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             className={`pixel-btn pixel-22 ${shownTab === 'prestige' ? 'pixel-btn-accent' : ''}`}
             title={
               finale
-                ? 'Ты дошёл до последнего поколения — дальше престиж недоступен'
+                ? 'Ты дошёл до последнего поколения — Престиж вернёт в пройденное Поколение'
                 : prestigeReady
                   ? undefined
                   : 'Найми 1 агента флагмана, чтобы разблокировать престиж'

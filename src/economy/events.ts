@@ -154,6 +154,28 @@ export function isDowntime(state: GameState, now: number): boolean {
 }
 
 /**
+ * Поймано ли окно, в котором лежит `state.event`.
+ *
+ * Отметка `eventCaughtAt` хранит начало поймавшего окна, а не флаг: окно сменяется, а флаг пришлось
+ * бы сбрасывать в каждом месте, где оно меняется. Ноль в начале забега не должен совпасть с
+ * `startedAt` нулевого окна, поэтому ноль значит «не поймано» без сравнения.
+ */
+export function isEventCaught(state: GameState): boolean {
+  return state.eventCaughtAt > 0 && !!state.event && state.event.startedAt === state.eventCaughtAt;
+}
+
+/**
+ * Платит ли эффект события сейчас: красное платит (и наказывает) само, обычное — только пойманное.
+ *
+ * Упущенный Золотой Токен не даёт ничего, но красные События по-прежнему бьют того, кто их не
+ * поймал: иначе «не ловить» стало бы лучшей защитой от красного. Оффлайн-доход этого не читает вовсе:
+ * он считается из `offlineIncome`, где события нет.
+ */
+function eventPays(state: GameState, event: ActiveEvent): boolean {
+  return event.red || isEventCaught(state);
+}
+
+/**
  * Множитель общего Дохода от активного события, 1 когда события нет.
  *
  * Общий Доход поднимает только хайп: «Грант» бьёт один раз, «Клик-рывок» — по Клику, а
@@ -168,7 +190,7 @@ export function isDowntime(state: GameState, now: number): boolean {
  */
 export function eventMultiplierFor(state: GameState, now: number = state.lastTick): number {
   const event = state.event;
-  if (!event || event.kind !== 'hype' || !isEventActive(event, now)) return 1;
+  if (!event || event.kind !== 'hype' || !isEventActive(event, now) || !eventPays(state, event)) return 1;
   const mult = event.red ? RED_TABLES.hype.incomeMult : EVENT_TABLES.hype.incomeMult;
   return mult * comboMultFor(state);
 }
@@ -191,6 +213,7 @@ export function downtimeIncomeMult(state: GameState, now: number = state.lastTic
 export function clickMultiplierFor(state: GameState, now: number = state.lastTick): number {
   const event = state.event;
   if (!event || event.red || event.kind !== 'clickRush' || !isEventActive(event, now)) return 1;
+  if (!isEventCaught(state)) return 1;
   return EVENT_TABLES.clickRush.clickMult * comboMultFor(state);
 }
 
@@ -204,7 +227,7 @@ export function clickMultiplierFor(state: GameState, now: number = state.lastTic
 export function surgeMultFor(state: GameState, modelId: string, now: number = state.lastTick): number {
   const event = state.event;
   if (!event || event.kind !== 'surge' || !event.modelId || event.modelId !== modelId) return 1;
-  if (!isEventActive(event, now)) return 1;
+  if (!isEventActive(event, now) || !eventPays(state, event)) return 1;
   const mult = event.red ? RED_TABLES.surge.incomeMult : EVENT_TABLES.surge.incomeMult;
   return mult * comboMultFor(state);
 }
@@ -248,9 +271,13 @@ export function grantAmount(tokens: number, incomePerSec: number): number {
  * Штраф за повтор, а не запрет: запрет сделал бы последний оставшийся вид вынужденным, и шанс
  * перестал бы что-то значить. Четыре вида — конечное разнообразие, поэтому три одинаковых подряд
  * смотрелись бы не как везение, а как ошибка розыгрыша.
+ *
+ * `hypeWeight` — множитель веса Волны хайпа от Характера «Хайп» (`characterMods(...).hype`): он
+ * меняет только частоту вида, а не силу его эффекта.
  */
-export function rollEventKind(seen: readonly EventKind[], rnd: () => number): EventKind {
-  const weight = (kind: EventKind) => (seen.includes(kind) ? REPEAT_PENALTY : 1);
+export function rollEventKind(seen: readonly EventKind[], rnd: () => number, hypeWeight = 1): EventKind {
+  // Вес Волны хайпа множит Характер «Хайп» (OpenAI); штраф за повтор считается от него, как от единицы.
+  const weight = (kind: EventKind) => (seen.includes(kind) ? REPEAT_PENALTY : 1) * (kind === 'hype' ? hypeWeight : 1);
   let roll = rnd() * EVENT_KINDS.reduce((sum, kind) => sum + weight(kind), 0);
   for (const kind of EVENT_KINDS) {
     roll -= weight(kind);

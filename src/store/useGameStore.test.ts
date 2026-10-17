@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { effectAllowed, SAVE_INTERVAL_MS, SCENE_MOMENT_MS, useGameStore } from './useGameStore';
-import { CATALOG } from '../economy/catalog';
+import { CATALOG, PRESTIGE_PACE } from '../economy/catalog';
+import { CHARACTER_QUIPS } from '../data/characterQuips';
 import { QUIPS } from '../data/quips';
 import { pickQuip } from '../economy/quips';
 import { CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_UPGRADES, crystalCycleMs, crystalIncomeMult } from '../economy/crystal';
@@ -115,6 +116,16 @@ const freshStore = (s: GameState = newGame(T0)): void => {
   useGameStore.setState({ state: { ...s, temp: 0, heat: 0 }, toasts: [], buyAmount: 1, lastQuip: null, lastBoughtModelId: null });
 };
 
+/**
+ * Престиж так, как его делает игрок: Курс выбирается до подтверждения, без выбора стор не пускает.
+ * На Финале контента предложения нет, и выбирать нечего.
+ */
+const prestigeNow = (): void => {
+  const [first] = state().courseOffer;
+  if (first) store().chooseCourse(first);
+  store().triggerPrestige();
+};
+
 /** Тик без стенного времени: он двигает только игровые часы, по 50 мс за шаг. */
 const tick = (seconds = 0.05): void => {
   store().tick(seconds);
@@ -137,7 +148,7 @@ const reachedGeneration = (index: number): void => {
   freshStore();
   for (let g = 0; g < index; g++) {
     hire(CATALOG[g].flagship.id, 1);
-    store().triggerPrestige();
+    prestigeNow();
   }
 };
 
@@ -196,7 +207,7 @@ describe('uprising', () => {
     // Флагман Поколения 0 — первый экран: стадия 0, и сплошь красные события на нём не выдаются.
     hire(CATALOG[0].flagship.id, 1);
     expect(state().uprising).toBe(0);
-    store().triggerPrestige();
+    prestigeNow();
     // Флагман Поколения 1 — порог стадии 1.
     hire(CATALOG[1].flagship.id, 1);
     expect(state().uprising).toBe(1);
@@ -326,15 +337,19 @@ describe('catching an event', () => {
     expect(state().catchUpPaid).toBeCloseTo(room);
   });
 
-  it('counts a temporary event without paying it, because its multiplier is already ticking', () => {
+  it('switches a temporary event on at the catch, and pays nothing lump-sum', () => {
     freshStore();
     hire(first.id, 1);
     withVisibleWallet();
     useGameStore.setState({ state: withEvent('hype') });
     const before = state();
+    // Пока Золотой Токен не пойман, Волна хайпа не платит: Доход прежний.
+    expect(totalIncome(before)).toBeCloseTo(totalIncome({ ...before, event: null }));
     store().catchEvent();
+    // Разовой выплаты нет: Токены те же, событие то же, а множитель включился.
     expect(state().tokens).toBe(before.tokens);
     expect(state().event).toEqual(before.event);
+    expect(totalIncome(state())).toBeCloseTo(totalIncome({ ...before, event: null }) * EVENT_TABLES.hype.incomeMult);
     expect(store().eventCaught).toBe(true);
     expect(otherToasts()).toEqual([]);
   });
@@ -570,7 +585,7 @@ describe('compute threshold', () => {
     freshStore();
     const gen0Missing = computeShortfall(run(0));
     reachedGeneration(1);
-    expect(computeShortfall(run(0)) / gen0Missing).toBeCloseTo(CATALOG[1].scale, 6);
+    expect(computeShortfall(run(0)) / gen0Missing).toBeCloseTo((CATALOG[1].scale * PRESTIGE_PACE[1]) / PRESTIGE_PACE[0], 6);
   });
 });
 
@@ -858,7 +873,7 @@ describe('prestige window', () => {
     const before = state();
     const gain = prestigeGain(before);
     expect(gain).toBeGreaterThan(0);
-    store().triggerPrestige();
+    prestigeNow();
     const burst = store().burst;
     expect(burst?.kind).toBe('prestige');
     // Оверлею нужно то, чего в состоянии уже нет: куда перешли и сколько заработали.
@@ -876,7 +891,7 @@ describe('prestige window', () => {
     const before = state();
     const burst = store().burst;
     vi.mocked(playPrestigeSound).mockClear();
-    store().triggerPrestige();
+    prestigeNow();
     expect(state()).toBe(before);
     expect(store().burst).toBe(burst);
     expect(vi.mocked(playPrestigeSound)).not.toHaveBeenCalled();
@@ -1040,6 +1055,53 @@ describe('return report', () => {
   });
 });
 
+describe('compute rule notice', () => {
+  /** Хранилище живёт между перезагрузками модуля: «показано один раз» проверяется только так. */
+  const disk = new Map<string, string>();
+  const boot = async () => {
+    vi.stubGlobal('window', { innerWidth: 800, innerHeight: 600 });
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => disk.get(k) ?? null,
+      setItem: (k: string, v: string) => void disk.set(k, v),
+      removeItem: (k: string) => void disk.delete(k),
+    });
+    vi.resetModules();
+    return (await import('./useGameStore')).useGameStore;
+  };
+  const saved = (patch: Partial<GameState>) => {
+    const now = Date.now();
+    disk.set(SAVE_KEY, serialize({ ...newGame(now), lastTick: now, ...patch }));
+  };
+
+  beforeEach(() => disk.clear());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('tells a player with spent compute once why income fell, then never again', async () => {
+    saved({ compute: 200, computeSpent: 120 });
+    const first = await boot();
+    // Было +200% от всего Compute, стало +80% от свободного.
+    expect(first.getState().computeRuleNotice).toEqual({ before: 2, after: 0.8 });
+    // Пока игрок не закрыл окно, оно возвращается: молча проглоченное объяснение не объяснение.
+    expect((await boot()).getState().computeRuleNotice).not.toBeNull();
+    (await boot()).getState().dismissComputeRuleNotice();
+    expect((await boot()).getState().computeRuleNotice).toBeNull();
+  });
+
+  it('stays silent for a new player, even after they spend compute later', async () => {
+    const fresh = await boot();
+    expect(fresh.getState().computeRuleNotice).toBeNull();
+    // Позже у новичка появился потраченный Compute: падение Дохода — следствие его покупки,
+    // а не обновления, и объяснять нечего.
+    saved({ compute: 200, computeSpent: 120 });
+    expect((await boot()).getState().computeRuleNotice).toBeNull();
+  });
+
+  it('stays silent when nothing was spent, since the income did not change', async () => {
+    saved({ compute: 50, computeSpent: 0 });
+    expect((await boot()).getState().computeRuleNotice).toBeNull();
+  });
+});
+
 describe('return report from a long tick', () => {
   const sumRows = () => (store().offlineReport?.rows ?? []).reduce((a, r) => a + r.earned, 0);
   /** Агенты в двух Лабораториях: разбивке есть что делить. */
@@ -1164,24 +1226,73 @@ describe('quips', () => {
   });
 });
 
-describe('starting a challenge', () => {
-  it('sets the challenge on a fresh run and sounds the upgrade', () => {
+describe('lab character lines', () => {
+  const anthropic = CATALOG[0].models.find((m) => m.lab === 'anthropic')!;
+
+  it('has the mascot of a lab with a character name it on the first hire, without a click', () => {
+    hire(anthropic.id, 1);
+    const line = store().lastQuip;
+    expect(line?.lab).toBe('anthropic');
+    expect(CHARACTER_QUIPS.find((q) => q.id === line?.id)?.on).toBe('hire');
+    expect(vi.mocked(playQuipSound)).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the character lines out of the correspondence and out of the quip table', () => {
+    hire(anthropic.id, 1);
+    expect(state().quipsSeen).toEqual([]);
+    const spoken = store().lastQuip!;
+    expect(QUIPS.some((q) => q.id === spoken.id || q.text === spoken.text)).toBe(false);
+    // Клик после реплики Характера не находит её в Переписке и не засчитывает её услышанной.
+    for (let i = 0; i < 4; i++) store().clickPrompt(10, 10);
+    expect(state().quipsSeen).not.toContain(spoken.id);
+  });
+
+  it('stays quiet for a second agent of the same lab', () => {
+    hire(anthropic.id, 1);
+    const nonce = store().lastQuip?.nonce;
+    expect(nonce).toBeDefined();
+    hire(anthropic.id, 1);
+    expect(store().lastQuip?.nonce).toBe(nonce);
+  });
+
+  it('changes nothing in the economy: the same hire pays the same with and without the line', () => {
+    hire(anthropic.id, 10);
+    const income = totalIncome(state());
+    useGameStore.setState({ lastQuip: null });
+    expect(totalIncome(state())).toBe(income);
+  });
+
+  it('has the loudest character lab comment when the office overheats', () => {
+    hire(anthropic.id, 10);
+    useGameStore.setState({ lastQuip: null, state: { ...state(), temp: 1.6, heat: 0.9999 } });
+    tick(0.5);
+    expect(state().overheatedAt).toBeGreaterThan(0);
+    const line = CHARACTER_QUIPS.find((q) => q.id === store().lastQuip?.id);
+    expect(line?.on).toBe('overheat');
+    expect(line?.lab).toBe('anthropic');
+  });
+});
+
+describe('taking challenges', () => {
+  it('takes a challenge on a fresh run and sounds the upgrade', () => {
     freshStore();
-    expect(state().activeChallenge).toBeNull();
+    expect(state().activeChallenges).toEqual([]);
     vi.mocked(playUpgradeSound).mockClear();
-    store().startChallenge('no-synergy');
-    expect(state().activeChallenge).toBe('no-synergy');
+    store().toggleChallenge('no-synergy');
+    expect(state().activeChallenges).toEqual(['no-synergy']);
     // Испытание — не Достижение: тоста нет.
     expect(store().toasts).toEqual([]);
     expect(vi.mocked(playUpgradeSound)).toHaveBeenCalledTimes(1);
   });
 
-  it('records declining without announcing it', () => {
+  it('takes a second challenge next to the first and puts one back', () => {
     freshStore();
-    store().startChallenge(null);
-    expect(state().activeChallenge).toBeNull();
-    // Отказ — тоже выбор, но объявлять его нечем: «принято» здесь врало бы.
-    expect(store().toasts).toEqual([]);
+    store().toggleChallenge('no-synergy');
+    store().toggleChallenge('no-click');
+    // Порядок списка — порядок таблицы: лёгкие Испытания идут первыми.
+    expect(state().activeChallenges).toEqual(['no-click', 'no-synergy']);
+    store().toggleChallenge('no-synergy');
+    expect(state().activeChallenges).toEqual(['no-click']);
   });
 
   it('stays silent on a stale run, because the kernel answers with the same object', () => {
@@ -1190,10 +1301,36 @@ describe('starting a challenge', () => {
     useGameStore.setState({ state: { ...state(), runClicks: 1 } });
     const before = state();
     vi.mocked(playUpgradeSound).mockClear();
-    store().startChallenge('no-click');
+    store().toggleChallenge('no-click');
     expect(state()).toBe(before);
     expect(store().toasts).toEqual([]);
     expect(vi.mocked(playUpgradeSound)).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Temperature scale at zero under «temperature = 0»', () => {
+    freshStore();
+    store().setTemp(1.2);
+    store().toggleChallenge('cold');
+    expect(state().temp).toBe(0);
+    store().setTemp(1.4);
+    expect(state().temp).toBe(0);
+    store().toggleChallenge('cold');
+    store().setTemp(1.4);
+    expect(state().temp).toBe(1.4);
+  });
+
+  it('pays the Prestige Compute with the Class of risk of the run it closes', () => {
+    freshStore();
+    store().toggleChallenge('no-synergy');
+    store().toggleChallenge('no-click');
+    useGameStore.setState({ state: engineBuyAgents({ ...state(), tokens: 1e16, runTokens: 1e16 }, g0.flagship.id, 1) });
+    const expected = prestigeGain(state());
+    const before = state().compute;
+    prestigeNow();
+    expect(state().compute).toBe(before + expected);
+    expect(expected).toBeGreaterThan(prestigeGain({ ...state(), runTokens: 1e16, activeChallenges: [] }));
+    expect(state().activeChallenges).toEqual([]);
+    expect(state().challengesDone.sort()).toEqual(['no-click', 'no-synergy']);
   });
 });
 
@@ -1266,7 +1403,7 @@ describe('reward moments on the scene', () => {
     freshStore();
     hire(g0.flagship.id, 1);
     expect(store().sceneMoment?.flagship).toBe(true);
-    store().triggerPrestige();
+    prestigeNow();
     expect(store().sceneMoment).toBeNull();
   });
 
@@ -1284,10 +1421,10 @@ describe('the prestige tab section', () => {
   beforeEach(() => useGameStore.setState({ prestigeSection: 'prestige' }));
 
   it('opens on «Престиж» and remembers the section the player picked, whatever tab comes between', () => {
-    store().setPrestigeSection('legacy');
+    store().setPrestigeSection('crystals');
     store().setActiveTab('click');
     store().setActiveTab('prestige');
-    expect(store().prestigeSection).toBe('legacy');
+    expect(store().prestigeSection).toBe('crystals');
     store().setPrestigeSection('perks');
     expect(store().prestigeSection).toBe('perks');
   });
@@ -1464,6 +1601,63 @@ describe('the finale screen flag', () => {
   });
 });
 
+describe('the Prestige from the content finale', () => {
+  const last = CATALOG.length - 1;
+  /** Игрок на Финале контента с нанятым Флагманом: Престиж открыт, но без выбранного Поколения закрыт. */
+  const atFinale = (): void => {
+    reachedGeneration(last);
+    hire(CATALOG[last].flagship.id, 1);
+    expect(isContentFinale(state())).toBe(true);
+  };
+
+  it('takes no Prestige until a passed generation is chosen, and refuses a generation never passed', () => {
+    atFinale();
+    vi.mocked(playPrestigeSound).mockClear();
+    const before = state();
+    prestigeNow();
+    expect(state()).toBe(before);
+    store().chooseFinaleTarget(last);
+    store().chooseFinaleTarget(last + 1);
+    expect(store().finaleTarget).toBeNull();
+    prestigeNow();
+    expect(state()).toBe(before);
+    expect(vi.mocked(playPrestigeSound)).not.toHaveBeenCalled();
+  });
+
+  it('returns to the chosen generation, pays its Compute and reopens the finale for the next time', () => {
+    atFinale();
+    store().chooseFinaleTarget(2);
+    expect(store().finaleTarget).toBe(2);
+    const before = state();
+    const gain = prestigeGain(before);
+    store().triggerPrestige();
+    expect(state().generation).toBe(2);
+    expect(state().compute).toBe(before.compute + gain);
+    expect(store().burst?.prestige?.generation).toBe(2);
+    expect(store().finaleTarget).toBeNull();
+    expect(store().finaleDismissed).toBe(false);
+    expect(isContentFinale(state())).toBe(false);
+  });
+
+  it('keeps the chosen generation until it is confirmed, and a repeat choice changes nothing', () => {
+    atFinale();
+    store().chooseFinaleTarget(4);
+    store().chooseFinaleTarget(5);
+    expect(store().finaleTarget).toBe(5);
+    const before = state();
+    store().chooseFinaleTarget(5);
+    expect(state()).toBe(before);
+    expect(store().finaleTarget).toBe(5);
+  });
+
+  it('forgets the chosen generation on a reset', () => {
+    atFinale();
+    store().chooseFinaleTarget(3);
+    store().resetGame();
+    expect(store().finaleTarget).toBeNull();
+  });
+});
+
 describe('shattering a crystal', () => {
   it('pays the gain into the wallet and sounds the achievement', () => {
     freshStore();
@@ -1535,7 +1729,8 @@ describe('the save', () => {
       getItem: (k: string) => cell.get(k) ?? null,
       setItem: (k: string, v: string) => {
         cell.set(k, v);
-        writes.push(v);
+        // Считаются записи сейва: отметка объяснения нового правила — отдельный ключ.
+        if (k === SAVE_KEY) writes.push(v);
       },
       removeItem: (k: string) => cell.delete(k),
       ...storage,
@@ -1587,6 +1782,22 @@ describe('the save', () => {
     expect(w.saved()?.upgrades).toEqual([`m:${first.id}:0`]);
 
     w.store.getState().buyPerk('click_x2');
+    expect(w.saved()?.perks).toEqual(['click_x2']);
+  });
+
+  it('has the perk-tree reset in the save, once per run', async () => {
+    const w = await windowed();
+    funded(w, 1e12);
+    w.store.setState({ state: { ...w.store.getState().state, compute: 50 } });
+    w.store.getState().buyPerk('click_x2');
+    w.store.getState().resetPerkTree();
+    // Сброс переписывает деньги игрока: если он не дошёл до записи, вкладка закрылась бы с Перками и без Compute.
+    expect(w.saved()?.perks).toEqual([]);
+    expect(w.saved()?.computeSpent).toBe(0);
+    expect(w.saved()?.perkResetUsed).toBe(true);
+    // Второй сброс до Престижа ничего не меняет.
+    w.store.getState().buyPerk('click_x2');
+    w.store.getState().resetPerkTree();
     expect(w.saved()?.perks).toEqual(['click_x2']);
   });
 

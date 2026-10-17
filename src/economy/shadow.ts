@@ -1,6 +1,7 @@
-import { CATALOG, computeGain, LAST_GENERATION } from './catalog';
-import { canPrestige, clickValue } from './engine';
-import { PERKS } from './perks';
+import { CATALOG, LAST_GENERATION } from './catalog';
+import { CHALLENGES, hasChallenge, riskClass } from './challenges';
+import { canPrestige, clickValue, prestigeGain } from './engine';
+import { MAX_OWNED_PERKS } from './perks';
 import type { GameState } from './state';
 import type { LabId } from '../data/labs';
 import { QUIPS } from '../data/quips';
@@ -125,12 +126,12 @@ export const SHADOW_ACHIEVEMENTS: ShadowAchievement[] = [
   },
   {
     // Первое, где нужен не счётчик, а Доход. Цена Клика — это масштаб Поколения, помноженный
-    // на множитель от Compute, поэтому планку в 1e24 закрывает либо последнее Поколение при
-    // 100 000 Compute, либо куда больший Compute в Поколениях до него.
+    // на множитель от Compute, а он упирается в потолок (ADR-0010) и сам планку не закрывает:
+    // её берёт последнее Поколение с Апгрейдами-ассистентами, где Клик растёт с числом Агентов.
     id: 'shadow_click_worth_1e24', name: 'Клик дороже разговора',
     desc: 'Один Клик приносит не меньше 1e24 Токенов',
     check: (s) => {
-      if (s.activeChallenge === 'no-click') return false;
+      if (hasChallenge(s, 'no-click')) return false;
       if (s.totalTokens < 1e20 && s.compute < 100_000 && s.generation < LAST_GENERATION) return false;
       return clickValue(s) >= 1e24;
     },
@@ -152,8 +153,9 @@ export const SHADOW_ACHIEVEMENTS: ShadowAchievement[] = [
     check: (s) => totalAgents(s) >= 10_000,
   },
   {
-    id: 'shadow_all_perks', name: 'Всё куплено', desc: 'Купить все Перки',
-    check: (s) => s.perks.length >= PERKS.length,
+    id: 'shadow_all_perks', name: 'Всё куплено', desc: 'Собрать дерево Перков: все Перки ствола и Ветвей, кроме верхних чужих Ветвей',
+    // Верхние Перки Ветвей взаимоисключающие (ADR-0012), поэтому «все» — это всё, что можно держать сразу.
+    check: (s) => s.perks.length >= MAX_OWNED_PERKS,
   },
   {
     // Перк «Скрипт-автокликер» даёт Клик в секунду, но Автоклик начисляется только пока
@@ -198,6 +200,26 @@ export const SHADOW_ACHIEVEMENTS: ShadowAchievement[] = [
     desc: `Совершить все ${CATALOG.length - 1} Престижей за 15 минут с первого запуска`,
     check: (s) => s.prestiges >= CATALOG.length - 1 && hoursSinceStart(s) <= 15 / 60,
   },
+  // Три тени Класса риска (ADR-0013): пороги суммы тяжести взятых Испытаний. Условие читает Забег, который
+  // можно закрыть (Флагман нанят), а не одно взятое Испытание: иначе тень открывалась бы нажатием
+  // кнопки до первой покупки. Силы, как у всех теней, у них нет.
+  {
+    id: 'shadow_risk_3', name: 'Расчётливый риск',
+    desc: 'Дойти до Флагмана в Забеге с Классом риска 3 и выше',
+    check: (s) => riskClass(s) >= 3 && canPrestige(s),
+  },
+  {
+    id: 'shadow_risk_6', name: 'Красная команда',
+    desc: 'Дойти до Флагмана в Забеге с Классом риска 6 и выше',
+    check: (s) => riskClass(s) >= 6 && canPrestige(s),
+  },
+  {
+    // Планка — сумма тяжести всей таблицы, а не число: новое Испытание сдвигает её вместе с таблицей,
+    // и тень остаётся «взять всё и дойти».
+    id: 'shadow_risk_max', name: 'Предел допуска',
+    desc: 'Дойти до Флагмана, взяв на Забег все Испытания разом',
+    check: (s) => riskClass(s) >= CHALLENGES.reduce((sum, c) => sum + c.weight, 0) && canPrestige(s),
+  },
   // Четыре тени, пришедшие из ветки с первой лестницей теней. id сохранены как есть: они уже могут
   // лежать в `state.achievements` у живого игрока, а проверки списка миграцией для Достижений нет —
   // молча переименованный id исчез бы из счётчика вместе с записью.
@@ -217,10 +239,10 @@ export const SHADOW_ACHIEVEMENTS: ShadowAchievement[] = [
     check: (s) => (s.agents[CATALOG[s.generation].flagship.id] ?? 0) >= 1 && s.upgrades.length === 0,
   },
   {
-    // Формула прироста читается из каталога, а не повторяется здесь: она одна на игру, и копия
-    // разошлась бы с Престижем при первой же правке баланса.
+    // Прирост читается у самого Престижа (`prestigeGain`), а не повторяется здесь: формула одна на игру,
+    // и копия разошлась бы с Престижем при первой же правке баланса или множителя Класса риска.
     id: 'sh_777', name: 'Счастливый Compute', desc: 'Достичь прироста Престижа с цифрами 777',
-    check: (s) => String(computeGain(s.runTokens, s.generation)).includes('777'),
+    check: (s) => String(prestigeGain(s)).includes('777'),
   },
   {
     // Шутка, и условие здесь единственно возможное: выигрыш зависит от того, открывал ли

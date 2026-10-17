@@ -6,9 +6,10 @@ import {
   applyOffline,
   buyAgents as engineBuyAgents,
   buyPerk as engineBuyPerk,
+  resetPerkTree as engineResetPerkTree,
   buyUpgrade as engineBuyUpgrade,
-  canPrestige,
   click as engineClick,
+  computeBonusDrop,
   clickValue,
   earnTokens,
   isContentFinale,
@@ -17,9 +18,12 @@ import {
   offlineBreakdown,
   type OfflineRow,
   prestige as enginePrestige,
+  prestigeDestination,
   prestigeGain,
+  returnGenerations,
   sellAgents as engineSellAgents,
   shatterCrystal as engineShatterCrystal,
+  thoughtPayout,
   totalIncome,
 } from '../economy/engine';
 import {
@@ -27,10 +31,16 @@ import {
   awardAchievements,
   awardShadowAchievements,
 } from '../economy/achievements';
-import { activeSpec, grantAmount, isEventActive } from '../economy/events';
+import { activeSpec, grantAmount, isEventActive, isEventCaught } from '../economy/events';
 import { formatCount, formatNumber } from '../economy/format';
 import { buyCrystalUpgrade as engineBuyCrystalUpgrade } from '../economy/crystal';
-import { startChallenge as engineStartChallenge, type ChallengeDef } from '../economy/challenges';
+import {
+  collectResearch as engineCollectResearch,
+  hasteResearch as engineHasteResearch,
+  plantResearch as enginePlantResearch,
+} from '../economy/research';
+import { applyFinetune as engineApplyFinetune, pickFinetuneQuip } from '../economy/finetune';
+import { hasChallenge, toggleChallenge as engineToggleChallenge, type ChallengeDef } from '../economy/challenges';
 import { claimMilestones } from '../economy/milestones';
 import {
   buyLicense as engineBuyLicense,
@@ -41,13 +51,32 @@ import {
   uprisingStage,
 } from '../economy/glitches';
 import { pickNews } from '../economy/news';
-import { HOLD_CLICK_MIN_GAP_MS, pushClick } from '../economy/streak';
-import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX } from '../economy/thermal';
+import {
+  clearQueue as engineClearQueue,
+  queueAgent as engineQueueAgent,
+  unqueueAgent as engineUnqueueAgent,
+} from '../economy/purchaseQueue';
+import { activeRule, holdThought, ruleEffect } from '../economy/rules';
+import { chooseCourse as engineChooseCourse, courseMissing } from '../economy/course';
+import { COURSE_BY_ID } from '../data/courses';
+import { HOLD_CLICK_MIN_GAP_MS, POINTER_HOLD_ARM_MS, POINTER_HOLD_RELEASE_MS, pushClick } from '../economy/streak';
+import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX, TEMP_MIN, thermalModsFor } from '../economy/thermal';
 import { perkEffects } from '../economy/perks';
 import { pickQuip, recordQuip } from '../economy/quips';
+import type { CharacterQuipTrigger } from '../data/characterQuips';
+import { isFirstHireOfCharacterLab, loudestCharacterLab, pickCharacterQuip } from '../economy/character';
 import { availableUpgrades } from '../economy/upgrades';
-import { importSave, migrate, quarantineStoredSave, readStoredSave, SAVE_KEY, serialize } from '../economy/save';
-import { newGame, type GameState, type Notation } from '../economy/state';
+import {
+  computeRuleSeen,
+  importSave,
+  markComputeRuleSeen,
+  migrate,
+  quarantineStoredSave,
+  readStoredSave,
+  SAVE_KEY,
+  serialize,
+} from '../economy/save';
+import { newGame, type FinetuneArchetype, type GameState, type Notation, type ResearchKind, type ResearchTermId } from '../economy/state';
 import {
   playAchievementSound,
   playBuySound,
@@ -77,13 +106,13 @@ export type EffectSwitch = 'particles' | 'floaters' | 'shake' | 'ticker';
 export type VolumeChannel = 'music' | 'sfx';
 /** Подразделы вкладки «Престиж». Хранятся в UI-слое стора, а не в колонке: колонку размонтирует
  *  смена нижней вкладки на телефоне, а выбранный подраздел должен пережить возврат на вкладку. */
-export type PrestigeSection = 'prestige' | 'perks' | 'legacy';
+export type PrestigeSection = 'prestige' | 'perks' | 'crystals';
 
 /** Вкладки магазина: Модели, Апгрейды, Престиж. Живут в UI-слое стора, а не в колонке: колонку
  *  размонтирует смена нижней вкладки на телефоне, а горячие клавиши 1/2/3 приходят снаружи. */
 export type ShopTab = 'models' | 'upgrades' | 'prestige';
 
-export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'prestige' | 'stats' | 'achievements' | 'settings';
+export type ActiveTab = 'click' | 'office' | 'shop' | 'research' | 'upgrades' | 'prestige' | 'stats' | 'achievements' | 'settings';
 
 export interface ToastMessage {
   id: string;
@@ -125,10 +154,10 @@ export interface BurstEvent {
   /** Растёт на каждое событие: потребитель смотрит на него, а не на сам факт события, поэтому
    *  два одинаковых подряд не схлопываются в один отклик. */
   nonce: number;
-  /** Данные для оверлея Престижа: новое Поколение, полученный Compute и испытание, которое
-   *  было активно в завершённом Забеге (его награда — +10% к Доходу навсегда). Только UI-слой,
+  /** Данные для оверлея Престижа: новое Поколение, полученный Compute и Испытания, которые были
+   *  взяты на завершённый Забег (Престиж закрыл их и заплатил за них Compute). Только UI-слой,
    *  в GameState не попадает и в сейв не пишется. */
-  prestige?: { generation: number; computeGain: number; challengeId?: 'no-synergy' | 'no-click' };
+  prestige?: { generation: number; computeGain: number; challengeIds?: string[] };
 }
 
 export interface OfflineReport {
@@ -236,17 +265,6 @@ function achievementToast(list: readonly { id: string; name: string; desc: strin
  */
 const NO_EVENT_WINDOW = -1;
 
-/**
- * Поймано ли окно, в котором лежит `state.event`.
- *
- * Отметка лежит в состоянии и сверяется с началом окна, а не с её флагом: событие переживает
- * перезагрузку, и забор в памяти вкладки обнулялся бы вместе с ней — тот же клик платил бы или
- * списывал за одно окно дважды. Ноль приходится отсекать отдельно: у события из битого сохранения
- * `startedAt` равен нулю, и без этой проверки такое окно считалось бы уже пойманным.
- */
-const caughtWindow = (state: GameState): boolean =>
-  state.eventCaughtAt > 0 && !!state.event && state.event.startedAt === state.eventCaughtAt;
-
 interface GameStore {
   state: GameState;
   news: string;
@@ -322,13 +340,26 @@ interface GameStore {
    * и любой другой слушатель (горячие клавиши) получит тот же предел. Возвращает true, если Клик
    * засчитан.
    */
-  holdClick: (x?: number, y?: number) => boolean;
+  holdClick: (x?: number, y?: number, repeat?: boolean) => boolean;
+  /**
+   * Нажатие и отпускание кнопки Клика мышью или пальцем при Правиле «Подумай ещё»: пока кнопку держат
+   * дольше `POINTER_HOLD_ARM_MS`, тик копит размышление. Вне Правила не делает ничего.
+   */
+  setPointerHold: (on: boolean, x?: number, y?: number) => void;
+  /** Закончилось ли только что удержание: тогда `click` после отпускания не платит обычного Клика. Одноразово. */
+  consumeHeldClick: () => boolean;
   /** `amount` — разовая покупка с модификатором (Shift ×10, Ctrl/Cmd Max); без него берётся
    *  множитель, выбранный кнопками, и он при этом не меняется. */
   buyAgents: (modelId: string, amount?: BuyAmount) => void;
+  /** Очередь закупок Правила «Агенты сами»: поставить одного Агента Модели, снять запись, очистить. */
+  queueAgent: (modelId: string) => void;
+  unqueueAgent: (index: number) => void;
+  clearQueue: () => void;
   sellAgents: (modelId: string, amount?: BuyAmount) => void;
   buyUpgrade: (upgradeId: string) => void;
   buyPerk: (perkId: string) => void;
+  /** Бесплатный сброс дерева Перков раз за Забег: Перки снимаются, Compute возвращается. */
+  resetPerkTree: () => void;
   /** Покупает «Лобби»: красные события гаснут на полчаса, цена растёт на каждой покупке. */
   buyPledge: () => void;
   /** Покупает бессрочную «Лицензию»: налог с Дохода и ни одного Глюка. */
@@ -339,6 +370,15 @@ interface GameStore {
   buyCrystalUpgrade: (id: string) => void;
   /** Разбивает целый Compute-кристалл из запаса в разовые Токены. */
   shatterCrystal: () => void;
+  /** Закладывает Исследование в свободный слот на выбранный срок (ТЗ #115); вид результата — временное
+   *  усиление по умолчанию или Заготовка Файнтюна (ТЗ #116). */
+  plantResearch: (term: ResearchTermId, kind?: ResearchKind) => void;
+  /** Забирает созревшее Исследование из слота по индексу: выплачивает результат и освобождает слот. */
+  collectResearch: (index: number) => void;
+  /** Ускоряет созревающее Исследование слота по индексу одним Compute-кристаллом из запаса (ТЗ #117). */
+  hasteResearch: (index: number) => void;
+  /** Применяет Заготовку Файнтюна к нанятой Модели текущего Забега: Модель получает архетип и реплику. */
+  applyFinetune: (modelId: string, archetype: FinetuneArchetype) => void;
   /** Ловит живое событие кликом по Золотому Токену: разовый вид платит, временный засчитывается. */
   catchEvent: () => void;
   /** Удар по Глюку; на третьем он лопается и выплата идёт через earnTokens. */
@@ -348,10 +388,19 @@ interface GameStore {
   requestPrestige: () => void;
   dismissPrestigePrompt: () => void;
   triggerPrestige: () => void;
-  /** Принимает испытание Забега на свежем забеге (или отказ от него через null). */
-  startChallenge: (id: 'no-synergy' | 'no-click' | null) => void;
+  /**
+   * Выбирает Курс нового Забега из трёх предложенных (ADR-0013). Решение «можно ли» — за ядром:
+   * чужой id и выбор без предложения (то есть всё время внутри Забега) возвращают то же состояние, и
+   * стор молчит. Выбор можно менять до подтверждения Престижа; Курс вступает в силу только с ним.
+   */
+  chooseCourse: (id: string) => void;
+  /** Закрывает окно Престижа и ведёт к выбору Курса: подраздел «Престиж» вкладки «Престиж» (UI-слой, не сейв). */
+  openCourseChoice: () => void;
+  /** Берёт Испытание Забега на свежий Забег или кладёт его обратно; несколько можно взять сразу. */
+  toggleChallenge: (id: ChallengeDef['id']) => void;
 
-  /** Ставит Температуру напрямую: диапазон и защиту от мусора берёт на себя clampTemp. */
+  /** Ставит Температуру напрямую: диапазон и защиту от мусора берёт на себя clampTemp,
+   *  а Испытание «Забег без Температуры» держит шкалу на нуле и ползунок не слушает. */
   setTemp: (t: number) => void;
   /**
    * Пересобирает непрерывный голос Температуры под текущее состояние.
@@ -398,8 +447,18 @@ interface GameStore {
    *  экран и живёт дальше, но вернуть его можно из вкладки Престижа — без этого финал был бы
    *  односторонней дверью. В GameState не живёт: состояние «окно закрыто» прогресса не меняет. */
   finaleDismissed: boolean;
-  openFinale: () => void;
   dismissFinale: () => void;
+  /** Пройденное Поколение, в которое игрок выбрал вернуться с Финала контента (ADR-0013, слой 5), до
+   *  подтверждения Престижа. Вне GameState: выбор делается заново после перезагрузки, как и подтверждение,
+   *  поэтому миграции сохранения не нужно. Ядро проверяет, что Поколение пройдено (`returnGenerations`). */
+  finaleTarget: number | null;
+  /** Выбирает Поколение для возврата с Финала; чужой номер и выбор вне Финала возвращают то же состояние. */
+  chooseFinaleTarget: (generation: number) => void;
+  /** Объяснение нового правила бонуса Compute (ADR-0010): `before` и `after` — доли, 0,8 = +80%.
+   *  Показывается игроку, чей Доход упал после обновления, и один раз: отметка лежит под своим
+   *  ключом хранилища, а не в `GameState`, чтобы поля сейва не росли. null — объяснять нечего. */
+  computeRuleNotice: { before: number; after: number } | null;
+  dismissComputeRuleNotice: () => void;
   refreshNews: () => void;
 }
 
@@ -446,6 +505,15 @@ let floaterCounter = 0;
 let sparkCounter = 0;
 /** Момент последнего Клика удержания: общий для всех слушателей, как и потолок. */
 let lastHoldClickAt = -Infinity;
+/**
+ * Удержание кнопки Клика мышью или пальцем при Правиле «Подумай ещё». Не в `GameState`: это жест,
+ * он не переживает перезагрузку, а накопленное им размышление — переживает (поля `thought`).
+ * `pointerHoldSince` — момент нажатия (0 = кнопку не держат); `pointerArmedUntil` — до какого момента
+ * следующий `click` считается концом удержания, а не новым Кликом; `holdPoint` — куда сажать число выплаты.
+ */
+let pointerHoldSince = 0;
+let pointerArmedUntil = 0;
+let holdPoint: { x: number; y: number } | null = null;
 let toastCounter = 0;
 let burstCounter = 0;
 let momentCounter = 0;
@@ -458,6 +526,8 @@ export const SCENE_MOMENT_MS = 2000;
 /** Пузырь реплики висит 4.5 с: входной pop занимает 0.25 с, уходной fade стартует CSS-задержкой
  *  на 4.32 с, и стор гасит поле уже после него — fade видно целиком. */
 const QUIP_HIDE_MS = 4500;
+/** Реплика Правила Поколения: оверлей Престижа держит экран 2,8 с, и обычных 4,5 с после него осталось бы мало. */
+const RULE_QUIP_HIDE_MS = 7500;
 /** Сколько искры Клика висят в сторе, мс: чуть дольше их анимации в index.css, чтобы узел не
  *  исчезал на середине полёта; уборку делает этот таймер, а не animationend, которого отменённая
  *  анимация не даёт. */
@@ -699,6 +769,31 @@ export function effectAllowed(effect: 'particles' | 'shake'): boolean {
 export const useGameStore = create<GameStore>((set, get) => {
   const initial = loadInitialState();
 
+  // Объяснение нужно тому, у кого старая формула дала бы больше новой, и только пока этот
+  // браузер его не видел. Всем остальным отметка ставится сразу: новичок, который потратит
+  // Compute позже, увидел бы объяснение чужого обновления вместо итога собственной покупки.
+  let computeRuleNotice = null as ReturnType<typeof computeBonusDrop>;
+  if (!computeRuleSeen()) {
+    computeRuleNotice = computeBonusDrop(initial.state);
+    if (!computeRuleNotice) markComputeRuleSeen();
+  }
+
+  /**
+   * Объявляет Правило Поколения репликой Модели, когда Престиж привёл в Поколение, у которого оно есть
+   * (строка ленты ставится рядом, в самом Престиже). Реплика Правила — не из таблицы Переписки: в
+   * `quipsSeen` она не пишется и полный набор Переписки не двигает. Висит дольше обычной: на входе
+   * её сначала перекрывает оверлей Престижа.
+   */
+  const announceRule = (entered: GameState): void => {
+    const rule = activeRule(entered);
+    if (!rule) return;
+    const nonce = ++quipCounter;
+    set({ lastQuip: { id: `rule:${rule.id}`, text: rule.quip.text, lab: rule.quip.lab, nonce } });
+    setTimeout(() => {
+      if (get().lastQuip?.nonce === nonce) set({ lastQuip: null });
+    }, RULE_QUIP_HIDE_MS);
+  };
+
   /**
    * Начисляет выполненные Достижения — обычные и теневые — и показывает тосты за обычные.
    * Вызывается из каждого перехода, который может выполнить условие Достижения.
@@ -734,6 +829,47 @@ export const useGameStore = create<GameStore>((set, get) => {
   };
 
   /**
+   * Реплика Маскота о Характере Лаборатории (ADR-0011): тот же пузырь, что у реплик Клика, но из
+   * другой таблицы и мимо «Переписки». В `quipsSeen` она не пишется, Достижений не открывает и
+   * Доход не меняет: строка только объясняет механику, поэтому и стоит вне `GameState`.
+   */
+  const speakCharacter = (lab: LabId, on: CharacterQuipTrigger, salt: number, withSound: boolean): void => {
+    const quip = pickCharacterQuip(lab, on, salt);
+    if (!quip) return;
+    showLine({ id: quip.id, text: quip.text, lab: quip.lab }, withSound);
+  };
+
+  /** Пузырь с репликой: один и тот же канал для Характера и для Файнтюна, гаснет через QUIP_HIDE_MS. */
+  const showLine = (line: { id: string; text: string; lab: LabId }, withSound: boolean): void => {
+    const nonce = ++quipCounter;
+    if (withSound) playQuipSound(get().state.settings);
+    set({ lastQuip: { id: line.id, text: line.text, lab: line.lab, nonce } });
+    setTimeout(() => {
+      if (get().lastQuip?.nonce === nonce) set({ lastQuip: null });
+    }, QUIP_HIDE_MS);
+  };
+
+  /**
+   * Очередь закупок наняла Агентов на живом тике: голос и последствия те же, что у ручной покупки.
+   *
+   * Движок исполняет очередь сам, а `buyAgents` стора — единственное место, где покупка Агента
+   * звучит и поднимает Восстание за Флагман. Без этой сверки «до / после» Агент из очереди
+   * молчал бы, а Флагман, нанятый очередью, не открывал бы Восстания Поколения. Звук один на тик,
+   * а не на Агента: за тик очередь может нанять нескольких. Длинный тик очередь не исполняет вовсе.
+   */
+  const announceQueued = (before: GameState, after: GameState, longTick: boolean): GameState => {
+    if (longTick || after.purchaseQueue.length >= before.purchaseQueue.length) return after;
+    playBuySound(before.settings);
+    const flagshipId = CATALOG[before.generation].flagship.id;
+    const flagshipHired = (before.agents[flagshipId] ?? 0) === 0 && (after.agents[flagshipId] ?? 0) > 0;
+    const risen = flagshipHired ? raiseUprising(after) : after;
+    if (risen !== after || availableUpgrades(after).length > availableUpgrades(before).length) {
+      playUpgradeSound(before.settings);
+    }
+    return risen;
+  };
+
+  /**
    * Звук и слова Температуры: охлаждение после перегрева и провал от Галлюцинации.
    *
    * Оба события читаются по МЕСТУ в истории состояния, а не по флагу: перегрев виден по
@@ -756,6 +892,10 @@ export const useGameStore = create<GameStore>((set, get) => {
   const announceThermal = (before: GameState, after: GameState, dt: number): void => {
     if (after.overheatedAt !== before.overheatedAt && after.overheatedAt > 0) {
       playCoolingSound(after.settings);
+      // Маскот самой громкой Лаборатории с Характером комментирует сброс: слов больше, звука нет
+      // (сброс уже прозвучал), экономики нет вовсе.
+      const loud = loudestCharacterLab(after);
+      if (loud) speakCharacter(loud, 'overheat', after.overheatedAt, false);
       return;
     }
     // Строгое падение кошелька при подросшем перегреве — только Галлюцинация: обычный тик
@@ -764,9 +904,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       playHallucinationSound(after.settings);
       return;
     }
-    // Скачок выше обычного нагрева за dt: обычный нагрев не больше heatRate(TEMP_MAX)*dt,
+    // Скачок выше обычного нагрева за dt: обычный нагрев не больше heatRate(TEMP_MAX)*dt (с Характерами офиса),
     // а Галлюцинация добавляет сверху HALLUC_HEAT — порог между ними с запасом.
-    const maxNormal = heatRate(TEMP_MAX) * Math.max(0, dt);
+    const maxNormal = heatRate(TEMP_MAX, thermalModsFor(before)) * Math.max(0, dt);
     if (after.heat - before.heat > maxNormal + HALLUC_HEAT / 2) {
       playHallucinationSound(after.settings);
     }
@@ -787,6 +927,24 @@ export const useGameStore = create<GameStore>((set, get) => {
   /** Отчёт о простое длинного тика, или null, если простой ничего не принёс. */
   const awayReport = (before: GameState, dt: number): OfflineReport | null =>
     offlineWithReport(before, before.lastTick + dt * 1000).report;
+
+  /**
+   * Выплата размышления «Подумай ещё»: одно крупное число над кнопкой Клика и звук высшей ступени
+   * Серии. Токены уже зачислил тик, здесь только отклик. Число гаснет по ограниченному таймеру, как
+   * число обычного Клика; выключатель чисел его гасит, а не выплату.
+   */
+  const showThoughtPayout = (amount: number, settings: GameState['settings']): void => {
+    playClickSound(settings, 4);
+    if (!settings.floaters) return;
+    const id = ++floaterCounter;
+    const at = holdPoint ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    set((s) => ({
+      floaters: [...s.floaters.slice(-10), { id, x: at.x, y: at.y, text: `+${formatNumber(amount, settings.notation)}`, level: 4 }],
+    }));
+    setTimeout(() => {
+      set((s) => ({ floaters: s.floaters.filter((f) => f.id !== id) }));
+    }, 900);
+  };
 
   /**
    * Куда деть простой длинного тика: на открытый экран, в запас до возвращения или на новый экран.
@@ -829,7 +987,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     const { eventWindowAt } = get();
     // Зеркало для кнопки, а не забор: оно читается из состояния на каждом тике, поэтому перезагрузка
     // и импорт не оставляют на экране «Поймать» для окна, которое уже поймано.
-    const eventCaught = caughtWindow(state);
+    const eventCaught = isEventCaught(state);
     // Невиденное окно не уведомляется: отметка «уже говорили» не двигается, и следующий активный
     // тик либо объявит ещё живое окно, либо молча пропустит уже истёкшее.
     if (silent) return { eventWindowAt, eventCaught };
@@ -859,6 +1017,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     state: initial.state,
     news: pickNews(initial.state),
     offlineReport: initial.offline,
+    computeRuleNotice,
     pendingAway: null,
     prestigePrompt: false,
     activeTab: 'click',
@@ -878,7 +1037,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     burst: null,
     sceneMoment: null,
     eventWindowAt: NO_EVENT_WINDOW,
-    eventCaught: caughtWindow(initial.state),
+    eventCaught: isEventCaught(initial.state),
     crashArmedAt: 0,
     collectedRumorId: 0,
 
@@ -897,7 +1056,13 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Что именно заплатил простой, спрашивается у той же `applyOffline`, что платит его внутри
       // `advanceTime`: она чистая, а своя формула потолка разошлась бы с настоящей.
       const away = longTick ? awayReport(state, dt) : null;
-      const ticked = advanceTime(state, dt, Math.random);
+      // Кнопку держат дольше порога: тик подкладывает порцию размышления, как повтор клавиши. Простой
+      // её не получает: долгий интервал игрок не держал.
+      const fed = !longTick && pointerHoldSince > 0 && Date.now() - pointerHoldSince >= POINTER_HOLD_ARM_MS ? holdThought(state) : state;
+      if (fed !== state) pointerArmedUntil = Infinity;
+      const ticked = announceQueued(fed, advanceTime(fed, dt, Math.random), longTick);
+      // Выплата размышления в этом тике: сумму называет та же функция, что платит.
+      const thoughtPaid = longTick ? 0 : thoughtPayout(fed, fed.lastTick + dt * 1000);
       const advanced = awardEarned(ticked);
       announceThermal(state, advanced, dt);
       // Вехи забираются после Достижений и до сериализации: награда обязана попасть в тот же
@@ -914,6 +1079,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (!longTick && advanced.crystals > state.crystals) playCrystalSound(advanced.settings);
       const eventWindow = watchEventWindow(withMilestones, longTick);
       set({ state: withMilestones, ...eventWindow, ...(away ? collectAway(away) : null) });
+      if (thoughtPaid > 0) showThoughtPayout(thoughtPaid, withMilestones.settings);
       // Голос идёт после set, чтобы читать уже новое состояние, и до записи в localStorage:
       // звук не должен ждать завершения сериализации.
       syncThermalVoice();
@@ -1005,13 +1171,47 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
     },
 
-    holdClick: (x?: number, y?: number) => {
+    holdClick: (x?: number, y?: number, repeat = false) => {
       const now = Date.now();
       // Часы, отведённые назад, дали бы отрицательную паузу и заперли бы удержание до нагона.
       if (now >= lastHoldClickAt && now - lastHoldClickAt < HOLD_CLICK_MIN_GAP_MS) return false;
       lastHoldClickAt = now;
+      // «Подумай ещё»: первое нажатие — обычный Клик, а повтор удержанной клавиши не платит по Клику,
+      // а копит размышление. Вне Правила holdThought возвращает тот же объект, и идёт обычный Клик.
+      if (repeat) {
+        holdPoint = x !== undefined && y !== undefined ? { x, y } : holdPoint;
+        const { state } = get();
+        const fed = holdThought(state);
+        if (fed !== state) {
+          set({ state: fed });
+          return false;
+        }
+        // Правило молчит либо порция отказала (удержание оборвано, тик вот-вот выплатит): в Reasoning
+        // повтор не платит, вне него — обычный Клик.
+        if (ruleEffect(state, 'heldThought')) return false;
+      }
       get().clickPrompt(x, y);
       return true;
+    },
+
+    setPointerHold: (on: boolean, x?: number, y?: number) => {
+      if (!on) {
+        // Конец жеста: если тик уже копил размышление, ближайший `click` — отпускание, а не новый Клик.
+        if (pointerHoldSince > 0 && pointerArmedUntil === Infinity) pointerArmedUntil = Date.now() + POINTER_HOLD_RELEASE_MS;
+        else pointerArmedUntil = 0;
+        pointerHoldSince = 0;
+        return;
+      }
+      if (!ruleEffect(get().state, 'heldThought')) return;
+      pointerHoldSince = Date.now();
+      pointerArmedUntil = 0;
+      if (x !== undefined && y !== undefined) holdPoint = { x, y };
+    },
+
+    consumeHeldClick: () => {
+      const held = pointerArmedUntil > 0 && pointerArmedUntil !== Infinity && Date.now() <= pointerArmedUntil;
+      pointerArmedUntil = 0;
+      return held;
     },
 
     buyAgents: (modelId: string, amount?: BuyAmount) => {
@@ -1046,6 +1246,11 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Отметка о последней покупке — это голос офиса: следующий Клик заговорит
       // Лабораторией именно этой Модели. Ставится только на успешной покупке.
       set({ state: awardEarned(risen), lastBoughtModelId: modelId });
+      // Первый Агент Лаборатории с Характером: Маскот называет, что принёс в офис, ещё до первого Клика.
+      const hiredLab = MODEL_BY_ID[modelId]?.lab;
+      if (hiredLab && isFirstHireOfCharacterLab(state, bought, hiredLab)) {
+        speakCharacter(hiredLab, 'hire', bought.lastTick, true);
+      }
       // Момент читается по паре «до / после» самой покупки, поэтому импорт и загрузка сейва
       // Маскотов заново не вводят. Гасит поле таймер на один срок: он сверяет nonce, и более
       // свежий момент прежний таймер не снимает.
@@ -1057,6 +1262,33 @@ export const useGameStore = create<GameStore>((set, get) => {
           if (get().sceneMoment?.nonce === nonce) set({ sceneMoment: null });
         }, SCENE_MOMENT_MS);
       }
+      saveNow();
+    },
+
+    queueAgent: (modelId: string) => {
+      const { state } = get();
+      const next = engineQueueAgent(state, modelId);
+      if (next === state) return;
+      playToggleSound(state.settings);
+      set({ state: next });
+      saveNow();
+    },
+
+    unqueueAgent: (index: number) => {
+      const { state } = get();
+      const next = engineUnqueueAgent(state, index);
+      if (next === state) return;
+      playToggleSound(state.settings);
+      set({ state: next });
+      saveNow();
+    },
+
+    clearQueue: () => {
+      const { state } = get();
+      const next = engineClearQueue(state);
+      if (next === state) return;
+      playToggleSound(state.settings);
+      set({ state: next });
       saveNow();
     },
 
@@ -1088,6 +1320,16 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (next !== state) {
         playUpgradeSound(state.settings);
         set({ state: awardEarned(next) });
+        saveNow();
+      }
+    },
+
+    resetPerkTree: () => {
+      const { state } = get();
+      const next = engineResetPerkTree(state);
+      if (next !== state) {
+        playUpgradeSound(state.settings);
+        set({ state: next });
         saveNow();
       }
     },
@@ -1167,6 +1409,64 @@ export const useGameStore = create<GameStore>((set, get) => {
       saveNow();
     },
 
+    /**
+     * Закладывает Исследование в свободный слот. Часы — игровые (`lastTick`), как у кристалла: срок
+     * созревает тем же временем, что и тик, и отметка не расходится с часами, которыми его читают.
+     * Слотов нет или вид/срок неизвестны — ядро возвращает тот же объект, и стор молчит.
+     */
+    plantResearch: (term: ResearchTermId, kind: ResearchKind = 'boost') => {
+      const { state } = get();
+      const next = enginePlantResearch(state, kind, term, state.lastTick);
+      if (next === state) return;
+      playUpgradeSound(state.settings);
+      set({ state: next });
+      saveNow();
+    },
+
+    /**
+     * Забирает созревшее Исследование: результат (временное усиление) ложится в состояние, слот
+     * освобождается. Не созревшее или пустой слот — тот же объект и тишина: награда не звучит дважды.
+     */
+    collectResearch: (index: number) => {
+      const { state } = get();
+      const next = engineCollectResearch(state, index, state.lastTick);
+      if (next === state) return;
+      playAchievementSound(state.settings);
+      set({ state: next });
+      saveNow();
+    },
+
+    /**
+     * Ускоряет созревающее Исследование одним кристаллом: кристалл и его процент уходят, срок сокращается.
+     * Трата, поэтому звук покупки, а не награды. Пустой слот, готовое или нет кристалла — ядро возвращает
+     * тот же объект, и стор молчит.
+     */
+    hasteResearch: (index: number) => {
+      const { state } = get();
+      const next = engineHasteResearch(state, index, state.lastTick);
+      if (next === state) return;
+      playUpgradeSound(state.settings);
+      set({ state: next });
+      saveNow();
+    },
+
+    /**
+     * Применяет Заготовку к Модели: ядро проверяет Заготовку, найм и отсутствие Файнтюна. Отказ — тот же
+     * объект и тишина. Успех — звук, сохранение и реплика Модели о своём архетипе: голос Лаборатории этой
+     * Модели, без записи в «Переписку» и без экономики.
+     */
+    applyFinetune: (modelId: string, archetype: FinetuneArchetype) => {
+      const { state } = get();
+      const next = engineApplyFinetune(state, modelId, archetype);
+      if (next === state) return;
+      playUpgradeSound(state.settings);
+      set({ state: next });
+      saveNow();
+      const quip = pickFinetuneQuip(archetype, next.lastTick);
+      const lab = MODEL_BY_ID[modelId]?.lab;
+      if (quip && lab) showLine({ id: quip.id, text: quip.text, lab }, true);
+    },
+
     catchEvent: () => {
       const { state, crashArmedAt } = get();
       const event = state.event;
@@ -1174,7 +1474,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // и системное время отставало бы от него на тик — ровно на том тике, где ловля ещё должна
       // быть разрешена. Забор читает состояние, а не поле UI-слоя: тот обнулялся перезагрузкой.
       const now = state.lastTick;
-      if (!event || caughtWindow(state) || !isEventActive(event, now)) return;
+      if (!event || isEventCaught(state) || !isEventActive(event, now)) return;
       const spec = activeSpec(state, now);
       // Разовый вид платит сразу и только через earnTokens — так сумма попадает во все три
       // счётчика, как обычный доход. Временному виду платить нечего: его множитель уже тикает,
@@ -1274,48 +1574,78 @@ export const useGameStore = create<GameStore>((set, get) => {
     // намеренно — условия отказа живут в triggerPrestige, а вторая проверка в окне
     // разошлась бы с переходом.
     requestPrestige: () => {
-      const { state } = get();
+      const { state, finaleTarget } = get();
       // Щелчок «защёлки» обещает переход, поэтому звучит, только когда переход возможен: окно
       // открывается и для отказа, и объясняет его словами.
-      if (canPrestige(state) && !isContentFinale(state)) playPrestigeConfirmSound(state.settings);
+      if (prestigeDestination(state, finaleTarget) !== null) playPrestigeConfirmSound(state.settings);
       set({ prestigePrompt: true });
     },
     dismissPrestigePrompt: () => set({ prestigePrompt: false }),
 
     triggerPrestige: () => {
-      const { state } = get();
-      // На финальном Поколении Престиж обнулил бы забег без перехода в новое Поколение.
-      if (!canPrestige(state) || isContentFinale(state)) return;
+      const { state, finaleTarget } = get();
+      // Куда ведёт переход, решает ядро: вне Финала — следующее Поколение, на Финале — выбранное пройденное.
+      // Без перехода (нет Флагмана, финал без выбора) Забег не обнуляется.
+      if (prestigeDestination(state, finaleTarget) === null) return;
+      // Курс выбирается до подтверждения: без выбора Забег начался бы без Курса, который игрок не отверг, а просто не заметил.
+      if (courseMissing(state)) return;
       playPrestigeSound(state.settings);
       duckMusic();
       const gain = prestigeGain(state);
-      // Оверлей Престижа называет награду закрытого этим переходом Испытания.
-      const done = state.activeChallenge as ChallengeDef['id'] | null;
-      const next = awardEarned(enginePrestige(state));
+      // Оверлей Престижа называет Испытания, которые закрыл этот переход.
+      const done = state.activeChallenges;
+      const next = awardEarned(enginePrestige(state, state.lastTick, finaleTarget));
       // Момент награды прошлого Поколения не переходит в новое: Сцена пуста, и его место займёт
-      // уже первая покупка.
-      set({ state: next, news: pickNews(next), sceneMoment: null });
+      // уже первая покупка. Экран финала открывается снова, если игрок вернётся в последнее Поколение:
+      // флаг возвращается в исходное состояние, как и при рестарте.
+      set({
+        state: next,
+        news: activeRule(next)?.news ?? pickNews(next),
+        sceneMoment: null,
+        finaleTarget: null,
+        finaleDismissed: false,
+      });
+      announceRule(next);
       // Ставится после awardEarned намеренно: если тот же тик выполнил Достижение, тряска
       // перебивает его отклик. Тост Достижения всё равно живёт и озвучен — теряется только веер искр.
       set({
         burst: {
           kind: 'prestige',
           nonce: ++burstCounter,
-          prestige: { generation: next.generation, computeGain: gain, ...(done ? { challengeId: done } : {}) },
+          prestige: { generation: next.generation, computeGain: gain, ...(done.length > 0 ? { challengeIds: done } : {}) },
         },
       });
       saveNow();
     },
 
-    /**
-     * Принимает испытание Забега. Решение «можно ли» — за ядром: несвежий забег возвращает
-     * тот же объект, и стор молчит. Испытание — не Достижение, поэтому awardEarned здесь нет:
-     * просто set, если объект сменился, и знакомый звук Апгрейда. Принятое испытание игрок видит
-     * на карточке Забега; тоста нет (тосты — только Достижения).
-     */
-    startChallenge: (id: 'no-synergy' | 'no-click' | null) => {
+    openCourseChoice: () => set({ prestigePrompt: false, activeTab: 'shop', shopTab: 'prestige', prestigeSection: 'prestige' }),
+
+    chooseCourse: (id: string) => {
       const { state } = get();
-      const next = engineStartChallenge(state, id);
+      const next = engineChooseCourse(state, id);
+      if (next === state) return;
+      playUpgradeSound(state.settings);
+      set({ state: next });
+      // Предложение озвучивают Маскоты: выбранный Курс говорит голосом своей Лаборатории. Реплика не из
+      // таблицы Переписки, в `quipsSeen` не пишется и Достижений не двигает, как реплика Правила.
+      const course = COURSE_BY_ID[id];
+      const nonce = ++quipCounter;
+      set({ lastQuip: { id: `course:${course.id}`, text: course.quip, lab: course.lab, nonce } });
+      setTimeout(() => {
+        if (get().lastQuip?.nonce === nonce) set({ lastQuip: null });
+      }, RULE_QUIP_HIDE_MS);
+      saveNow();
+    },
+
+    /**
+     * Берёт Испытание Забега или кладёт обратно. Решение «можно ли» — за ядром: несвежий Забег
+     * возвращает тот же объект, и стор молчит. Испытание — не Достижение, поэтому awardEarned
+     * здесь нет: просто set, если объект сменился, и знакомый звук Апгрейда. Тоста нет — тосты
+     * только Достижения.
+     */
+    toggleChallenge: (id: ChallengeDef['id']) => {
+      const { state } = get();
+      const next = engineToggleChallenge(state, id);
       if (next === state) return;
       playUpgradeSound(state.settings);
       set({ state: next });
@@ -1327,7 +1657,11 @@ export const useGameStore = create<GameStore>((set, get) => {
     // Голос идёт сразу после set, а не на следующем тике: шкала обязана звучать в ту же
     // миллисекунду, в которую игрок её двинул, иначе управление ощущается «ватным».
     setTemp: (t: number) => {
-      set((s) => ({ state: { ...s.state, temp: clampTemp(t) } }));
+      set((s) => ({
+        // «Забег без Температуры» держит шкалу на нуле и ползунок не слушает: иначе игрок двигал бы
+        // ручку, которую Испытание всё равно игнорирует, и думал, что греет.
+        state: { ...s.state, temp: hasChallenge(s.state, 'cold') ? TEMP_MIN : clampTemp(t) },
+      }));
       get().syncThermalVoice();
     },
 
@@ -1441,8 +1775,20 @@ toggleMute: () => {
     // Экран финала открывается сам, пока игрок его не закрыл: новое прохождение после
     // рестарта снова покажет его, поэтому сброс возвращает флаг в исходное состояние.
     finaleDismissed: false,
-    openFinale: () => set({ finaleDismissed: false }),
     dismissFinale: () => set({ finaleDismissed: true }),
+    finaleTarget: null,
+    chooseFinaleTarget: (generation: number) => {
+      const { state, finaleTarget } = get();
+      // Выбор только из пройденных Поколений и только на Финале; повтор того же выбора — тот же объект.
+      if (!returnGenerations(state).includes(generation) || generation === finaleTarget) return;
+      playUpgradeSound(state.settings);
+      set({ finaleTarget: generation });
+    },
+
+    dismissComputeRuleNotice: () => {
+      markComputeRuleSeen();
+      set({ computeRuleNotice: null });
+    },
 
     dismissOfflineReport: () => set({ offlineReport: null }),
 
@@ -1465,7 +1811,7 @@ toggleMute: () => {
         offlineReport: null,
         news: pickNews(imported),
         eventWindowAt: NO_EVENT_WINDOW,
-        eventCaught: caughtWindow(imported),
+        eventCaught: isEventCaught(imported),
         crashArmedAt: 0,
         collectedRumorId: 0,
         // Голос прошлого забега не переживает импорт: отметка указывает на Модель,
@@ -1483,6 +1829,8 @@ toggleMute: () => {
 
     resetGame: () => {
       lastHoldClickAt = -Infinity;
+      pointerHoldSince = 0;
+      pointerArmedUntil = 0;
       // Звук по настройкам, с которыми игрок нажал сброс: свежая игра пришла бы без мьюта.
       playRestartSound(get().state.settings);
       const fresh = newGame(Date.now());
@@ -1512,6 +1860,9 @@ toggleMute: () => {
         // вернуть флаг в исходное состояние: иначе второе прохождение до последнего
         // Поколения встретило бы игрока молчащим финалом.
         finaleDismissed: false,
+        finaleTarget: null,
+        // Новая игра начинается без потраченного Compute: объяснять нечего.
+        computeRuleNotice: null,
       });
     },
 

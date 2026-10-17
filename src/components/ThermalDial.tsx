@@ -2,6 +2,7 @@ import React from 'react';
 import { useGameStore, useStateSlice } from '../store/useGameStore';
 import { thermalView } from '../store/selectors';
 import { TEMP_MAX, overloadShare } from '../economy/thermal';
+import { hasChallenge } from '../economy/challenges';
 import { Num } from './Num';
 import { Icon, type IconName } from './Icon';
 import type { ThermalStateId } from '../data/thermalCopy';
@@ -39,6 +40,9 @@ export const STATE_COLOR: Record<ThermalStateId, string> = {
 export const ThermalDial: React.FC = () => {
   const view = useStateSlice(thermalView);
   const setTemp = useGameStore((s) => s.setTemp);
+  // «Забег без Температуры» держит шкалу на нуле: подсказка говорит об этом словами, иначе
+  // игрока дёргающаяся на нуле ручка убедила бы, что игра сломана.
+  const frozen = useGameStore((s) => hasChallenge(s.state, 'cold'));
 
   // Проценты шкалы, а не доли: CSS-переменная получает число, которое человек не делит в уме.
   const pct = (view.temp / TEMP_MAX) * 100;
@@ -298,7 +302,8 @@ export const ThermalDial: React.FC = () => {
           lineHeight: 1.35,
         }}
       >
-        Тяни мышью или жми Ctrl + ← →
+        Тяни мышью или жми Ctrl + ← → · {view.safe}
+        {frozen ? ' · Испытание «Забег без Температуры» держит шкалу на нуле' : ''}
         {view.stunned ? ' · Сброс: жар в нуле, Доход вернётся' : ''}
       </div>
     </div>

@@ -1,10 +1,12 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, useStateSlice } from '../store/useGameStore';
-import { glitchesOf, labBoothLabels, labCardView } from '../store/selectors';
+import { glitchesOf, labBoothLabels, labCardView, ruleStatusText } from '../store/selectors';
 import { CATALOG } from '../economy/catalog';
 import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale } from '../economy/engine';
 import { labAgents } from '../economy/upgrades';
+import { generationRule } from '../economy/rules';
+import { courseById } from '../data/courses';
 import { formatCount, formatNumber } from '../economy/format';
 import { Hint } from './Hint';
 import { Icon } from './Icon';
@@ -15,6 +17,7 @@ import { QuipLogModal, SceneQuipBubble } from './QuipBubble';
 import { SceneDrone, SceneGlitchBand } from './SceneEvents';
 import { GLITCH_CLICKS } from '../economy/glitches';
 import { GlitchPopSprite, GlitchSprite } from './EventSprites';
+import { ResearchBlock } from './ResearchBlock';
 import {
   MASCOT_CARD_GAP,
   mascotCardBottom,
@@ -454,6 +457,11 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const roster = { generation, agents };
 
   const gen = CATALOG[generation];
+  const rule = generationRule(generation);
+  // Живая строка Правила (лидер Арены, места в очереди): пустая — и HUD показывает описание Правила.
+  const ruleStatus = useStateSlice(ruleStatusText);
+  // Курс виден весь Забег: игрок выбрал его один раз и менять не может, а забыть — значит играть вслепую.
+  const course = courseById(useGameStore((s) => s.state.course));
   const flagship = gen.flagship;
   const flagshipOwned = (agents[flagship.id] ?? 0) >= 1;
 
@@ -809,6 +817,84 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 </button>
               )}
             </div>
+
+            {/* Правило Поколения стоит на HUD всё время Забега: оно действует, пока игрок в этом Поколении,
+                и забыть его после входа — значит играть вслепую. Полный текст — в подсказке, а строка
+                обрезается многоточием, как цель выше. «Рассвет» Правила не имеет, и строки там нет. */}
+            {rule && (
+              <Hint
+                key={rule.id}
+                content={<><b>{rule.name}.</b> {rule.summary}</>}
+                className="scene__rule"
+                style={{ minWidth: 0, animation: 'toast-fade 0.15s ease-out' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', minWidth: 0 }}>
+                  <span className="pixel-22" style={{ color: 'var(--accent-color)', flexShrink: 0 }}>
+                    ПРАВИЛО
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '1rem',
+                      color: 'var(--text-main)',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {rule.name}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: 'var(--text-sm)',
+                    color: 'var(--text-muted)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {ruleStatus || rule.summary}
+                </div>
+              </Hint>
+            )}
+            {course && (
+              <Hint
+                key={course.id}
+                content={<><b>Курс «{course.name}».</b> {course.summary}</>}
+                className="scene__course"
+                style={{ minWidth: 0, animation: 'toast-fade 0.15s ease-out' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', minWidth: 0 }}>
+                  <span className="pixel-22" style={{ color: 'var(--accent-color)', flexShrink: 0 }}>
+                    КУРС
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '1rem',
+                      color: 'var(--text-main)',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {course.name}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: 'var(--text-sm)',
+                    color: 'var(--text-muted)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {course.summary}
+                </div>
+              </Hint>
+            )}
           </div>
           {/* Полоса кражи Дохода появляется вместе с первым Глюком и держит обратную связь
               на самой Сцене: без неё игрок узнавал бы об утечке только из модалки. */}
@@ -1092,6 +1178,9 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             рисоваться поверх обоих. Слой не перехватывает указатель — см. .scene__drone. */}
         <SceneDrone />
       </div>
+
+      {/* Исследования — блок под Сценой на десктопе. На телефоне (full) у них своя вкладка, а не место в Офисе. */}
+      {!full && <ResearchBlock />}
 
       <QuipLogModal isOpen={quipLogOpen} onClose={() => setQuipLogOpen(false)} />
     </div>

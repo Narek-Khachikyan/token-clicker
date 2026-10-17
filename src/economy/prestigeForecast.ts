@@ -1,4 +1,5 @@
 import { computeGain, prestigeDivisor } from './catalog';
+import { challengeComputeMult } from './challenges';
 import { canPrestige, isContentFinale, prestigeGain } from './engine';
 import type { GameState } from './state';
 
@@ -36,10 +37,12 @@ export interface PrestigeForecast {
  */
 function boostShortfallFor(state: GameState, boostGain: number): number {
   const divisor = prestigeDivisor(state.generation);
-  let needed = Math.pow(boostGain, 3) * divisor;
+  // Класс риска множит корень (`computeGain`), поэтому порог для g — корень g / m, а не g.
+  const mult = challengeComputeMult(state);
+  let needed = Math.pow(boostGain / mult, 3) * divisor;
   const shortfallOf = (n: number): number => Math.max(0, n - state.runTokens);
   for (let i = 0; i < 8; i++) {
-    if (computeGain(state.runTokens + shortfallOf(needed), state.generation) >= boostGain) break;
+    if (computeGain(state.runTokens + shortfallOf(needed), state.generation, mult) >= boostGain) break;
     needed *= 1 + 4 * Number.EPSILON;
   }
   return shortfallOf(needed);
@@ -68,14 +71,21 @@ export const PRESTIGE_RESETS: readonly PrestigeEffect[] = [
   { label: 'Токены Забега', fields: ['tokens', 'runTokens', 'runClicks'] },
   { label: 'Агенты', fields: ['agents'] },
   { label: 'Апгрейды', fields: ['upgrades'] },
-  { label: 'Активное Испытание Забега (закрывается наградой)', fields: ['activeChallenge'] },
+  { label: 'Взятые Испытания Забега (Престиж закрывает их и платит за них Compute)', fields: ['activeChallenges'] },
+  { label: 'Предложение Курса и выбор (выбранный Курс начнёт следующий Забег)', fields: ['courseOffer', 'courseNext'] },
   { label: 'Идущее Событие и цепочка пойманных', fields: ['event', 'eventCaughtAt', 'nextEventAt', 'combo'] },
+  { label: 'Временное усиление Исследования (окно принадлежит Забегу)', fields: ['researchBoostUntil'] },
+  { label: 'Файнтюны (Модели теряют архетип вместе с Агентами)', fields: ['finetunes'] },
 ];
 
 export const PRESTIGE_KEEPS: readonly PrestigeEffect[] = [
   { label: 'Compute и купленные Перки', fields: ['computeSpent', 'perks'] },
+  { label: 'Награда Испытаний, закрытых раньше (+10% к Доходу за каждое)', fields: ['challengesInherited'] },
   { label: 'Достижения и Датасет', fields: ['achievements'] },
   { label: 'Compute-кристаллы и ускорители', fields: ['crystals', 'crystalPlantedAt', 'crystalUpgrades'] },
+  { label: 'Исследования в слотах: срок и часы закладки', fields: ['research'] },
+  { label: 'Постоянные открытия Исследований: Курсы и Испытания, открытые навсегда', fields: ['researchUnlocks'] },
+  { label: 'Заготовки Файнтюна в запасе', fields: ['finetuneStock'] },
   { label: 'Вехи', fields: ['milestones'] },
   { label: 'Переписка', fields: ['quipsSeen'] },
   { label: 'Температура', fields: ['temp', 'heat', 'overheatedAt'] },
@@ -98,6 +108,19 @@ export const PRESTIGE_BOOKKEEPING: readonly (keyof GameState)[] = [
   'clicks',
   'compute',
   'prestiges',
+  // Отметка «сброс дерева Перков использован» снимается Престижем: сброс снова доступен.
+  'perkResetUsed',
+  // Очередь закупок сгорает вместе с Агентами, которых ставила: отдельной строки в карточке у неё нет.
+  'purchaseQueue',
+  // Ряд покупок «Дефицита GPU» и размышление «Подумай ещё» живут в своём Поколении и обнуляются Престижем:
+  // карточке нечего о них сказать, пока игрок не в этом Правиле.
+  'buyStreak',
+  'lastBuyAt',
+  'thought',
+  'thoughtAt',
+  // Курс Забега не сбрасывается в пустоту, а заменяется выбранным из предложения: карточка называет это
+  // строкой про предложение выше.
+  'course',
   'challengesDone',
   'catchUpPaid',
   'eventsSeen',

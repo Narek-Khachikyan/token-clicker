@@ -5,7 +5,7 @@ import { globalFactors } from './engine';
 import { AVAILABLE_CAP_SEC, availabilityOf, modelCardSummary, type BulkAmount } from './modelCard';
 import { newGame, type GameState } from './state';
 import { thermalRead } from './thermal';
-import { availableUpgrades } from './upgrades';
+import { availableUpgrades, modelUpgradeId } from './upgrades';
 import { ACHIEVEMENTS } from './achievements';
 import { PERKS } from './perks';
 import { CHALLENGES } from './challenges';
@@ -43,7 +43,7 @@ function stacked(gen: number): GameState {
     compute: 250,
     crystals: 3,
     covenant: true,
-    challengesDone: CHALLENGES.map((c) => c.id),
+    challengesInherited: CHALLENGES.map((c) => c.id),
   };
 }
 
@@ -92,6 +92,7 @@ describe('карточка Модели: разбивка Дохода', () => {
       ...base,
       lastTick: T0,
       event: { kind: 'surge', startedAt: T0 - 1000, red: false, modelId: target.id },
+      eventCaughtAt: T0 - 1000,
     };
     const hit = modelCardSummary(state, target);
     expect(hit.rows.map((r) => r.kind)).toContain('surge');
@@ -224,5 +225,29 @@ describe('карточка Модели: итог ×10, ×100 и Max', () => {
     expectSame(purchase(fresh, m, 10), q10);
     const qMax = quoteOf(modelCardSummary(fresh, m), 'max');
     expectSame(purchase(fresh, m, 'max'), qMax);
+  });
+});
+
+describe('карточка Модели: следующий Апгрейд', () => {
+  const models = CATALOG[0].models;
+  const youngest = models[0];
+  const flagship = models[models.length - 1];
+  const fresh = rich(cold(newGame(T0)), 1e300);
+
+  it('называет ступень и число Агентов, которое её открывает, — у младшей раньше, чем у Флагмана', () => {
+    expect(modelCardSummary(fresh, youngest).nextUpgrade).toEqual({ name: 'Fine-tuning', threshold: 1, ready: false });
+    const one = (m: Model) => buyUpgrade(buyAgents(fresh, m.id, 1), modelUpgradeId(m.id, 0));
+    // Пороги второй ступени — 5 у младшей и 6 у Флагмана (tierCurve.test.ts).
+    expect(modelCardSummary(one(youngest), youngest).nextUpgrade).toEqual({ name: 'RLHF', threshold: 5, ready: false });
+    expect(modelCardSummary(one(flagship), flagship).nextUpgrade).toEqual({ name: 'RLHF', threshold: 6, ready: false });
+  });
+
+  it('говорит «готово», когда ступень открыта, но не куплена, и молчит, когда куплены все', () => {
+    const open = buyAgents(fresh, youngest.id, 4);
+    expect(modelCardSummary(open, youngest).nextUpgrade).toEqual({ name: 'Fine-tuning', threshold: 1, ready: true });
+    let all = buyAgents(fresh, youngest.id, 90);
+    for (let tier = 0; tier < 5; tier++) all = buyUpgrade(all, modelUpgradeId(youngest.id, tier));
+    expect(all.upgrades).toHaveLength(5);
+    expect(modelCardSummary(all, youngest).nextUpgrade).toBeNull();
   });
 });

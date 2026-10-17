@@ -1,7 +1,11 @@
 import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, type Model } from './catalog';
-import { challengeIncomeMult } from './challenges';
+import { challengeComputeMult, challengeIncomeMult, hasChallenge, runPerks } from './challenges';
+import { characterIncomeMult, characterMods, ecosystemBoost } from './character';
 import type { LabId } from '../data/labs';
+import { courseClickMult, courseEventWindowMult, courseIncomeMult, courseMissing, courseOfflineMult, coursePriceMult, offerCourse, takeCourse } from './course';
 import { collectCrystals, crystalIncomeMult } from './crystal';
+import { researchBoostMult, thirdSlotBusy } from './research';
+import { finetuneIncomeMult } from './finetune';
 import {
   applyOverheat,
   HALLUC_HEAT,
@@ -10,10 +14,14 @@ import {
   HEAT_COOL_RATE,
   heatRate,
   halluRate,
+  effectiveTemp,
   thermalRead,
+  thermalModsFor,
 } from './thermal';
-import { perkEffects, PERK_BY_ID, START_TOKENS_UNITS, GEN_PERK_MAX_TOTAL, genPerkCost, genPerkGeneration, isGenPerkId, type PerkEffect } from './perks';
+import { perkEffects, perkLock, PERK_BY_ID, START_TOKENS_UNITS, type PerkEffect } from './perks';
 import type { GameState } from './state';
+import { queueCapacity } from './purchaseQueue';
+import { noteHire, ruleEffect, ruleIncomeMult, ruleLiveIncomeMult, rulePriceMult, thoughtMult } from './rules';
 import { nonShadowCount } from './achievements';
 import {
   catchUpClick,
@@ -95,6 +103,21 @@ function hasUpgrade(state: GameState, id: string): boolean {
 export const PRICE_GROWTH = 1.15;
 export const SELL_REFUND = 0.25;
 export const COMPUTE_BONUS = 0.01;
+/**
+ * Мягкий потолок бонуса Compute (ADR-0010): до колена бонус идёт по прямой, +1% за единицу,
+ * а выше ложится на кривую, которая подходит к `COMPUTE_BONUS_MAX` и не достигает его.
+ *
+ * Колено в бонусе, а не в Compute: 1,0 = +100% = 100 свободного Compute. Копилка до колена
+ * считается ровно как раньше, потолок трогает только тех, кто много накопил.
+ *
+ * Замер `tools/sim.ts --campaign` (жадная политика, 5 Кликов/с): старое правило проходит кампанию
+ * за 46 минут, свободный Compute без потолка за 84, колено 1 и потолок 4 — за 89, потолок 2 — за 97,
+ * потолок 1,0001 (плоский +100%) — за 116. Форма потолка двигает кампанию на минуты, а не на часы:
+ * темп до ~10 часов набирают другие слои плана, не эта кривая. Потолок 4 оставлен ради решения
+ * «копить или тратить»: до ~300 свободного Compute Перк заметно стоит Дохода, выше цена тает.
+ */
+export const COMPUTE_BONUS_KNEE = 1;
+export const COMPUTE_BONUS_MAX = 4;
 export const BASE_OFFLINE_HOURS = 8;
 
 /** Пауза длиннее этого порога считается оффлайном (вкладка в фоне или сон). */
@@ -106,12 +129,14 @@ export const OFFLINE_THRESHOLD_SEC = 10;
 export const START_PRICE_MULT = 0.7;
 
 export function discountMult(state: GameState): number {
-  const perk = perkEffects(state.perks).reduce((m, e) => (e.kind === 'discount' ? m * (1 - e.pct) : m), 1);
+  const perk = perkEffects(runPerks(state)).reduce((m, e) => (e.kind === 'discount' ? m * (1 - e.pct) : m), 1);
   // Стартовая скидка: первые два Агента забега дешевле на 30%. Яма 2–5 минут — это дорога от
   // первого Агента (0,1/сек) до второй Модели за 97,5 Токена (COST_BASE × COST_STEP); скидка
   // срезает её треть, не трогая лестницу Рангов (множитель общий для всех Моделей) и ±30%
   // (модификаторы каталога не меняются).
-  return perk * (totalAgents(state) < 2 ? START_PRICE_MULT : 1);
+  // Правило Поколения («Ценовая война») — третий сомножитель той же скидки: цену читают все, кто зовёт эту функцию.
+  // Курс «Бережливость» — четвёртый: он тоже общий для всех Моделей и лестницу Ранга цен не трогает.
+  return perk * (totalAgents(state) < 2 ? START_PRICE_MULT : 1) * rulePriceMult(state) * coursePriceMult(state);
 }
 
 /** Цена следующих `n` Агентов при `owned` уже купленных. */
@@ -175,11 +200,56 @@ export function progressToNextAgent(state: GameState, model: Model): number {
 
 // ---------- Доход ----------
 
+/** Свободный Compute: начислено минус потрачено на Перки. Только он даёт бонус к Доходу. */
+export function freeCompute(state: GameState): number {
+  return Math.max(0, state.compute - state.computeSpent);
+}
+
 /**
- * Постоянный множитель Дохода: Compute, запас кристаллов, налог за «Лицензию» и награда за
- * закрытые Испытания Забега.
+ * Бонус к Доходу от `free` свободного Compute (0,5 = +50%): по прямой до колена, выше — мягкий
+ * потолок, не выше `COMPUTE_BONUS_MAX` (ADR-0010). Неубывающая функция, непрерывная на колене
+ * вместе с производной, поэтому игрок не чувствует перелома, только затухание.
+ */
+export function computeBonus(free: number): number {
+  const linear = free * COMPUTE_BONUS;
+  if (linear <= COMPUTE_BONUS_KNEE) return Math.max(0, linear);
+  const room = COMPUTE_BONUS_MAX - COMPUTE_BONUS_KNEE;
+  return COMPUTE_BONUS_KNEE + room * (1 - Math.exp(-(linear - COMPUTE_BONUS_KNEE) / room));
+}
+
+/**
+ * Сколько бонуса к Доходу отнимет Перк ценой `cost`: разность бонуса до покупки и после
+ * (0,03 = −3 п.п.). Покупка уменьшает свободный Compute ровно на цену, поэтому цифра для
+ * подписи считается теми же функциями, что и Доход, а не отдельной формулой в компоненте.
+ */
+export function perkBonusLoss(state: GameState, cost: number): number {
+  return bonusLossOf(freeCompute(state), cost);
+}
+
+/** То же по числу свободного Compute: карточкам Перков не нужно собирать для этого состояние. */
+export function bonusLossOf(free: number, cost: number): number {
+  return computeBonus(free) - computeBonus(Math.max(0, free - cost));
+}
+
+/**
+ * Насколько новое правило отняло у бонуса Compute по сравнению со старым (бонус от всего
+ * начисленного, без потолка): `before` и `after` — доли, 0,8 = +80%. `null`, если не отняло.
  *
- * Все четыре живут в состоянии и длятся дольше забега, поэтому они достаются и оффлайн-доходу —
+ * По одному этому видно, кому после обновления объяснять падение Дохода: тому, у кого Compute
+ * потрачен или копилка выше потолка. Признак «объяснение показано» из состояния не вывести, он
+ * живёт в сторе отдельно, а вот «есть что объяснять» выводится и поля в сейве не просит.
+ */
+export function computeBonusDrop(state: GameState): { before: number; after: number } | null {
+  const before = state.compute * COMPUTE_BONUS;
+  const after = computeBonus(freeCompute(state));
+  return before > after ? { before, after } : null;
+}
+
+/**
+ * Постоянный множитель Дохода: Compute, запас кристаллов, налог за «Лицензию», награда за
+ * закрытые Испытания Забега и Курс «Масштабирование».
+ *
+ * Все пять живут в состоянии и длятся дольше забега, поэтому они достаются и оффлайн-доходу —
  * в отличие от событий и Глюков, которые живут минуты и в него не попадают вовсе.
  *
  * Температура сюда НЕ входит, хотя она тоже переживает забег: её множитель читает `now`, потому
@@ -188,7 +258,13 @@ export function progressToNextAgent(state: GameState, model: Model): number {
  * то есть платит активному тику и не платит оффлайн-доходу.
  */
 export function globalMult(state: GameState): number {
-  return (1 + state.compute * COMPUTE_BONUS) * crystalIncomeMult(state) * covenantIncomeMult(state) * challengeIncomeMult(state);
+  return (
+    (1 + computeBonus(freeCompute(state))) *
+    crystalIncomeMult(state) *
+    covenantIncomeMult(state) *
+    challengeIncomeMult(state) *
+    courseIncomeMult(state)
+  );
 }
 
 /**
@@ -220,6 +296,8 @@ export function datasetValue(state: GameState): number {
  * таблица и создаёт.
  */
 export function datasetMult(state: GameState): number {
+  // «Стена данных»: Датасет молчит весь Забег, а Достижения, из которых он растёт, остаются при игроке.
+  if (hasChallenge(state, 'no-dataset')) return 1;
   let owned = 0;
   for (let tier = 0; tier < DATASET_THRESHOLDS.length; tier++) {
     if (hasUpgrade(state, datasetUpgradeId(state.generation, tier))) owned++;
@@ -242,16 +320,21 @@ export function assistClickBonus(state: GameState): number {
  */
 export type IncomeFactorKind =
   | 'upgrades'
+  | 'finetune'
   | 'synergy'
   | 'flagship'
   | 'labPerk'
   | 'pairSynergy'
+  | 'character'
   | 'genPerk'
+  | 'orchestra'
+  | 'rule'
   | 'dataset'
   | 'compute'
   | 'crystals'
   | 'covenant'
   | 'challenge'
+  | 'course'
   | 'surge';
 
 /** Один шаг умножения Дохода Модели: вид множителя и его значение. */
@@ -265,9 +348,9 @@ const note = (out: IncomeFactor[] | undefined, kind: IncomeFactorKind, mult: num
 };
 
 /**
- * Множитель Модели от её собственных усилений: Апгрейды, Синергия Лаборатории, парная Синергия,
- * Флагман, Перки (включая особые) и Датасет. Compute и прочие постоянные множители всех Моделей
- * сразу — в `globalMult`.
+ * Множитель Модели от её собственных усилений: Апгрейды, Файнтюн (ТЗ #116), Синергия Лаборатории,
+ * парная Синергия, Флагман, Перки (включая особые) и Датасет. Compute и прочие постоянные множители всех
+ * Моделей сразу — в `globalMult`.
  *
  * Единственное место, где этот множитель считается: тик и карточка Модели в магазине читают его
  * отсюда, поэтому разбивка на карточке не может разойтись с Доходом. `out` — необязательный
@@ -282,19 +365,24 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
       note(out, 'upgrades', 2);
     }
   }
+  // Файнтюн — постоянный множитель этой Модели, как её Апгрейд: сразу после них, до Синергий.
+  const finetune = finetuneIncomeMult(state, model.id);
+  mult *= finetune;
+  note(out, 'finetune', finetune);
   // Испытание «Забег без Синергий» гасит оба синергийных множителя — лабораторный и парный, —
   // а Апгрейды Модели, Флагман, Перки и Датасет продолжают работать: испытание отменяет
   // Синергии, а не все усиления сразу.
-  const noSynergy = state.activeChallenge === 'no-synergy';
+  const noSynergy = hasChallenge(state, 'no-synergy');
   if (!noSynergy && hasUpgrade(state, synergyUpgradeId(state.generation, model.lab))) {
-    const synergy = 1 + SYNERGY_PER_AGENT * labAgents(state, model.lab);
+    // «Экосистема» Google растит именно прибавку Синергии; у остальных Лабораторий множитель — единица.
+    const synergy = 1 + SYNERGY_PER_AGENT * labAgents(state, model.lab) * ecosystemBoost(state, model.lab);
     mult *= synergy;
     note(out, 'synergy', synergy);
   }
   const flagship = flagshipMult(state, model);
   mult *= flagship;
   note(out, 'flagship', flagship);
-  for (const e of perkEffects(state.perks)) {
+  for (const e of perkEffects(runPerks(state))) {
     if (e.kind === 'labBoost' && e.lab === model.lab) {
       mult *= e.mult;
       note(out, 'labPerk', e.mult);
@@ -315,11 +403,23 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
       note(out, 'pairSynergy', PAIR_SYNERGY_MULT);
     }
   }
-  // Особый Перк усиливает только Модели своего Поколения и одинаково все его ранги,
-  // поэтому ранговая лестница внутри Поколения не инвертируется по построению.
-  const genPerk = generationBoostMult(perkEffects(state.perks), model.generation);
+  // Характеры состава («Конвейер» Alibaba, «Открытые веса» Meta): множитель, не поправка базы.
+  const character = characterIncomeMult(state, model);
+  mult *= character;
+  note(out, 'character', character);
+  // «Наследие поколений» множит все Модели одинаково, поэтому ранговая лестница внутри Поколения
+  // не инвертируется по построению. Здесь же верхний Перк Оркестратора: тоже один множитель на всех.
+  const effects = perkEffects(runPerks(state));
+  const genPerk = legacyBoostMult(effects, state.maxGeneration);
   mult *= genPerk;
   note(out, 'genPerk', genPerk);
+  const orchestra = agentBoostMult(effects);
+  mult *= orchestra;
+  note(out, 'orchestra', orchestra);
+  // Правило Поколения («Разнообразие», «Роутер») не переворачивает лестницу Ранга: первое множит все Модели одинаково, второе режет только младшие Ранги.
+  const rule = ruleIncomeMult(state, model);
+  mult *= rule;
+  note(out, 'rule', rule);
   // Датасет — последний множитель Модели: он считается от числа Достижений, а не от
   // конкретной Модели, поэтому ни один множитель выше не должен стоять после него.
   const dataset = datasetMult(state);
@@ -335,10 +435,11 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
  */
 export function globalFactors(state: GameState): IncomeFactor[] {
   return [
-    { kind: 'compute', mult: 1 + state.compute * COMPUTE_BONUS },
+    { kind: 'compute', mult: 1 + computeBonus(freeCompute(state)) },
     { kind: 'crystals', mult: crystalIncomeMult(state) },
     { kind: 'covenant', mult: covenantIncomeMult(state) },
     { kind: 'challenge', mult: challengeIncomeMult(state) },
+    { kind: 'course', mult: courseIncomeMult(state) },
   ];
 }
 
@@ -358,25 +459,31 @@ function modelBaseIncome(state: GameState, model: Model): number {
 /**
  * Шаги умножения Дохода Модели в порядке, в котором их делает `modelIncome`: собственные
  * множители Модели, затем общие. Вместе с базой одного Агента и числом Агентов их произведение
- * равно `modelIncome` без «Прорыва» (его добавляет `surgeMultFor`).
+ * равно `modelIncome` без «Прорыва» (его добавляет `surgeMultFor`). Надбавка лидера Арены в нём есть.
  */
 export function modelFactors(state: GameState, model: Model): IncomeFactor[] {
   const out: IncomeFactor[] = [];
   modelMultiplier(state, model, out);
+  // Надбавка лидера Арены платится только живому тику и потому стоит не в `modelMultiplier`, а здесь:
+  // карточка Модели называет её тем же видом «Правило Поколения», что постоянные надбавки Правил.
+  note(out, 'rule', ruleLiveIncomeMult(state, model));
   return [...out, ...globalFactors(state)];
 }
 
 /**
- * Множитель особых Перков для Поколения `generation`: сумма бонусов только своих
- * Перков, но не больше хард-капа. Кап держит инвариант прогрессии: даже в пределе
- * бонус не дотягивает Поколение до следующего (масштаб ×1000 на Поколение).
+ * Множитель «Наследия поколений»: +pct за каждое пройденное Поколение (`maxGeneration`, то есть
+ * индекс самого дальнего достигнутого). Действует на текущий Забег — в этом его отличие от
+ * прежнего Перка, который усиливал уже пройденное Поколение.
  */
-export function generationBoostMult(effects: PerkEffect[], generation: number): number {
-  const total = effects.reduce(
-    (s, e) => (e.kind === 'generationBoost' && e.generation === generation ? s + e.pct : s),
-    0,
-  );
-  return 1 + Math.min(total, GEN_PERK_MAX_TOTAL);
+export function legacyBoostMult(effects: PerkEffect[], maxGeneration: number): number {
+  let pct = 0;
+  for (const e of effects) if (e.kind === 'legacyBoost') pct += e.pctPerGeneration;
+  return 1 + pct * Math.max(0, maxGeneration);
+}
+
+/** Множитель Дохода всех Моделей от Перков Оркестратора. */
+export function agentBoostMult(effects: PerkEffect[]): number {
+  return effects.reduce((m, e) => (e.kind === 'agentBoost' ? m * e.mult : m), 1);
 }
 
 /**
@@ -386,7 +493,7 @@ export function generationBoostMult(effects: PerkEffect[], generation: number): 
  * магазине и начисление считают один и тот же Доход, не протаскивая часы через каждую подпись.
  */
 export function modelIncome(state: GameState, model: Model, now: number = state.lastTick): number {
-  return modelBaseIncome(state, model) * surgeMultFor(state, model.id, now);
+  return modelBaseIncome(state, model) * surgeMultFor(state, model.id, now) * ruleLiveIncomeMult(state, model, now);
 }
 
 /**
@@ -397,7 +504,15 @@ export function modelIncome(state: GameState, model: Model, now: number = state.
  */
 function incomeRate(state: GameState, now: number): number {
   const total = CATALOG[state.generation].models.reduce((s, m) => s + modelIncome(state, m, now), 0);
-  return total * eventMultiplierFor(state, now) * downtimeIncomeMult(state, now) * thermalRead(state, now).mult;
+  // Временное усиление Исследования — живой множитель, как Температура и событие: в `offlineIncome` не
+  // входит, поэтому оффлайн-доход от него не зависит (ТЗ #115: Исследования не меняют `applyOffline`).
+  return (
+    total *
+    eventMultiplierFor(state, now) *
+    downtimeIncomeMult(state, now) *
+    thermalRead(state, now).mult *
+    researchBoostMult(state, now)
+  );
 }
 
 /** Доход активного тика: то, что платит база, событие и живые Глюки. */
@@ -521,7 +636,7 @@ export function clickValue(state: GameState, income?: number, now: number = stat
   // иначе витрина обещала бы Токены, которых переход не даст.
   // Проверка стоит первой и до подсчёта income: иначе даже нулевой Клик считал бы полный
   // Доход через дефолтный аргумент на каждом тике теневого Достижения.
-  if (state.activeChallenge === 'no-click') return 0;
+  if (hasChallenge(state, 'no-click')) return 0;
   const gen = state.generation;
   // Клик стартует с масштаба Поколения, а не с 1: в Поколении 0 это 1, а дальше ×1000, и
   // без этого клик перестал бы что-то значить ровно там, где Доход уже измеряется триллионами.
@@ -533,14 +648,19 @@ export function clickValue(state: GameState, income?: number, now: number = stat
     else pct += 0.01;
   });
   flat += assistClickBonus(state);
-  for (const e of perkEffects(state.perks)) if (e.kind === 'clickMult') flat *= e.mult;
+  for (const e of perkEffects(runPerks(state))) if (e.kind === 'clickMult') flat *= e.mult;
   // Датасет множит только flat-часть: pct-часть уже содержит его через income.
   flat *= datasetMult(state);
   // Доход нужен только pct-части: без Апгрейдов «+1% дохода за клик» полный проход по Моделям
   // на каждом тике и на каждой проверке тени — пустая трата, и тик позднего Поколения платил бы
   // её двадцать раз в секунду. Ленивый подсчёт: та же сумма, но только когда она умножается.
   const rate = pct > 0 ? (income ?? totalIncome(state)) : 0;
-  return clickMultiplierFor(state, now) * (flat * globalMult(state) + rate * pct + clickCatchUp(state, now));
+  // «Эффективность» DeepSeek усиливает сам Клик, но не возврат «Ночного кодинга»: тот — выплата
+  // за глушение окна, а не заработок.
+  return (
+    clickMultiplierFor(state, now) *
+    ((flat * globalMult(state) + rate * pct) * characterMods(state).click * courseClickMult(state) + clickCatchUp(state, now))
+  );
 }
 
 /**
@@ -558,7 +678,7 @@ function clickCatchUp(state: GameState, now: number): number {
 }
 
 export function autoclicksPerSecond(state: GameState): number {
-  return perkEffects(state.perks).reduce((s, e) => (e.kind === 'autoclick' ? s + e.perSecond : s), 0);
+  return perkEffects(runPerks(state)).reduce((s, e) => (e.kind === 'autoclick' ? s + e.perSecond : s), 0);
 }
 
 // ---------- Действия ----------
@@ -584,7 +704,7 @@ export function click(state: GameState): GameState {
   // Испытание «Забег без Кликов»: выплаты нет, но счётчики растут — по ним стор выдаёт реплики
   // Моделей и пишет Переписку, а котёл «Ночного кодинга» не трогается: раз ничего не выплачено,
   // и возвращать нечего, иначе пустые Клики подъедали бы чужой возврат.
-  if (state.activeChallenge === 'no-click') {
+  if (hasChallenge(state, 'no-click')) {
     return { ...state, clicks: state.clicks + 1, runClicks: state.runClicks + 1 };
   }
   const catchUp = clickCatchUp(state, state.lastTick);
@@ -620,7 +740,75 @@ export function buyAgents(state: GameState, modelId: string, n: number | 'max'):
   const { count, cost } = purchaseQuote(state, model, n);
   if (count <= 0) return state;
   if (cost > state.tokens) return state;
-  return { ...state, tokens: state.tokens - cost, agents: { ...state.agents, [modelId]: owned + count } };
+  // Найм продлевает ряд «Дефицита GPU»; вне Правила `noteHire` возвращает тот же объект. Найм Флагмана
+  // открывает Престиж, а с ним и предложение Курса: оно кладётся в состояние сразу, а не при показе.
+  return offerCourse(
+    noteHire({ ...state, tokens: state.tokens - cost, agents: { ...state.agents, [modelId]: owned + count } }, count),
+  );
+}
+
+/**
+ * Исполняет очередь закупок Правила «Агенты сами»: нанимает по одному Агенту с головы очереди,
+ * пока хватает Токенов. Порядок строгий: дорогая запись во главе ждёт Токенов и не пропускает
+ * дешёвую за собой, иначе очередь переставляла бы покупки за игрока. Цена — та же, что у ручной
+ * покупки (`buyAgents`), без скидок за делегирование.
+ *
+ * Зовётся только из `advance`, то есть из живого тика. Путь простоя (`applyOffline`) её не
+ * вызывает: очередь, исполняющаяся оффлайн, обошла бы потолок Оффлайн-дохода и сделала бы
+ * Правило автокликером без игрока. Без записей и вне Правила возвращает тот же объект.
+ */
+export function runPurchaseQueue(state: GameState): GameState {
+  if (state.purchaseQueue.length === 0 || queueCapacity(state) === 0) return state;
+  let next = state;
+  const rest = [...state.purchaseQueue];
+  while (rest.length > 0) {
+    // Запись не из текущего Поколения (битое сохранение) не должна запирать очередь навсегда.
+    if (MODEL_BY_ID[rest[0]]?.generation !== state.generation) { rest.shift(); continue; }
+    const bought = buyAgents(next, rest[0], 1);
+    if (bought === next) break;
+    next = bought;
+    rest.shift();
+  }
+  return rest.length === state.purchaseQueue.length ? state : { ...next, purchaseQueue: rest };
+}
+
+/**
+ * Выплачивает размышление Правила «Подумай ещё», когда удержание оборвалось (с последней порции
+ * прошло больше паузы Правила) или копилка дошла до предела: секунды × Клики в секунду × стоимость
+ * Клика в этот момент × надбавка за длину удержания. Платится одним ударом в Токены и в счётчики
+ * Кликов целыми Кликами. Без накопленного и вне Правила возвращает тот же объект.
+ *
+ * Зовётся только из `advance`, то есть из живого тика. Путь простоя (`applyOffline`) её не вызывает:
+ * размышление копит только живое удержание, а выплата за время отсутствия обошла бы потолок
+ * Оффлайн-дохода. Накопленное до ухода выплачивается первым же живым тиком по возвращении, и не
+ * больше предела копилки — оно уже заработано, а простой его не растит.
+ */
+export function settleThought(state: GameState, now: number): GameState {
+  const effect = ruleEffect(state, 'heldThought');
+  if (!effect || !thoughtDue(state, now)) return state;
+  const steps = state.thought * effect.clicksPerSec;
+  const cleared = { ...state, thought: 0, thoughtAt: 0 };
+  if (steps <= 0) return cleared;
+  const paid = earnTokens(cleared, thoughtPayout(state, now));
+  const clicks = Math.floor(steps);
+  return { ...paid, clicks: paid.clicks + clicks, runClicks: paid.runClicks + clicks };
+}
+
+/** Пора ли выплачивать размышление: удержание оборвалось или копилка на пределе. */
+function thoughtDue(state: GameState, now: number): boolean {
+  const effect = ruleEffect(state, 'heldThought');
+  if (!effect || state.thoughtAt === 0) return false;
+  return now - state.thoughtAt > effect.releaseSec * 1000 || state.thought >= effect.maxSec;
+}
+
+/**
+ * Сколько Токенов выплатит `settleThought` в момент `now`; ноль, если платить ещё рано или нечего.
+ * Отдельная функция, чтобы всплывающее число в сторе называло ту же сумму, что платит тик.
+ */
+export function thoughtPayout(state: GameState, now: number): number {
+  const effect = ruleEffect(state, 'heldThought');
+  if (!effect || !thoughtDue(state, now)) return 0;
+  return state.thought * effect.clicksPerSec * clickValue(state, undefined, now) * thoughtMult(effect, state.thought);
 }
 
 export function sellAgents(state: GameState, modelId: string, n: number): GameState {
@@ -647,30 +835,28 @@ export function buyUpgrade(state: GameState, id: string): GameState {
 
 export function buyPerk(state: GameState, id: string): GameState {
   const p = PERK_BY_ID[id];
-  if (!p || state.perks.includes(id)) return state;
-  if (isGenPerkId(id)) return buyGenPerk(state, id);
-  const free = state.compute - state.computeSpent;
-  if (p.cost > free) return state;
+  // «Забег без Перков»: новый Перк в этом Забеге не заработал бы, и Compute на него ушёл бы впустую.
+  if (!p || hasChallenge(state, 'no-perks') || perkLock(state.perks, id)) return state;
+  if (p.cost > freeCompute(state)) return state;
   return { ...state, computeSpent: state.computeSpent + p.cost, perks: [...state.perks, id] };
 }
 
 /**
- * Покупка особого Перка Поколения. Перк N доступен в Поколении N и позже:
- * упущенный докупается в любом позднем Забеге по той же цене. Флагман
- * (canPrestige) требуется только для перка ТЕКУЩЕГО Поколения — переход
- * дальше уже доказал мастерство прошлого, ведь сам переход требовал флагмана.
- * Цена растёт с числом уже купленных особых (10/15/20…), а не с Поколением,
- * и списывается из свободного Compute как у обычных Перков.
+ * Бесплатный сброс дерева: все Перки снимаются, потраченный Compute возвращается, раз за Забег
+ * (ADR-0012). Престиж снимает отметку.
+ *
+ * `computeSpent` обнуляется целиком, а не уменьшается на сумму цен: Compute тратится только на
+ * Перки, и вычитание сумм оставило бы в «потрачено» хвост, если Перк когда-то продавался по другой
+ * цене, — игрок потерял бы его насовсем. Без Перков сбрасывать нечего, и единственный сброс
+ * не тратится.
+ *
+ * Сброс не проходит, пока третий слот Исследований занят (`thirdSlotBusy`): он снял бы Перк, который
+ * эту работу оплатил. Отказ — тот же объект, и единственный сброс остаётся нетронутым: после сбора
+ * он доступен как раньше.
  */
-function buyGenPerk(state: GameState, id: string): GameState {
-  const generation = genPerkGeneration(id);
-  if (generation === null || generation > state.generation) return state;
-  // Прошлое Поколение флагман не требует: факт перехода дальше уже доказывает
-  // мастерство — Престиж оттуда без флагмана был невозможен.
-  if (generation === state.generation && !canPrestige(state)) return state;
-  const cost = genPerkCost(state.perks);
-  if (cost > state.compute - state.computeSpent) return state;
-  return { ...state, computeSpent: state.computeSpent + cost, perks: [...state.perks, id] };
+export function resetPerkTree(state: GameState): GameState {
+  if (state.perkResetUsed || state.perks.length === 0 || thirdSlotBusy(state)) return state;
+  return { ...state, perks: [], computeSpent: 0, perkResetUsed: true };
 }
 
 // ---------- Время ----------
@@ -704,13 +890,16 @@ export function advance(state: GameState, dt: number, rnd: () => number = Math.r
   // много, а окно стоит одних 10 с Дохода. Дробный автоклик возвращает долю объёма.
   // В Испытании «Забег без Кликов» автоклик тоже не платит и не трогает котёл возврата — по той же
   // причине, что ручной Клик выше, — но в счётчики он по-прежнему попадает строкой ниже.
-  const noClick = state.activeChallenge === 'no-click';
+  const noClick = hasChallenge(state, 'no-click');
   const catchUp = noClick ? 0 : clickCatchUp(state, now);
   const autoRefund = noClick ? 0 : Math.min(autoClicks, 1) * catchUp;
   const auto = autoClicks > 0 && !noClick ? autoClicks * (clickValue(state, rate * glitch, now) - catchUp) + autoRefund : 0;
   // Глюки крадут из скорости без их множителя, поэтому десять штук отнимают ровно половину.
   const stepped = stepGlitches(state, rate, dt);
-  const s = earnTokens(stepped, rate * glitch * dt + auto);
+  const earned = earnTokens(stepped, rate * glitch * dt + auto);
+  // Размышление «Подумай ещё» платится здесь же, в живом тике, до очереди закупок: выплата тоже
+  // Токены, из которых очередь может нанять.
+  const s = runPurchaseQueue(settleThought(earned, now));
   // Температура идёт после начисления: перегрев режет уже посчитанную скорость этого тика,
   // а не подменяет её на следующем — иначе игрок, пойманный перегревом, терял бы ещё
   // и тот Доход, который успел заработать до сброса.
@@ -752,13 +941,14 @@ function applyHallucination(state: GameState): GameState {
  * ещё и 4% кошелька за событие, которое тут же началось с нуля.
  */
 function advanceThermal(state: GameState, dt: number, rnd: () => number, now: number): GameState {
-  const temp = state.temp;
+  const temp = effectiveTemp(state);
+  const mods = thermalModsFor(state);
   // Нижняя граница обязательна: без неё перегрев уходил бы в минус, и отрицательный
   // перегрев резал бы Доход сильнее полного — то есть охлаждение платило бы игроку.
-  const heat = Math.min(1, Math.max(0, state.heat + (heatRate(temp) - HEAT_COOL_RATE) * dt));
+  const heat = Math.min(1, Math.max(0, state.heat + (heatRate(temp, mods) - HEAT_COOL_RATE) * dt));
   let next: GameState = { ...state, heat };
   if (next.heat >= HEAT_LIMIT) return applyOverheat(next, now);
-  if (rnd() < halluRate(temp) * dt) next = applyHallucination(next);
+  if (rnd() < halluRate(temp, mods) * dt) next = applyHallucination(next);
   return next;
 }
 
@@ -803,6 +993,10 @@ export function applyOffline(state: GameState, now: number): { state: GameState;
         startedAt: Math.min(s.startedAt, now),
         runStartedAt: Math.min(s.runStartedAt, now),
         crystalPlantedAt: Math.min(s.crystalPlantedAt, now),
+        // Закладка из будущего встаёт на сейчас, а усиление не длится дольше сейчас: иначе откат часов
+        // растянул бы срок созревания или окно, которого игрок не покупал.
+        research: s.research.map((j) => (j.startedAt > now ? { ...j, startedAt: now } : j)),
+        researchBoostUntil: Math.min(s.researchBoostUntil, now),
         pledgeUntil: Math.min(s.pledgeUntil, now),
         nextEventAt: Math.min(s.nextEventAt, now),
         nextGlitchAt: Math.min(s.nextGlitchAt, now),
@@ -818,7 +1012,8 @@ export function applyOffline(state: GameState, now: number): { state: GameState;
   // а игрок проводит в простое часы — оплачивать ему их задним числом нельзя. Глюки при этом
   // просто спят (как в Cookie Clicker спят во время отсутствия) и не воруют оффлайн-доход,
   // потому что оффлайн идёт по базовой скорости, а не по их.
-  const earned = offlineIncome(state) * seconds * offlineRateMult(state);
+  // Курс «Ночная смена» множит только простой: потолок `seconds` и живой Доход остаются прежними (ТЗ #118).
+  const earned = offlineIncome(state) * seconds * offlineRateMult(state) * courseOfflineMult(state);
   // Зревший за время отсутствия кристалл собирается здесь, а не на первом тике после загрузки:
   // путь загрузки вызывает именно эту функцию, и игрок возвращается к уже готовому отчёту.
   const s = collectCrystals(earnTokens(state, earned), now).state;
@@ -836,6 +1031,8 @@ export function applyOffline(state: GameState, now: number): { state: GameState;
  * этом не видно и не платит — `isEventActive` отсекает его по времени.
  */
 function advanceEvents(state: GameState, now: number, rnd: () => number): GameState {
+  // «Забег без Событий» (ТЗ #118): расписания нет совсем, ни обычных Событий, ни красных Восстания.
+  if (hasChallenge(state, 'no-events')) return state;
   // У нового сохранения окна нет, поэтому первое назначается здесь же коротким — иначе первого
   // события не было бы никогда, а ждать его пришлось бы минуты.
   if (state.nextEventAt === 0) return { ...state, nextEventAt: now + pickFirstEventWindow(rnd), combo: 0 };
@@ -852,11 +1049,12 @@ function advanceEvents(state: GameState, now: number, rnd: () => number): GameSt
   // Догоняющее окно — только за пойманное и только по шансу: иначе цепочки не сложились бы
   // никогда (устоявшиеся паузы выводят за комбо-окно), а каждое Событие тянуло бы серию.
   const encore = prevCaught && rnd() < ENCORE_CHANCE;
-  const kind = rollEventKind(event ? [event.kind] : [], rnd);
+  const kind = rollEventKind(event ? [event.kind] : [], rnd, characterMods(state).hype);
   return {
     ...state,
     // Окно переносится на новое, а не остаётся в прошлом: иначе события сыпались бы каждый тик.
-    nextEventAt: now + (encore ? pickEncoreWindow(rnd) : pickEventWindow(rnd)),
+    // Курс «Охота за сигналом» сжимает обычную паузу; догоняющее окно и первое событие и так короткие.
+    nextEventAt: now + (encore ? pickEncoreWindow(rnd) : Math.floor(pickEventWindow(rnd) * courseEventWindowMult(state))),
     eventsSeen: state.eventsSeen + 1,
     combo,
     // Котёл возврата за Клик принадлежит окну, а не забегу: без обнуления следующее «Ночной кодинг»
@@ -915,7 +1113,7 @@ export function canPrestige(state: GameState): boolean {
 }
 
 export function prestigeGain(state: GameState): number {
-  return computeGain(state.runTokens, state.generation);
+  return computeGain(state.runTokens, state.generation, challengeComputeMult(state));
 }
 
 /**
@@ -931,7 +1129,8 @@ export function prestigeGain(state: GameState): number {
  * под точность double и честно читается как ноль — такой суммы игра не набирает.
  */
 export function computeShortfall(state: GameState): number {
-  return shortfall(Math.pow(prestigeGain(state) + 1, 3) * prestigeDivisor(state.generation), state.runTokens);
+  // Класс риска множит корень, поэтому для следующей единицы нужен корень (g + 1) / m, а не g + 1.
+  return shortfall(Math.pow((prestigeGain(state) + 1) / challengeComputeMult(state), 3) * prestigeDivisor(state.generation), state.runTokens);
 }
 
 export function isContentFinale(state: GameState): boolean {
@@ -944,16 +1143,46 @@ export function startingTokens(state: GameState, generation: number): number {
     : 0;
 }
 
+/**
+ * Поколения, в которые Престиж с Финала контента может вернуть игрока: все пройденные, то есть все
+ * до последнего. `maxGeneration` на Финале равно последнему, поэтому список — 0…последнее − 1.
+ */
+export function passedGenerations(maxGeneration: number): number[] {
+  return Array.from({ length: Math.min(Math.max(0, maxGeneration), LAST_GENERATION) }, (_, i) => i);
+}
+
+/** Поколения, куда Престиж может вернуть с Финала контента; вне Финала список пуст. */
+export function returnGenerations(state: GameState): number[] {
+  return isContentFinale(state) ? passedGenerations(state.maxGeneration) : [];
+}
+
+/**
+ * Поколение, в которое ведёт Престиж, или `null`, если Престиж сейчас закрыт.
+ *
+ * До Финала контента это всегда следующее Поколение, и `chosen` игнорируется. На Финале переход
+ * ведёт в пройденное Поколение, которое выбрал игрок: без выбора, с непройденным или выдуманным
+ * номером и без Флагмана Престиж закрыт. Выбор живёт вне сохранения (стор), ядро его только проверяет.
+ */
+export function prestigeDestination(state: GameState, chosen: number | null = null): number | null {
+  if (!canPrestige(state)) return null;
+  if (!isContentFinale(state)) return state.generation + 1;
+  return chosen !== null && returnGenerations(state).includes(chosen) ? chosen : null;
+}
+
 export interface PrestigePreview {
   /** Compute, который начислит Престиж. */
   gain: number;
   agentsLost: number;
   upgradesLost: number;
   tokensLost: number;
-  /** Поколение, в которое игрок перейдёт. */
+  /** Поколение, в которое игрок перейдёт (на Финале без выбора — последнее, куда переход ещё не ведёт). */
   generation: number;
-  /** Престиж сейчас невозможен: нет Флагмана или это финал контента. */
+  /** Престиж сейчас невозможен: нет Флагмана или на Финале не выбрано пройденное Поколение. */
   blocked: boolean;
+  /** Финал контента без выбранного Поколения: окно просит выбрать его во вкладке «Престиж». */
+  needsGeneration: boolean;
+  /** Курс нового Забега ещё не выбран: Престиж откажет, пока игрок не выберет один из трёх. */
+  needsCourse: boolean;
 }
 
 /**
@@ -961,49 +1190,66 @@ export interface PrestigePreview {
  *
  * `gain` — это ровно `prestigeGain(state)`, а не вторая формула: модалка и кнопка
  * обязаны показывать одно число, иначе Compute, начисленный переходом, разойдётся
- * с обещанным. `blocked` повторяет условия отказа самого `prestige` (нет Флагмана
- * либо финал контента), чтобы UI объяснил причину, а не просто погасил кнопку.
+ * с обещанным. `blocked` берётся из `prestigeDestination`, то есть повторяет условия отказа самого
+ * `prestige`, чтобы UI объяснил причину, а не просто погасил кнопку.
  */
-export function prestigePreview(state: GameState): PrestigePreview {
+export function prestigePreview(state: GameState, chosen: number | null = null): PrestigePreview {
+  const destination = prestigeDestination(state, chosen);
   return {
     gain: prestigeGain(state),
     agentsLost: Object.values(state.agents).reduce((s, n) => s + n, 0),
     upgradesLost: state.upgrades.length,
     tokensLost: state.tokens,
-    generation: Math.min(state.generation + 1, LAST_GENERATION),
-    blocked: !canPrestige(state) || isContentFinale(state),
+    generation: destination ?? Math.min(state.generation + 1, LAST_GENERATION),
+    blocked: destination === null,
+    // Финал без допустимого выбора: и без выбора, и с выбором, которого не было в пройденных.
+    needsGeneration: isContentFinale(state) && destination === null,
+    needsCourse: courseMissing(state),
   };
 }
 
-export function prestige(state: GameState, now: number = state.lastTick): GameState {
-  // На финальном Поколении перехода дальше нет: обнулять забег без нового Поколения нельзя.
-  if (!canPrestige(state) || isContentFinale(state)) return state;
+/**
+ * Престиж. На Финале контента `chosen` — пройденное Поколение, в которое вернуться; вне Финала он
+ * не нужен. Без допустимого перехода (см. `prestigeDestination`) возвращается тот же объект.
+ */
+export function prestige(state: GameState, now: number = state.lastTick, chosen: number | null = null): GameState {
+  const destination = prestigeDestination(state, chosen);
+  // Без перехода (нет Флагмана, финал без выбора) обнулять забег нельзя: тот же объект — отказ.
+  if (destination === null) return state;
   // Один источник часов: тик считает dt по игровым часам (lastTick + dt), поэтому Престиж
   // обязан ставить lastTick/runStartedAt из тех же часов, а не из Date.now() — иначе
   // неотработанное время между последним тиком и стенными часами сдвигало Лобби, окно Глюка
   // и созревание кристалла мимо их циклов. Дефолт — игровые часы; явный now нужен только
   // тестам, которые двигают часы вручную.
   const clock = Number.isFinite(now) ? now : state.lastTick;
-  const next = state.generation + 1;
-  // Испытание закрывается Престижем: активное дописывается в закрытые без дублей, иначе повторный
-  // забег с тем же Испытанием платил бы награду дважды. Переписка при этом не трогается —
-  // коллекция собирается всю игру, а не Забег.
-  const challengesDone =
-    state.activeChallenge !== null && !state.challengesDone.includes(state.activeChallenge)
-      ? [...state.challengesDone, state.activeChallenge]
-      : state.challengesDone;
+  const next = destination;
+  // Испытания закрываются Престижем: взятые дописываются в закрытые без дублей. Награда за них — Compute
+  // этого же Престижа (`prestigeGain` ниже множит прирост на Класс риска), поэтому повторное закрытие
+  // платит снова: список нужен интерфейсу как память, а не как защита от двойной выплаты. Переписка при
+  // этом не трогается — коллекция собирается всю игру, а не Забег.
+  const challengesDone = state.activeChallenges.some((id) => !state.challengesDone.includes(id))
+    ? [...state.challengesDone, ...state.activeChallenges.filter((id) => !state.challengesDone.includes(id))]
+    : state.challengesDone;
   return {
     ...state,
     generation: next,
     maxGeneration: Math.max(state.maxGeneration, next),
     compute: state.compute + prestigeGain(state),
     prestiges: state.prestiges + 1,
+    perkResetUsed: false,
+    // Выбранный Курс становится действующим на весь новый Забег; предложение и выбор очищаются.
+    ...takeCourse(state),
     tokens: startingTokens(state, next),
     runTokens: 0,
     runClicks: 0,
     agents: {},
+    purchaseQueue: [],
+    buyStreak: 0,
+    lastBuyAt: 0,
+    thought: 0,
+    thoughtAt: 0,
     upgrades: [],
-    activeChallenge: null,
+    activeChallenges: [],
     challengesDone,
     // Кристаллы и их ускорители, как и Достижения, переживают Престиж: они растут в реальном
     // времени, и сброс забега не должен отнимать у игрока то, за что он ждал в стену часами.
@@ -1015,6 +1261,11 @@ export function prestige(state: GameState, now: number = state.lastTick): GameSt
     eventCaughtAt: 0,
     nextEventAt: 0,
     combo: 0,
+    // Временное усиление Исследования принадлежит Забегу, как Событие: окно, дожившее до Престижа,
+    // поднимало бы Доход нового Забега без его Агентов. Сами Исследования в `research` не трогаются.
+    researchBoostUntil: 0,
+    // Файнтюны принадлежат Забегу, как Агенты: Модель их теряет. Заготовка (`finetuneStock`) не трогается.
+    finetunes: {},
     runStartedAt: clock,
     lastTick: clock,
   };

@@ -1,3 +1,8 @@
+import { characterMods } from './character';
+import { courseThermalMods } from './course';
+import { hasChallenge, runPerks } from './challenges';
+import { perkEffects } from './perks';
+import { finetuneHeatMult } from './finetune';
 import type { GameState } from './state';
 
 /**
@@ -111,11 +116,86 @@ export const HALLUC_RATE = 1 / 30;
  * Ключевые числа Температуры в одном месте для симулятора и подписей.
  * Сделано функциями, а не объектом, чтобы вызывающая сторона решала, какие читать.
  */
-export const heatRate = (temp: number): number => HEAT_RATE * temp;
-export const halluRate = (temp: number): number => HALLUC_RATE * temp * temp;
+/**
+ * Поправки Температуры от Перков Оверклокера (ADR-0012): множители к скорости перегрева, длине
+ * оглушения и частоте Галлюцинаций и прибавка к силе жара. Единица (и ноль для прибавки) — Перков
+ * нет. Характеры Лабораторий (`character.ts`) стоят поверх: «Горячая голова» xAI перегрев ускоряет,
+ * поэтому стор сверяет скачок Галлюцинации с `heatRate(TEMP_MAX, thermalModsFor(state))`, а не с голым.
+ */
+export interface ThermalMods {
+  heat: number;
+  stun: number;
+  hallu: number;
+  /** Прибавка к `TEMP_YIELD_MAX` в долях: 0,15 — жар поднимает Доход на 15% сильнее. */
+  yield: number;
+}
+
+export const NO_THERMAL_MODS: ThermalMods = { heat: 1, stun: 1, hallu: 1, yield: 0 };
+
+let modsCache: { perks: readonly string[]; mods: ThermalMods } | null = null;
+
+/**
+ * Поправки по купленным Перкам. Кэш по ссылке на список — по тем же причинам, что у `perkEffects`:
+ * список меняется только заменой целиком, а тик зовёт функцию несколько раз за каждые 50 мс.
+ */
+export function thermalMods(perks: string[]): ThermalMods {
+  if (modsCache?.perks === perks) return modsCache.mods;
+  let mods = NO_THERMAL_MODS;
+  for (const e of perkEffects(perks)) {
+    if (e.kind === 'heatSlow') mods = { ...mods, heat: mods.heat * e.mult };
+    else if (e.kind === 'stunShort') mods = { ...mods, stun: mods.stun * e.mult };
+    else if (e.kind === 'yieldBoost') mods = { ...mods, yield: mods.yield + e.pct };
+    else if (e.kind === 'overclock') mods = { ...mods, yield: mods.yield + e.yieldPct, hallu: mods.hallu * e.halluMult };
+  }
+  modsCache = { perks, mods };
+  return mods;
+}
+
+/**
+ * Поправки Температуры состояния целиком: Перки Оверклокера и Характеры Лабораторий офиса.
+ *
+ * Скорость перегрева перемножается, сила жара складывается: Характер стоит ПОВЕРХ Перка, а не
+ * вместо него (Осторожность и «Жидкостное охлаждение» копятся). Множитель силы жара `1 + yield`
+ * не уходит ниже нуля, поэтому самый осторожный офис не сделает жар вредным: Доход от
+ * Температуры остаётся не меньше единицы.
+ * Тот же результат читают тик, шкала, магазин и справка, поэтому у них одна правда.
+ */
+export function thermalModsFor(
+  state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course' | 'activeChallenges' | 'finetunes'>,
+): ThermalMods {
+  const perks = thermalMods(runPerks(state));
+  const office = characterMods(state);
+  const course = courseThermalMods(state);
+  // Файнтюны офиса («Thinking» греет, «Turbo» охлаждает) стоят поверх Перков и Характеров (ТЗ #116).
+  const finetune = finetuneHeatMult(state);
+  if (office.heat === 1 && office.yield === 0 && office.hallu === 1 && course.heat === 1 && course.hallu === 1 && finetune === 1) {
+    return perks;
+  }
+  return {
+    ...perks,
+    // Курс «Холодная голова» стоит поверх Перков и Характеров: все три копятся, как Осторожность с охлаждением.
+    heat: perks.heat * office.heat * course.heat * finetune,
+    hallu: perks.hallu * office.hallu * course.hallu,
+    yield: Math.max(-1, perks.yield + office.yield),
+  };
+}
+
+/**
+ * Безопасная Температура: на ней перегрев копится ровно с той скоростью, с какой стягивается,
+ * то есть шкалу можно «поставить и забыть». Без поправок это `HEAT_COOL_RATE / HEAT_RATE` ≈ 0,217;
+ * Перки и Характеры состава двигают её, поэтому это число офиса, а не константа.
+ */
+const safeTempOf = (mods: ThermalMods): number => Math.min(TEMP_MAX, HEAT_COOL_RATE / (HEAT_RATE * mods.heat));
+
+export const safeTemp = (state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course' | 'activeChallenges' | 'finetunes'>): number =>
+  safeTempOf(thermalModsFor(state));
+
+export const heatRate = (temp: number, mods: ThermalMods = NO_THERMAL_MODS): number => HEAT_RATE * temp * mods.heat;
+export const halluRate = (temp: number, mods: ThermalMods = NO_THERMAL_MODS): number => HALLUC_RATE * temp * temp * mods.hallu;
 
 /** Доход от Температуры: базовый множитель по жару. */
-export const tempYieldMult = (temp: number): number => 1 + TEMP_YIELD_MAX * clampTemp(temp);
+export const tempYieldMult = (temp: number, mods: ThermalMods = NO_THERMAL_MODS): number =>
+  1 + TEMP_YIELD_MAX * (1 + mods.yield) * clampTemp(temp);
 
 /** Множитель от перегрева: 1 в холоде, `1 - HEAT_PENALTY` на полном перегреве. */
 export const heatMult = (heat: number): number => 1 - HEAT_PENALTY * Math.min(1, Math.max(0, heat));
@@ -127,11 +207,20 @@ export const heatMult = (heat: number): number => 1 - HEAT_PENALTY * Math.min(1,
 export const overheatStunMult = (state: GameState, now: number): number => {
   const left = now - state.overheatedAt;
   if (state.overheatedAt <= 0 || left < 0) return 1;
-  if (left > OVERHEAT_STUN_SEC * 1000) return 1;
+  const window = OVERHEAT_STUN_SEC * thermalModsFor(state).stun * 1000;
+  if (left > window) return 1;
   // Линейное затухание: к концу окна штраф доходит до нуля ровно в момент, когда он снимается.
-  const t = 1 - left / (OVERHEAT_STUN_SEC * 1000);
+  const t = 1 - left / window;
   return 1 - HEAT_PENALTY * t;
 };
+
+/**
+ * Температура, которую читают Доход и тик: на шкале, а в Испытании «temperature = 0» — всегда ноль, что бы
+ * ни лежало в состоянии (импорт, старый сейв): ограничение держится на чтении, а не на том, что никто
+ * не тронул ползунок.
+ */
+export const effectiveTemp = (state: Pick<GameState, 'temp' | 'activeChallenges'>): number =>
+  hasChallenge(state, 'cold') ? TEMP_MIN : clampTemp(state.temp);
 
 export function clampTemp(temp: number): number {
   return Math.min(TEMP_MAX, Math.max(TEMP_MIN, Number.isFinite(temp) ? temp : TEMP_START));
@@ -153,19 +242,23 @@ export interface ThermalRead {
   halluRate: number;
   /** Идёт ли оглушение прямо сейчас. */
   stunned: boolean;
+  /** Безопасная Температура офиса: перегрев на ней не копится (`safeTemp`). */
+  safeTemp: number;
 }
 
 export function thermalRead(state: GameState, now: number = state.lastTick): ThermalRead {
-  const temp = clampTemp(state.temp);
+  const temp = effectiveTemp(state);
   const stun = overheatStunMult(state, now);
+  const mods = thermalModsFor(state);
   return {
     temp,
     heat: Math.min(1, Math.max(0, state.heat)),
     // Оглушение и перегрев складываются, а не выбирают: перегрев — это про тепло,
     // оглушение — про его последствие, и игрок теряет обе вещи сразу.
-    mult: tempYieldMult(temp) * heatMult(state.heat) * stun,
-    halluRate: halluRate(temp),
+    mult: tempYieldMult(temp, mods) * heatMult(state.heat) * stun,
+    halluRate: halluRate(temp, mods),
     stunned: stun < 1,
+    safeTemp: safeTempOf(mods),
   };
 }
 

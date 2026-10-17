@@ -1,10 +1,17 @@
 import { CATALOG, MODEL_BY_ID } from './catalog';
+import { CHALLENGES } from './challenges';
+import { openedByResearch } from './gate';
+import { COURSE_OFFER_SIZE, offerCourse } from './course';
 import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
 import { MILESTONE_BY_ID } from './milestones';
 import { PERK_BY_ID } from './perks';
-import { DEFAULT_CHANNEL_VOLUME, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
+import { DEFAULT_CHANNEL_VOLUME, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type FinetuneArchetype, type GameState, type Glitch, type ResearchJob, type ResearchKind, type ResearchTermId } from './state';
+import { RESEARCH_KINDS, RESEARCH_MAX_SLOTS, RESEARCH_OPENING_IDS, RESEARCH_TERM_IDS } from './research';
+import { FINETUNE_ARCHETYPES } from './finetune';
 import { QUIPS_SEEN_CAP } from './quips';
+import { buyStreakLimit, ruleEffect } from './rules';
+import { COURSE_BY_ID } from '../data/courses';
 import { clampTemp, TEMP_START } from './thermal';
 import { UPGRADE_BY_ID } from './upgrades';
 
@@ -132,7 +139,113 @@ export const MIGRATIONS: Record<number, Migration> = {
       },
     };
   },
+  // Дерево Перков появилось в v10 (ADR-0012). «Наследие» по Поколениям (`gen_0`…`gen_7`) ушло из
+  // каталога, и `idList` ниже отбросил бы его вместе с потраченным Compute: игрок остался бы без
+  // Перка и без цены. Поэтому шаг возвращает цену в Compute, уменьшая `computeSpent`; остальные id
+  // остались прежними и сохраняются как есть. Отметка сброса дерева — чистое добавление.
+  9: (raw) => {
+    const refund = removedPerksRefund(strList(raw.perks));
+    return {
+      ...raw,
+      version: 10,
+      computeSpent: Math.max(0, num(raw.computeSpent, 0) - refund),
+      perkResetUsed: raw.perkResetUsed ?? false,
+    };
+  },
+  // Очередь закупок Правила «Агенты сами» появилась в v11 (ADR-0013, слой 3). Состояние всех
+  // Правил слоя приходит одним шагом: сейчас оно одно, и у живого сохранения его нет, а пустая
+  // очередь — ровно то, как игра выглядела до Правила. Чистое добавление, присутствующее поле
+  // остаётся: разбор ниже сам отсеет из него то, чего очередь держать не может.
+  10: (raw) => ({
+    ...raw,
+    version: 11,
+    purchaseQueue: raw.purchaseQueue ?? [],
+  }),
+  // Состояние Правил «Дефицит GPU» (ряд покупок) и «Подумай ещё» (размышление) пришло в v12
+  // (ADR-0013, слой 3). У живого сохранения его нет, а ноль в каждом поле — ровно то, как игра
+  // выглядела до Правил: ни ряда, ни удержания. Чистое добавление, присутствующее поле остаётся:
+  // разбор ниже сам отсеет то, что Правило Поколения держать не может.
+  11: (raw) => ({
+    ...raw,
+    version: 12,
+    buyStreak: raw.buyStreak ?? 0,
+    lastBuyAt: raw.lastBuyAt ?? 0,
+    thought: raw.thought ?? 0,
+    thoughtAt: raw.thoughtAt ?? 0,
+  }),
+  // Курс (ADR-0013, слой 4) пришёл в v13: действующий Курс, предложение на ближайший Престиж и
+  // выбор, ещё не подтверждённый. У живого сохранения их нет, а «без Курса, без предложения, без
+  // выбора» — ровно то, как игра выглядела до него. Чистое добавление, присутствующее поле остаётся:
+  // разбор ниже сам отсеет неизвестный Курс. Если Флагман уже нанят, предложение кладёт в состояние
+  // сам разбор (оно определено зерном Престижа), поэтому игрок, закрывший вкладку перед Престижем,
+  // возвращается к выбору, а не к кнопке, которая отказывает.
+  12: (raw) => ({
+    ...raw,
+    version: 13,
+    course: raw.course ?? null,
+    courseOffer: raw.courseOffer ?? [],
+    courseNext: raw.courseNext ?? null,
+  }),
+  // Несколько Испытаний сразу и Класс риска (ADR-0013, слой 5) пришли в v14. Одиночное активное Испытание
+  // становится списком из одного (или пустым). Награда закрытых Испытаний была постоянным +10% к Доходу, а
+  // теперь за закрытие платится Compute, поэтому уже закрытые переезжают в `challengesInherited` и продолжают
+  // давать свои +10%: обновление ничего не отнимает у заработанного. `challengesDone` остаётся как память
+  // списка. Миграция дополняет, а не перезаписывает: присутствующее поле остаётся, разбор ниже сам отсеет
+  // неизвестные id.
+  13: (raw) => {
+    const { activeChallenge, ...rest } = raw;
+    return {
+      ...rest,
+      version: 14,
+      activeChallenges: raw.activeChallenges ?? (typeof activeChallenge === 'string' ? [activeChallenge] : []),
+      challengesInherited: raw.challengesInherited ?? strList(raw.challengesDone),
+    };
+  },
+  // Слоты Исследований и временное усиление пришли в v15 (ТЗ #115). У живого сохранения их нет, а пустой
+  // список и ноль — ровно то, как игра выглядела до Исследований. Чистое добавление: присутствующие поля
+  // остаются, разбор ниже сам отсеет то, что Исследование держать не может.
+  14: (raw) => ({
+    ...raw,
+    version: 15,
+    research: raw.research ?? [],
+    researchBoostUntil: raw.researchBoostUntil ?? 0,
+  }),
+  // Заготовки Файнтюна и применённые Файнтюны пришли в v16 (ТЗ #116). У живого сохранения их нет, а ноль
+  // Заготовок и пустой список Файнтюнов — ровно то, как игра выглядела до Исследований-Файнтюнов. Чистое
+  // добавление: разбор ниже сам отсеет то, что Файнтюн держать не может.
+  15: (raw) => ({
+    ...raw,
+    version: 16,
+    finetuneStock: raw.finetuneStock ?? 0,
+    finetunes: raw.finetunes ?? {},
+  }),
+  // Постоянные открытия Исследований пришли в v17 (ТЗ #118). У живого сохранения их нет, а пустой список —
+  // ровно то, как игра выглядела до открытий. Чистое добавление: разбор ниже отсеет id, которых нет в таблицах.
+  16: (raw) => ({
+    ...raw,
+    version: 17,
+    researchUnlocks: raw.researchUnlocks ?? [],
+  }),
 };
+
+/** Особых Перков Поколения в прошлых версиях: по числу Поколений тогдашнего каталога. */
+const LEGACY_GEN_PERKS = 8;
+const LEGACY_GEN_PERK = /^gen_(\d+)$/;
+
+/**
+ * Сколько Compute стоили Перки, ушедшие из каталога в v10. Особые Перки Поколения стоили 10, 15, 20…
+ * — по числу уже купленных, поэтому сумма зависит только от их количества `k`, а не от порядка
+ * покупки: 10k + 5·k(k−1)/2. Неизвестные id цены не имеют и ничего не возвращают.
+ */
+function removedPerksRefund(ids: string[]): number {
+  const gens = new Set<string>();
+  for (const id of ids) {
+    const m = LEGACY_GEN_PERK.exec(id);
+    if (m && Number(m[1]) < LEGACY_GEN_PERKS) gens.add(id);
+  }
+  const k = gens.size;
+  return 10 * k + (5 * k * (k - 1)) / 2;
+}
 
 const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
@@ -176,6 +289,99 @@ const level = (v: unknown, fallback: number): number => {
  * трогавший переключателя, остался бы без эффекта, который не выключал.
  */
 const flag = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+
+/**
+ * Очередь закупок из сохранения: только id Моделей текущего Поколения, не длиннее места в очереди,
+ * и только пока Правило её даёт. Чужой id, нестрока и очередь вне «Агентов сами» — мусор: он
+ * запер бы голову очереди навсегда или вернул бы Агента из Поколения, которого игрок не видит.
+ */
+const queueOf = (v: unknown, generation: number, course: string | null): string[] => {
+  const effect = ruleEffect({ generation, course }, 'purchaseQueue');
+  if (!effect) return [];
+  return strList(v)
+    .filter((id) => hasOwn(MODEL_BY_ID, id) && MODEL_BY_ID[id].generation === generation)
+    .slice(0, effect.capacity);
+};
+
+/**
+ * Ряд покупок «Дефицита GPU» из сохранения: целая, не длиннее предела Правила и только пока Поколение
+ * под этим Правилом, с отметкой времени не из будущего. Без отметки ряда нет: он держится на паре.
+ */
+const streakOf = (data: Record<string, unknown>, rules: { generation: number; course: string | null }, clampFuture: (v: number) => number) => {
+  const effect = ruleEffect(rules, 'buyStreak');
+  const lastBuyAt = clampFuture(stamp(data.lastBuyAt));
+  if (!effect || lastBuyAt <= 0) return { buyStreak: 0, lastBuyAt: 0 };
+  const buyStreak = Math.min(buyStreakLimit(effect), count(data.buyStreak));
+  return buyStreak > 0 ? { buyStreak, lastBuyAt } : { buyStreak: 0, lastBuyAt: 0 };
+};
+
+/**
+ * Размышление «Подумай ещё» из сохранения: секунды в пределах копилки и только под этим Правилом.
+ * Без отметки удержания копить нечего, а мусорное число читается как пустая копилка: выплата из него
+ * создала бы Токены, которых игрок не копил.
+ */
+const thoughtOf = (data: Record<string, unknown>, rules: { generation: number; course: string | null }, clampFuture: (v: number) => number) => {
+  const effect = ruleEffect(rules, 'heldThought');
+  const thoughtAt = clampFuture(stamp(data.thoughtAt));
+  if (!effect || thoughtAt <= 0) return { thought: 0, thoughtAt: 0 };
+  return { thought: Math.min(effect.maxSec, Math.max(0, num(data.thought, 0))), thoughtAt };
+};
+
+/** Id Курса из таблицы или `null`: неизвестный Курс из будущей версии или мусора — Забег без Курса, а не выдуманный эффект. */
+const courseId = (v: unknown): string | null => (typeof v === 'string' && hasOwn(COURSE_BY_ID, v) ? v : null);
+
+/**
+ * Предложение Курса из сохранения: ровно три разных известных Курса или ничего. Обрывок (Курс ушёл из
+ * таблицы, битый список) целиком не годится: недобранное предложение предложило бы меньше выбора, чем
+ * обещано, а пустое пересчитывается из зерна Престижа и тех же трёх даёт без потерь.
+ */
+const courseOfferOf = (v: unknown): string[] => {
+  const ids = [...new Set(strList(v))].filter((id) => hasOwn(COURSE_BY_ID, id));
+  return ids.length === COURSE_OFFER_SIZE ? ids : [];
+};
+
+/**
+ * Исследования из сохранения: только известные вид и срок, с отметкой закладки и не длиннее предела слотов
+ * (с Перком их три, и закладка в третьем слоте переживает снятие Перка). Закладка из будущего притягивается
+ * к `now` (как у кристалла и событий), иначе срок тикал бы с отрицательного старта. Запись без отметки
+ * отбрасывается: без неё нельзя ни созреть, ни показать срок. Постоянное открытие без известного id тоже
+ * отбрасывается: такую закладку нельзя ни собрать, ни объяснить.
+ */
+const researchOf = (v: unknown, clampFuture: (v: number) => number): ResearchJob[] => {
+  if (!Array.isArray(v)) return [];
+  const jobs: ResearchJob[] = [];
+  for (const item of v) {
+    if (!isPlainRecord(item)) continue;
+    const kind = (RESEARCH_KINDS as readonly unknown[]).includes(item.kind) ? (item.kind as ResearchKind) : null;
+    const term = (RESEARCH_TERM_IDS as readonly unknown[]).includes(item.term) ? (item.term as ResearchTermId) : null;
+    const startedAt = clampFuture(stamp(item.startedAt));
+    if (kind === null || term === null || startedAt <= 0) continue;
+    if (kind === 'unlock') {
+      const unlock = typeof item.unlock === 'string' && RESEARCH_OPENING_IDS.includes(item.unlock) ? item.unlock : null;
+      if (unlock === null) continue;
+      jobs.push({ kind, term, startedAt, unlock });
+      continue;
+    }
+    jobs.push({ kind, term, startedAt });
+  }
+  return jobs.slice(0, RESEARCH_MAX_SLOTS);
+};
+
+/**
+ * Файнтюны из сохранения: только Модели текущего Поколения (Файнтюн сгорает с Престижем, так что чужое
+ * Поколение — мусор) и только известные архетипы. Остальное отбрасывается, как у Перков и Испытаний.
+ */
+const finetunesOf = (v: unknown, generation: number): Record<string, FinetuneArchetype> => {
+  const out: Record<string, FinetuneArchetype> = {};
+  if (!isPlainRecord(v)) return out;
+  for (const id of Object.keys(v)) {
+    const archetype = v[id];
+    if (!hasOwn(MODEL_BY_ID, id) || MODEL_BY_ID[id].generation !== generation) continue;
+    if (typeof archetype !== 'string' || !(FINETUNE_ARCHETYPES as readonly string[]).includes(archetype)) continue;
+    out[id] = archetype as FinetuneArchetype;
+  }
+  return out;
+};
 
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
@@ -270,9 +476,18 @@ export function migrate(raw: unknown, now: number): GameState {
   const rawCaught = stamp(data.eventCaughtAt);
   const eventCaughtAt = clampFuture(rawCaught);
 
-  return {
+  const generation = Math.min(CATALOG.length - 1, count(data.generation));
+  // Курс разбирается раньше полей Правил: Правило, взятое Курсом, решает, каким полям Забега вообще есть место.
+  const course = courseId(data.course);
+  const rules = { generation, course };
+  const courseOffer = courseOfferOf(data.courseOffer);
+  const coldRun = strList(data.activeChallenges).includes('cold');
+  // Постоянные открытия — только id из таблиц: открытие из будущей версии или мусор не даёт ни Курса, ни Испытания.
+  const researchUnlocks = [...new Set(strList(data.researchUnlocks))].filter((id) => RESEARCH_OPENING_IDS.includes(id));
+
+  return offerCourse({
     version: SAVE_VERSION,
-    generation: Math.min(CATALOG.length - 1, count(data.generation)),
+    generation,
     maxGeneration: Math.min(CATALOG.length - 1, Math.max(count(data.generation), count(data.maxGeneration))),
     tokens: Math.max(0, num(data.tokens, 0)),
     runTokens: Math.max(0, num(data.runTokens, 0)),
@@ -282,8 +497,18 @@ export function migrate(raw: unknown, now: number): GameState {
     agents,
     upgrades: idList(data.upgrades, UPGRADE_BY_ID),
     compute: Math.max(0, num(data.compute, 0)),
-    computeSpent: Math.max(0, num(data.computeSpent, 0)),
+    // «Потрачено» не больше «начислено»: иначе свободный Compute читался бы как ноль, а возврат
+    // за Перки при сбросе дерева создавал бы Compute из воздуха.
+    computeSpent: Math.min(Math.max(0, num(data.compute, 0)), Math.max(0, num(data.computeSpent, 0))),
     perks: idList(data.perks, PERK_BY_ID),
+    purchaseQueue: queueOf(data.purchaseQueue, generation, course),
+    ...streakOf(data, rules, clampFuture),
+    ...thoughtOf(data, rules, clampFuture),
+    perkResetUsed: !!data.perkResetUsed,
+    course,
+    courseOffer,
+    // Выбор держится только пока лежит предложение, из которого он сделан.
+    courseNext: typeof data.courseNext === 'string' && courseOffer.includes(data.courseNext) ? data.courseNext : null,
     prestiges: num(data.prestiges, 0),
     achievements: [...new Set(strList(data.achievements))],
     // Кристаллы целые и неотрицательные: запас — это счётчик, а не Доли, дробный остаток в нём
@@ -293,6 +518,13 @@ export function migrate(raw: unknown, now: number): GameState {
     // Дубликат ускорителя укоротил бы цикл дважды (16ч → 12ч без второй покупки), поэтому
     // список дедуплицируется, а неизвестный id отбрасывается, как и у Перков.
     crystalUpgrades: idList(data.crystalUpgrades, CRYSTAL_UPGRADE_BY_ID),
+    research: researchOf(data.research, clampFuture),
+    // Окно усиления — мс часов игры: из будущего притягивается к `now`, как и остальные окна.
+    researchBoostUntil: clampFuture(stamp(data.researchBoostUntil)),
+    researchUnlocks,
+    // Заготовки — счётчик, как кристаллы: целые и неотрицательные.
+    finetuneStock: count(data.finetuneStock),
+    finetunes: finetunesOf(data.finetunes, generation),
     eventsSeen: count(data.eventsSeen),
     eventCaughtAt,
     catchUpPaid: Math.max(0, num(data.catchUpPaid, 0)),
@@ -311,16 +543,20 @@ export function migrate(raw: unknown, now: number): GameState {
     // схлопывается, хвост длиннее капа обрезается спереди — это те же правила, что в
     // recordQuip, иначе загрузка вернула бы состояние, которое игра никогда не пишет.
     quipsSeen: [...new Set(strList(data.quipsSeen))].slice(-QUIPS_SEEN_CAP),
-    // Испытания — как Достижения, а не как Перки: id проверяются только на тип, а не на
-    // известность таблице, поэтому запись переживает правку таблицы Испытаний. Активное
-    // Испытание — строка или ничего: нестрока из повреждённого сохранения читается как
-    // «обычный забег», иначе мусор включал бы ограничение, которого игрок не выбирал.
-    activeChallenge: typeof data.activeChallenge === 'string' ? data.activeChallenge : null,
+    // Взятые Испытания, в отличие от закрытых, сверяются с таблицей: неизвестный id (из будущей версии
+    // или мусора) не должен включать ограничение, которого игрок не выбирал, и не имеет веса в Классе
+    // риска. Порядок — порядок таблицы, как у `toggleChallenge`, дубли схлопываются.
+    // Испытание, которое игрок ещё не открыл, в списке взятых не держится: такого выбора он сделать не мог.
+    activeChallenges: CHALLENGES.filter((c) => strList(data.activeChallenges).includes(c.id) && openedByResearch(c, researchUnlocks)).map((c) => c.id),
+    // Закрытые и унаследованные — как Достижения, а не как Перки: id проверяются только на тип, а не на
+    // известность таблице, поэтому запись переживает правку таблицы Испытаний.
     challengesDone: [...new Set(strList(data.challengesDone))],
+    challengesInherited: [...new Set(strList(data.challengesInherited))],
     // clampTemp, а не `share`: испорченный или будущий сейв может принести любое число, а
     // шкала обязана остаться в своём диапазоне — иначе множитель Дохода стал бы произвольным.
-    temp: clampTemp(num(data.temp, TEMP_START)),
-    heat: share(data.heat),
+    // В «temperature = 0» шкала стоит на нуле: сейв, где она горячая, нарушал бы ограничение сам.
+    temp: coldRun ? 0 : clampTemp(num(data.temp, TEMP_START)),
+    heat: coldRun ? 0 : share(data.heat),
     overheatedAt: clampFuture(stamp(data.overheatedAt)),
     // Вехи фильтруются по таблице: неизвестный id из битого сейва не должен занимать
     // номер, который потом получит настоящая веха, и не должен показываться в интерфейсе.
@@ -340,7 +576,7 @@ export function migrate(raw: unknown, now: number): GameState {
       musicVolume: level(settings.musicVolume, DEFAULT_CHANNEL_VOLUME),
       sfxVolume: level(settings.sfxVolume, DEFAULT_CHANNEL_VOLUME),
     },
-  };
+  });
 }
 
 export const serialize = (s: GameState) => JSON.stringify(s);
@@ -393,6 +629,7 @@ const PROGRESS_FIELDS = [
   'quipsSeen',
   'challengesDone',
   'activeChallenge',
+  'activeChallenges',
   'eventsSeen',
   'glitches',
 ] as const;
@@ -454,6 +691,36 @@ export function readStoredSave(): StoredSave {
     return { status: 'ok', text: raw, value };
   } catch {
     return { status: 'corrupt', text: raw };
+  }
+}
+
+/**
+ * Ключ отметки «объяснение нового правила Compute показано» (ADR-0010).
+ *
+ * Отдельно от сейва намеренно: в `GameState` отметка не живёт (поля сейва не растут), а в
+ * экспорт и импорт она попадать не должна — объяснение принадлежит этому браузеру, а не прогону.
+ */
+export const COMPUTE_RULE_SEEN_KEY = `${SAVE_KEY}:compute-rule-seen`;
+
+/**
+ * Видел ли этот браузер объяснение. Нечитаемое хранилище отвечает «видел»: без записи отметку
+ * не сохранить, и объяснение возвращалось бы при каждой загрузке.
+ */
+export function computeRuleSeen(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    return localStorage.getItem(COMPUTE_RULE_SEEN_KEY) !== null;
+  } catch {
+    return true;
+  }
+}
+
+export function markComputeRuleSeen(): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(COMPUTE_RULE_SEEN_KEY, '1');
+  } catch {
+    // ignore
   }
 }
 

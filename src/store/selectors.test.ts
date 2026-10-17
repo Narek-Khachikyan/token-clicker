@@ -17,7 +17,7 @@ import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import { LAB_IDS, LABS } from '../data/labs';
 import { canPrestige, isContentFinale, prestigeGain, shatterCrystal } from '../economy/engine';
 import { prestigeForecast } from '../economy/prestigeForecast';
-import { CHALLENGES, startChallenge } from '../economy/challenges';
+import { CHALLENGES, riskMult, RISK_MULT_MAX, toggleChallenge } from '../economy/challenges';
 import { CRYSTAL_UPGRADES, crystalCycleMs } from '../economy/crystal';
 import {
   canLicense,
@@ -51,6 +51,16 @@ import {
   pledgeAlert,
   pledgeView,
   prestigeCardView,
+  queueView,
+  finetuneChoiceViews,
+  finetuneYieldText,
+  nextOpeningText,
+  researchBoostView,
+  researchHasteView,
+  researchSlotView,
+  ruleStatusText,
+  scarcityView,
+  thoughtMeterView,
   purchaseProgressView,
   sparksView,
   thermalMiniView,
@@ -150,10 +160,13 @@ describe('click column slices', () => {
   });
 
   it('leaves every click column slice alone while nothing happens in a late run', () => {
-    const states = idle(lateGame(), 200);
+    // Бонус Compute упирается в потолок (ADR-0010), и Доход позднего Забега перестал быть таким,
+    // чтобы полоса до найма стояла на месте от одних лишь тиков: за 10 с она заметно двигается.
+    // Поэтому мерим тик на полной полосе, а не на той, что честно ползёт.
+    const states = idle({ ...lateGame(), tokens: 1e40 }, 200);
     expect(changes(states, incomeView)).toBe(0);
     expect(changes(states, clickButtonView)).toBe(0);
-    expect(changes(states, purchaseProgressView)).toBeLessThanOrEqual(1);
+    expect(changes(states, purchaseProgressView)).toBe(0);
   });
 
   it('does not repaint the progress bar for a sub-pixel move', () => {
@@ -176,8 +189,9 @@ describe('temperature slices', () => {
       expect(view.mult).toBe(formatNumber(read.mult, 'short'));
       expect(view.valueText).toContain(view.status);
     }
-    // Жар 0.9 без перегрева: Доход 1 + 1.2 × 0.9 = 2.08, статус «Стабильно».
-    expect(thermalView(heated(0, 0.9)).valueText).toBe('0.90 из 1.6, Доход ×2.08, Стабильно');
+    // Жар 0.9 без перегрева: Доход 1 + 1.2 × 0.9 = 2.08, статус «Стабильно». Офис пуст: Характеры
+    // Лабораторий (ADR-0011) двигают этот множитель, и «поздняя игра» несёт их с собой.
+    expect(thermalView({ ...heated(0, 0.9), agents: {} }).valueText).toBe('0.90 из 1.6, Доход ×2.08, Стабильно');
   });
 
   it('names the heat state in words, not only in colour', () => {
@@ -218,6 +232,20 @@ describe('temperature slices', () => {
     expect(thermalView(heated(0.7)).risk).toBe('перегрев 70%');
     expect(thermalView(heated(0.7)).riskHot).toBe(true);
     expect(thermalView(heated(0.5)).riskHot).toBe(false);
+  });
+
+  it('prints the safe temperature of the office and moves it with the composition', () => {
+    const officeOf = (lab: 'anthropic' | 'xai'): GameState => {
+      const model = CATALOG[2].models.find((m) => m.lab === lab)!;
+      return { ...newGame(T0), generation: 2, agents: { [model.id]: 30 }, temp: 0, heat: 0 };
+    };
+    const calm = thermalView(officeOf('anthropic'));
+    const hot = thermalView(officeOf('xai'));
+    expect(calm.safe).toBe(`безопасно до ${thermalRead(officeOf('anthropic')).safeTemp.toFixed(2)}`);
+    expect(calm.safe).not.toBe(hot.safe);
+    expect(thermalRead(officeOf('anthropic')).safeTemp).toBeGreaterThan(thermalRead(officeOf('xai')).safeTemp);
+    // Ровная шкала не перерисовывается: безопасная Температура стоит, пока не сменился состав офиса.
+    expect(changes(idle(lateGame(), 200), thermalView)).toBe(0);
   });
 
   it('sets the root tone from heat and from the stun after an overheat', () => {
@@ -430,21 +458,41 @@ describe('prestige tab slices', () => {
     expect(prestigeCardView({ ...ready, runTokens: 0 }).boostIsHalf).toBe(false);
   });
 
-  it('lets a challenge be picked only on a fresh run and shows which one is taken and which is closed', () => {
+  it('lets challenges be taken only on a fresh run and shows which are taken and which are closed', () => {
     const fresh = newGame(T0);
     expect(challengeCardView(fresh).canStart).toBe(true);
     expect(challengeCardView(fresh).none).toBe(true);
-    const picked = startChallenge(fresh, CHALLENGES[0].id);
+    const picked = toggleChallenge(toggleChallenge(fresh, CHALLENGES[0].id), CHALLENGES[1].id);
     expect(challengeCardView(picked).none).toBe(false);
-    expect(challengeView(picked, CHALLENGES[0])).toEqual({ active: true, done: false });
-    expect(challengeView(picked, CHALLENGES[1])).toEqual({ active: false, done: false });
-    // Первый клик закрывает выбор: ядро больше не принимает Испытание.
+    expect(challengeView(picked, CHALLENGES[0])).toEqual({ active: true, inherited: false });
+    expect(challengeView(picked, CHALLENGES[1])).toEqual({ active: true, inherited: false });
+    // Первый клик закрывает выбор: ядро больше не принимает Испытания.
     expect(challengeCardView({ ...fresh, runClicks: 1 }).canStart).toBe(false);
-    // Закрытое Испытание платит +10% к Доходу, и карточка называет сумму.
-    const closed = { ...fresh, challengesDone: [CHALLENGES[0].id, CHALLENGES[1].id] };
-    expect(challengeCardView(closed).bonusText).toBe(formatNumber(20));
-    expect(challengeCardView(closed).doneCount).toBe(2);
-    expect(challengeView(closed, CHALLENGES[1]).done).toBe(true);
+    // Класс риска — сумма тяжести взятых, и карточка называет множитель Compute с потолком.
+    const risk = CHALLENGES[0].weight + CHALLENGES[1].weight;
+    expect(challengeCardView(picked).risk).toBe(risk);
+    expect(challengeCardView(picked).multText).toBe(formatNumber(riskMult(risk)));
+    expect(challengeCardView(picked).capped).toBe(false);
+    // Полный набор догоняет потолок, и лишняя тяжесть сообщается как достигнутый потолок.
+    const everything = CHALLENGES.reduce((s, c) => toggleChallenge(s, c.id), fresh);
+    expect(challengeCardView(everything).multText).toBe(formatNumber(RISK_MULT_MAX));
+    expect(challengeCardView(everything).capped).toBe(true);
+    // Награда старых Испытаний — унаследованная, и карточка называет её сумму.
+    const closed = { ...fresh, challengesInherited: [CHALLENGES[0].id, CHALLENGES[1].id] };
+    expect(challengeCardView(closed).inheritedText).toBe(formatNumber(20));
+    expect(challengeCardView(closed).inheritedCount).toBe(2);
+    expect(challengeView(closed, CHALLENGES[1]).inherited).toBe(true);
+  });
+
+  it('shows the inherited reward only for Испытания, закрытые до обновления, а не за любое закрытое', () => {
+    const fresh = newGame(T0);
+    // Первое Испытание, закрытое уже после обновления, платит Compute, а не +10% к Доходу навсегда.
+    const closedNow = { ...fresh, challengesDone: [CHALLENGES[0].id] };
+    expect(challengeCardView(closedNow).inheritedCount).toBe(0);
+    expect(challengeView(closedNow, CHALLENGES[0]).inherited).toBe(false);
+    const inherited = { ...closedNow, challengesInherited: [CHALLENGES[0].id] };
+    expect(challengeCardView(inherited).inheritedCount).toBe(1);
+    expect(challengeView(inherited, CHALLENGES[0]).inherited).toBe(true);
   });
 
   it('opens the shatter button with the first whole crystal and names what it pays', () => {
@@ -666,7 +714,7 @@ describe('mascot card slice', () => {
   });
 
   it('promises no Synergy while the no-synergy Challenge cancels it', () => {
-    const s = { ...lateGame(), activeChallenge: 'no-synergy' };
+    const s = { ...lateGame(), activeChallenges: ['no-synergy'] };
     for (const lab of LAB_IDS) expect(labCardView(s, lab, true).synergy).toBe(-1);
   });
 
@@ -706,5 +754,225 @@ describe('pledge alert on the Upgrades tab', () => {
 
   it('stays dark under the Лицензия, where there is no Откуп to call to', () => {
     expect(pledgeAlert(at(2, true), 0)).toBe(false);
+  });
+});
+
+describe('rule status line on the Scene', () => {
+  const inGen = (generation: number, minutes = 0): GameState => ({
+    ...newGame(T0),
+    generation,
+    temp: 0,
+    heat: 0,
+    nextEventAt: FAR,
+    nextGlitchAt: FAR,
+    lastTick: T0 + minutes * 60_000,
+  });
+
+  it('is empty where the rule has nothing live to report', () => {
+    expect(ruleStatusText(inGen(0))).toBe('');
+    expect(ruleStatusText(inGen(3, 20))).toBe('');
+    expect(ruleStatusText(inGen(6))).toBe('');
+  });
+
+  it('counts the queue against its capacity', () => {
+    const ids = CATALOG[5].models.map((m) => m.id);
+    expect(ruleStatusText(inGen(5))).toBe('Очередь: 0 из 6');
+    expect(ruleStatusText({ ...inGen(5), purchaseQueue: [ids[0], ids[1]] })).toBe('Очередь: 2 из 6');
+  });
+
+  it('names the Arena leader and the minutes left, then names the next leader in the last minute', () => {
+    const calm = ruleStatusText(inGen(7, 1.2));
+    expect(calm).toMatch(/^Лидер: \S+ · ещё 4 мин$/);
+    const warn = ruleStatusText(inGen(7, 4.5));
+    expect(warn).toMatch(/^Лидер: \S+ · дальше \S+$/);
+  });
+
+  it('stays steady across idle ticks of a minute and moves at most when the minute turns', () => {
+    const start = inGen(7, 1.001);
+    const states = idle(start, 200);
+    expect(changes(states, ruleStatusText)).toBe(0);
+    expect(changes(idle(inGen(5), 200), ruleStatusText)).toBe(0);
+  });
+});
+
+describe('purchase queue card in the shop', () => {
+  const agentic: GameState = { ...newGame(T0), generation: 5, temp: 0, heat: 0, nextEventAt: FAR, nextGlitchAt: FAR };
+  const ids = CATALOG[5].models.map((m) => m.id);
+
+  it('is absent outside the «Агенты сами» rule', () => {
+    expect(queueView({ ...agentic, generation: 4 })).toBeNull();
+    expect(queueView({ ...newGame(T0) })).toBeNull();
+  });
+
+  it('lists the queued Models in hiring order with their card names and free places', () => {
+    const view = queueView({ ...agentic, purchaseQueue: [ids[2], ids[0], ids[2]] })!;
+    expect(view.entries.map((e) => e.name)).toEqual([
+      CATALOG[5].models[2].name,
+      CATALOG[5].models[0].name,
+      CATALOG[5].models[2].name,
+    ]);
+    expect(view.capacity).toBe(6);
+    expect(view.full).toBe(false);
+    expect(queueView({ ...agentic, purchaseQueue: ids.concat(ids).slice(0, 6) })!.full).toBe(true);
+  });
+});
+
+describe('GPU scarcity card in the shop', () => {
+  const gpt4: GameState = { ...newGame(T0), generation: 1, temp: 0, heat: 0, nextEventAt: FAR, nextGlitchAt: FAR };
+  const hired = (n: number): GameState =>
+    buyAgents({ ...gpt4, tokens: 1e18, agents: { [CATALOG[1].models[0].id]: 2 } }, CATALOG[1].models[0].id, n);
+
+  it('is absent outside the «Дефицит GPU» rule', () => {
+    expect(scarcityView({ ...gpt4, generation: 2 }).active).toBe(false);
+    expect(scarcityView(newGame(T0)).active).toBe(false);
+  });
+
+  it('is calm until the first hire and then names the markup and the seconds to cool down', () => {
+    expect(scarcityView(gpt4)).toEqual({ active: true, extra: 0, seconds: 0 });
+    const view = scarcityView(hired(10));
+    expect(view.active).toBe(true);
+    expect(view.extra).toBe(10);
+    expect(view.seconds).toBe(20);
+  });
+
+  it('counts the seconds down and cools to nothing after the pause', () => {
+    const s = hired(10);
+    expect(scarcityView({ ...s, lastTick: s.lastTick + 7_500 }).seconds).toBe(13);
+    expect(scarcityView({ ...s, lastTick: s.lastTick + 21_000 })).toEqual({ active: true, extra: 0, seconds: 0 });
+  });
+
+  it('feeds the Scene line only while the markup lives', () => {
+    expect(ruleStatusText(gpt4)).toBe('');
+    expect(ruleStatusText(hired(10))).toBe('Цены +10%');
+    expect(ruleStatusText({ ...hired(10), lastTick: T0 + 60_000 })).toBe('');
+  });
+
+  it('moves no more than once a second while the pause runs, and not at all after it', () => {
+    const states = idle(hired(10), 600);
+    expect(changes(states, scarcityView)).toBeLessThanOrEqual(21);
+    expect(changes(states.slice(450), scarcityView)).toBe(0);
+  });
+});
+
+describe('thought meter on the Click column', () => {
+  const reasoning: GameState = { ...newGame(T0), generation: 4, temp: 0, heat: 0, nextEventAt: FAR, nextGlitchAt: FAR };
+
+  it('is absent outside the «Подумай ещё» rule', () => {
+    expect(thoughtMeterView({ ...reasoning, generation: 3 }).active).toBe(false);
+    expect(thoughtMeterView(newGame(T0)).active).toBe(false);
+  });
+
+  it('invites to hold while nothing is gathered', () => {
+    const view = thoughtMeterView(reasoning);
+    expect(view).toMatchObject({ active: true, holding: false, width: 0 });
+  });
+
+  it('prints the gathered seconds, the multiplier and the fill of the limit', () => {
+    const view = thoughtMeterView({ ...reasoning, thought: 2, thoughtAt: reasoning.lastTick });
+    expect(view.holding).toBe(true);
+    expect(view.seconds).toBe(formatNumber(2, 'short'));
+    expect(view.mult).toBe(formatNumber(1.5, 'short'));
+    expect(view.width).toBe(50);
+  });
+
+  it('is steady across idle ticks of a calm run', () => {
+    expect(changes(idle(reasoning, 100), thoughtMeterView)).toBe(0);
+  });
+});
+
+describe('research slot views', () => {
+  const RUN = { ...newGame(T0), temp: 0, heat: 0, nextEventAt: FAR, nextGlitchAt: FAR };
+  const planted = (startedAt: number, term: '30m' | '2h' | '8h' = '30m') => ({
+    ...RUN,
+    research: [{ kind: 'boost' as const, term, startedAt }],
+  });
+
+  it('shows an empty slot as free', () => {
+    const view = researchSlotView(RUN, 0);
+    expect(view.busy).toBe(false);
+    expect(view.ready).toBe(false);
+  });
+
+  it('shows the term, the time left and the progress of a running research', () => {
+    // 10 минут из 30: треть срока прошла, двадцать минут осталось.
+    const view = researchSlotView({ ...planted(T0), lastTick: T0 + 10 * 60_000 }, 0);
+    expect(view).toMatchObject({ busy: true, ready: false, termText: '30 минут', leftText: '20 мин 0 с', progress: 33 });
+  });
+
+  it('shows a research that has ripened as ready to collect, with the full bar', () => {
+    const view = researchSlotView({ ...planted(T0), lastTick: T0 + 30 * 60_000 }, 0);
+    expect(view).toMatchObject({ busy: true, ready: true, leftText: 'готово', progress: 100 });
+  });
+
+  it('names the boost of the active window and its time left, and says nothing when there is none', () => {
+    expect(researchBoostView(RUN).active).toBe(false);
+    const boosted = researchBoostView({ ...RUN, researchBoostUntil: T0 + 3 * 60_000 });
+    expect(boosted).toMatchObject({ active: true, multText: '1,5', leftText: '3 мин 0 с' });
+  });
+
+  it('is steady across idle ticks: the slot repaints only as its minutes or whole percents change', () => {
+    const states = idle(planted(T0, '8h'), 200);
+    expect(changes(states, (s) => researchSlotView(s, 0))).toBeLessThanOrEqual(1);
+    expect(changes(states, researchBoostView)).toBe(0);
+  });
+
+  it('names the result of the research in the slot: the boost or the Заготовка Файнтюна', () => {
+    expect(researchSlotView(planted(T0), 0).resultText).toBe('Временное усиление');
+    const finetune = { ...RUN, research: [{ kind: 'finetune' as const, term: '2h' as const, startedAt: T0 }] };
+    expect(researchSlotView(finetune, 0)).toMatchObject({ resultText: 'Заготовка Файнтюна', termText: '2 часа' });
+  });
+
+  it('names a permanent opening in the slot by the Course or Challenge it opens, and the next one to take', () => {
+    const night = { ...RUN, research: [{ kind: 'unlock' as const, term: '2h' as const, startedAt: T0, unlock: 'night' }] };
+    expect(researchSlotView(night, 0)).toMatchObject({ resultText: 'Постоянное открытие: Курс «Ночная смена»', termText: '2 часа' });
+    const events = { ...RUN, research: [{ kind: 'unlock' as const, term: '2h' as const, startedAt: T0, unlock: 'no-events' }] };
+    expect(researchSlotView(events, 0).resultText).toBe('Постоянное открытие: Испытание «Забег без Событий»');
+    expect(nextOpeningText(RUN)).toBe('Курс «Ночная смена»');
+    expect(nextOpeningText({ ...RUN, researchUnlocks: ['night'] })).toBe('Испытание «Забег без Событий»');
+    expect(nextOpeningText({ ...RUN, researchUnlocks: ['night', 'no-events'] })).toBe('');
+  });
+
+  it('writes the Заготовка yield with the Russian plural of its term', () => {
+    expect(finetuneYieldText('30m')).toBe('1 Заготовка');
+    expect(finetuneYieldText('2h')).toBe('2 Заготовки');
+    expect(finetuneYieldText('8h')).toBe('4 Заготовки');
+  });
+
+  it('shows the archetype choices of the shop from the archetype constants: Thinking up, Turbo down', () => {
+    const [thinking, turbo] = finetuneChoiceViews();
+    expect(thinking).toMatchObject({ archetype: 'thinking', label: 'Thinking', incomeText: 'Доход ×1,08', heatText: 'жар +20%' });
+    expect(turbo).toMatchObject({ archetype: 'turbo', label: 'Turbo', incomeText: 'Доход ×0,92', heatText: 'жар −20%' });
+  });
+});
+
+describe('ускорение Исследования: цена до траты', () => {
+  const RUN = { ...newGame(T0), temp: 0, heat: 0, nextEventAt: FAR, nextGlitchAt: FAR };
+  const planted = (crystals: number) => ({
+    ...RUN,
+    crystals,
+    research: [{ kind: 'boost' as const, term: '2h' as const, startedAt: T0 }],
+  });
+
+  it('не предлагает ускорение пустому слоту, готовому Исследованию и без целого кристалла', () => {
+    expect(researchHasteView(planted(3), 1).canHaste).toBe(false);
+    expect(researchHasteView({ ...planted(3), lastTick: T0 + 120 * 60_000 }, 0).canHaste).toBe(false);
+    expect(researchHasteView(planted(0), 0).canHaste).toBe(false);
+    expect(researchHasteView(planted(0.9), 0).canHaste).toBe(false);
+  });
+
+  it('называет процент, который уйдёт с кристаллом, и на сколько раньше станет готово', () => {
+    // Срок 2 часа, прошла минута: четверть срока — полчаса.
+    const view = researchHasteView({ ...planted(3), lastTick: T0 + 60_000 }, 0);
+    expect(view).toMatchObject({ canHaste: true, lostText: '1', losesBonus: true, shiftText: '30 мин 0 с' });
+  });
+
+  it('не обещает сдвига больше остатка: за десять минут до готовности он весь остаток', () => {
+    const view = researchHasteView({ ...planted(3), lastTick: T0 + 110 * 60_000 }, 0);
+    expect(view).toMatchObject({ canHaste: true, shiftText: '10 мин 0 с' });
+  });
+
+  it('говорит, что процента нет, когда запас выше потолка бонуса', () => {
+    const view = researchHasteView({ ...planted(150), lastTick: T0 + 60_000 }, 0);
+    expect(view).toMatchObject({ canHaste: true, lostText: '0', losesBonus: false });
   });
 });

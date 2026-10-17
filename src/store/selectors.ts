@@ -1,4 +1,4 @@
-import type { Model } from '../economy/catalog';
+import { MODEL_BY_ID, type Model } from '../economy/catalog';
 import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import {
   bulkCost,
@@ -14,7 +14,7 @@ import {
   shortfall,
   totalIncome,
 } from '../economy/engine';
-import { canStartChallenge, CHALLENGE_REWARD_PCT, type ChallengeDef } from '../economy/challenges';
+import { canStartChallenge, CHALLENGES, challengeComputeMult, hasChallenge, INHERITED_REWARD_PCT, riskClass, RISK_MULT_MAX, type ChallengeDef } from '../economy/challenges';
 import { crystalCycleMs, crystalIncomeMult, CRYSTAL_PER_STOCK_BONUS, type CrystalUpgrade } from '../economy/crystal';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import {
@@ -29,7 +29,20 @@ import {
 import { THERMAL_HOT_HEAT, THERMAL_STATE_LABEL, thermalState, type ThermalStateId } from '../data/thermalCopy';
 import { prestigeForecast } from '../economy/prestigeForecast';
 import { milestoneHint, milestoneReward, nextMilestone, type Milestone } from '../economy/milestones';
-import type { GameState, Glitch } from '../economy/state';
+import { queueCapacity } from '../economy/purchaseQueue';
+import { arenaOutlook, buyStreakNow, ruleEffect, thoughtOutlook } from '../economy/rules';
+import type { FinetuneArchetype, GameState, Glitch, ResearchKind, ResearchTermId } from '../economy/state';
+import {
+  isResearchReady,
+  nextOpening,
+  RESEARCH_BOOST_MULT,
+  RESEARCH_DURATION_MS,
+  RESEARCH_FINETUNE_YIELD,
+  researchBoostActive,
+  researchHasteMs,
+} from '../economy/research';
+import { courseById } from '../data/courses';
+import { FINETUNE_SPEC } from '../economy/finetune';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
 import {
   availableUpgrades,
@@ -214,6 +227,8 @@ export interface ThermalView {
    *  на ширине колонки — меньше двух пикселей, поэтому шаг глазом не читается, а перерисовок
    *  вместо двадцати в секунду остаётся одна-две. */
   heatBar: number;
+  /** Безопасная Температура офиса словами: её двигают Характеры Лабораторий и Перки. */
+  safe: string;
   /** Целые проценты перегрева для озвучки и подписи. */
   heatNow: number;
   /** Перегрев за 0.75: полоса переходит на цвет жара. */
@@ -248,6 +263,7 @@ export function thermalView(s: GameState): ThermalView {
     status,
     heatBar: Math.round(heatPct * 2) / 2,
     heatNow: Math.round(heatPct),
+    safe: `безопасно до ${read.safeTemp.toFixed(2)}`,
     heatHigh: read.heat > 0.75,
     mult: formatNumber(read.mult, s.settings.notation),
     valueText: `${read.temp.toFixed(2)} из ${TEMP_MAX}, Доход ×${read.mult.toFixed(2)}, ${status}`,
@@ -487,33 +503,48 @@ export function prestigeCardView(s: GameState): PrestigeCardView {
 }
 
 export interface ChallengeView {
-  /** Это Испытание выбрано на текущий Забег. */
+  /** Это Испытание взято на текущий Забег. */
   active: boolean;
-  /** Оно уже закрыто Престижем и платит прибавку. */
-  done: boolean;
+  /**
+   * Его +10% к Доходу уже в игре: закрыто до обновления, когда награда была процентом. Закрытое позже
+   * платит Compute и в этот список не входит, поэтому строку «уже у тебя» показываем не за любое закрытое.
+   */
+  inherited: boolean;
 }
 
 export function challengeView(s: GameState, def: ChallengeDef): ChallengeView {
-  return { active: s.activeChallenge === def.id, done: s.challengesDone.includes(def.id) };
+  return { active: hasChallenge(s, def.id), inherited: s.challengesInherited.includes(def.id) };
 }
 
 export interface ChallengeCardView {
-  /** Забег свежий: Испытание ещё можно выбрать или сменить. */
+  /** Забег свежий: Испытания ещё можно брать или класть обратно. */
   canStart: boolean;
-  /** Ничего не выбрано: обычный Забег. */
+  /** Взятых Испытаний нет: обычный Забег без Класса риска. */
   none: boolean;
-  /** Прибавка к Доходу от закрытых Испытаний, в процентах. */
-  bonusText: string;
-  doneCount: number;
+  /** Класс риска Забега: сумма тяжести взятых Испытаний. */
+  risk: number;
+  /** Множитель Compute за этот Престиж от Класса риска, отформатированный для показа. */
+  multText: string;
+  /** Множитель упёрся в потолок: лишняя тяжесть Compute уже не прибавляет. */
+  capped: boolean;
+  /** Награда Испытаний, закрытых до Compute-награды, в процентах — +10% за каждое. */
+  inheritedText: string;
+  /** Сколько Испытаний унаследовали награду в процентах; строку «закрывалось раньше» без них не показываем. */
+  inheritedCount: number;
 }
 
 export function challengeCardView(s: GameState): ChallengeCardView {
-  const doneCount = new Set(s.challengesDone).size;
+  const notation = s.settings.notation;
+  const inherited = new Set(s.challengesInherited).size;
+  const mult = challengeComputeMult(s);
   return {
     canStart: canStartChallenge(s),
-    none: s.activeChallenge === null,
-    bonusText: formatNumber(doneCount * CHALLENGE_REWARD_PCT, s.settings.notation),
-    doneCount,
+    none: s.activeChallenges.length === 0,
+    risk: riskClass(s),
+    multText: formatNumber(mult, notation),
+    capped: mult >= RISK_MULT_MAX,
+    inheritedText: formatNumber(inherited * INHERITED_REWARD_PCT, notation),
+    inheritedCount: inherited,
   };
 }
 
@@ -616,6 +647,147 @@ export function crystalGrowthView(s: GameState): CrystalGrowthView {
     leftText: s.crystalPlantedAt === 0 ? '' : formatDuration(leftSec),
     width: Math.round(progress * 1000) / 10,
     now: Math.round(progress * 100),
+  };
+}
+
+/** Срок Исследования словами: подпись слота. */
+export const RESEARCH_TERM_TEXT: Record<ResearchTermId, string> = { '30m': '30 минут', '2h': '2 часа', '8h': '8 часов' };
+
+/** Вид результата словами: кнопка выбора при закладке и подпись слота (ТЗ #116, #118). */
+export const RESEARCH_KIND_TEXT: Record<ResearchKind, string> = {
+  boost: 'Временное усиление',
+  finetune: 'Заготовка Файнтюна',
+  unlock: 'Постоянное открытие',
+};
+
+/**
+ * Постоянное открытие словами: «Курс «Ночная смена»» или «Испытание «Забег без Событий»». Название берётся из
+ * таблиц, а не хранится в состоянии, поэтому переименование не расходится с сохранением. Пусто для `null` и
+ * неизвестного id.
+ */
+export function researchOpeningText(id: string | null): string {
+  if (id === null) return '';
+  const course = courseById(id);
+  if (course) return `Курс «${course.name}»`;
+  const challenge = CHALLENGES.find((c) => c.id === id);
+  return challenge ? `Испытание «${challenge.name}»` : '';
+}
+
+/** Следующее открытие, которое закладка возьмёт: словами для выбора вида; пусто, если открыто всё. */
+export function nextOpeningText(s: GameState): string {
+  return researchOpeningText(nextOpening(s));
+}
+
+/** Сколько Заготовок даёт срок, словами с числом: «одна Заготовка», «две Заготовки», «четыре Заготовки». */
+export function finetuneYieldText(term: ResearchTermId, notation: GameState['settings']['notation'] = 'short'): string {
+  return `${RESEARCH_FINETUNE_YIELD[term]} ${formatCount(RESEARCH_FINETUNE_YIELD[term], 'Заготовка', 'Заготовки', 'Заготовок', notation)}`;
+}
+
+/**
+ * Подписи архетипа для кнопок Файнтюна в карточке Модели: во сколько раз её Доход и как сдвигается жар
+ * офиса. Числа — из `FINETUNE_SPEC`, поэтому карточка не расходится с экономикой.
+ */
+export interface FinetuneChoiceView {
+  archetype: FinetuneArchetype;
+  label: string;
+  incomeText: string;
+  heatText: string;
+}
+
+export function finetuneChoiceViews(): FinetuneChoiceView[] {
+  const comma = (n: number) => String(n).replace('.', ',');
+  return (['thinking', 'turbo'] as const).map((archetype) => {
+    const spec = FINETUNE_SPEC[archetype];
+    const pct = Math.round(Math.abs(spec.heatDelta) * 100);
+    return {
+      archetype,
+      label: spec.label,
+      incomeText: `Доход ×${comma(spec.incomeMult)}`,
+      heatText: spec.heatDelta > 0 ? `жар +${pct}%` : `жар −${pct}%`,
+    };
+  });
+}
+
+/**
+ * Один слот Исследований. Плоский объект, а не массив: слот подписывается отдельно, и `useShallow`
+ * перерисовывает его только при смене одного из полей. Процент целый, поэтому полоса не дёргается каждый
+ * тик, а меняется раз в долю срока, и текст «осталось» меняется раз в минуту, а не на каждом тике.
+ */
+export interface ResearchSlotView {
+  /** В слоте лежит Исследование: оно созревает или уже ждёт сбора. */
+  busy: boolean;
+  /** Созрело: сбор уже можно нажать. */
+  ready: boolean;
+  /** Вид результата словами: «Временное усиление» или «Заготовка Файнтюна». */
+  resultText: string;
+  termText: string;
+  /** Сколько осталось созревать; «готово», когда созрело, пусто в пустом слоте. */
+  leftText: string;
+  /** Целый процент созревания 0..100. */
+  progress: number;
+}
+
+/** Слот Исследований по индексу, часы — `lastTick`, тот же, которым читает тик. Пустой слот — без подписей. */
+export function researchSlotView(s: GameState, index: number): ResearchSlotView {
+  const job = s.research[index];
+  if (!job) return { busy: false, ready: false, resultText: '', termText: '', leftText: '', progress: 0 };
+  const duration = RESEARCH_DURATION_MS[job.term];
+  const elapsed = Math.max(0, s.lastTick - job.startedAt);
+  const ready = isResearchReady(job, s.lastTick);
+  return {
+    busy: true,
+    ready,
+    resultText: job.kind === 'unlock' ? `${RESEARCH_KIND_TEXT.unlock}: ${researchOpeningText(job.unlock)}` : RESEARCH_KIND_TEXT[job.kind],
+    termText: RESEARCH_TERM_TEXT[job.term],
+    leftText: ready ? 'готово' : formatDuration(Math.ceil((duration - elapsed) / 1000)),
+    progress: ready ? 100 : Math.floor((elapsed / duration) * 100),
+  };
+}
+
+/** Временное усиление: идёт ли оно, на сколько поднят Доход и сколько ещё. */
+export interface ResearchBoostView {
+  active: boolean;
+  /** Во сколько раз поднят живой Доход, с запятой: «1,5». */
+  multText: string;
+  /** Сколько осталось до конца окна; пусто вне окна. */
+  leftText: string;
+}
+
+export function researchBoostView(s: GameState): ResearchBoostView {
+  const active = researchBoostActive(s, s.lastTick);
+  return {
+    active,
+    multText: String(RESEARCH_BOOST_MULT).replace('.', ','),
+    leftText: active ? formatDuration(Math.ceil((s.researchBoostUntil - s.lastTick) / 1000)) : '',
+  };
+}
+
+/**
+ * Ускорение созревающего Исследования: подпись кнопки до траты (ТЗ #117). Процент — та же разница
+ * `crystalIncomeMult`, что уносит трата, а сдвиг — тот же `researchHasteMs`, что платит `hasteResearch`:
+ * цена называется из тех же функций, которые её списывают.
+ */
+export interface ResearchHasteView {
+  /** Слот созревает и в запасе есть целый кристалл: ускорить можно. */
+  canHaste: boolean;
+  /** Сколько процентов Дохода уйдёт вместе с кристаллом. */
+  lostText: string;
+  /** Уйдёт ли хоть что-то: сверх потолка запаса кристалл процента не несёт. */
+  losesBonus: boolean;
+  /** На сколько раньше станет готово, словами; пусто, когда ускорять нечего. */
+  shiftText: string;
+}
+
+export function researchHasteView(s: GameState, index: number): ResearchHasteView {
+  const notation = s.settings.notation;
+  const job = s.research[index];
+  const growing = job !== undefined && !isResearchReady(job, s.lastTick);
+  const lost = Math.round((crystalIncomeMult(s) - crystalIncomeMult({ ...s, crystals: s.crystals - 1 })) * 100);
+  return {
+    canHaste: growing && Math.floor(s.crystals) >= 1,
+    lostText: formatNumber(lost, notation),
+    losesBonus: lost > 0,
+    shiftText: job && growing ? formatDuration(researchHasteMs(job, s.lastTick) / 1000) : '',
   };
 }
 
@@ -740,7 +912,7 @@ export function labCardView(s: GameState, lab: LabId, showShare: boolean): LabCa
   const notation = s.settings.notation;
   const count = labAgents(s, lab);
   const synergyOn =
-    s.activeChallenge !== 'no-synergy' && s.upgrades.includes(synergyUpgradeId(s.generation, lab));
+    !hasChallenge(s, 'no-synergy') && s.upgrades.includes(synergyUpgradeId(s.generation, lab));
   const synergy = synergyOn ? Math.round(count * SYNERGY_PER_AGENT * 100) : -1;
   return {
     agents: formatNumber(count, notation),
@@ -763,4 +935,114 @@ export function labBoothLabels(s: GameState): string[] {
     const synergy = view.synergy >= 0 ? `, Синергия +${view.synergyText}%` : '';
     return `${LABS[lab].name}: ${view.agents} ${view.agentsWord}${synergy}`;
   });
+}
+
+export interface QueueView {
+  /** Записи в порядке найма; `index` нужен кнопке «снять». */
+  entries: { index: number; name: string }[];
+  capacity: number;
+  full: boolean;
+}
+
+/** Записи очереди с именами Моделей; чистая функция от списка id, чтобы компонент считал её в `useMemo`. */
+export function queueEntries(ids: readonly string[]): QueueView['entries'] {
+  return ids.map((id, index) => ({ index, name: MODEL_BY_ID[id]?.name ?? id }));
+}
+
+/**
+ * Карточка очереди закупок в магазине; `null` вне «Агентов сами». Вложенный `entries` — новый
+ * массив на каждый вызов, поэтому в `useStateSlice` его не отдают: компонент читает плоские
+ * `queueSlots` и ссылку `purchaseQueue`, а записи собирает `queueEntries` в `useMemo`.
+ */
+export function queueView(s: GameState): QueueView | null {
+  const capacity = queueCapacity(s);
+  if (capacity === 0) return null;
+  return { entries: queueEntries(s.purchaseQueue), capacity, full: s.purchaseQueue.length >= capacity };
+}
+
+/**
+ * Живая строка Правила Поколения на Сцене: то, что в нём сейчас меняется. Пустая строка — у
+ * Правил, где живого нет (цена и Доход сами читаются с карточек), и HUD оставляет там описание.
+ *
+ * «Лидер Арены» называет лидера и минуты до смены; в последнюю минуту — следующего лидера, как и
+ * лента. Минуты целые, поэтому строка перерисовывается раз в минуту, а не двадцать раз в секунду.
+ */
+export function ruleStatusText(s: GameState): string {
+  const arena = arenaOutlook(s);
+  if (arena) {
+    const leader = LABS[arena.leader].name;
+    return arena.warning
+      ? `Лидер: ${leader} · дальше ${LABS[arena.next].name}`
+      : `Лидер: ${leader} · ещё ${Math.ceil(arena.secondsLeft / 60)} мин`;
+  }
+  const capacity = queueCapacity(s);
+  if (capacity > 0) return `Очередь: ${s.purchaseQueue.length} из ${capacity}`;
+  const scarcity = scarcityView(s);
+  return scarcity.extra > 0 ? `Цены +${scarcity.extra}%` : '';
+}
+
+export interface ScarcityView {
+  /** Действует ли «Дефицит GPU» в этом Поколении. */
+  active: boolean;
+  /** Надбавка к цене в целых процентах; 0 — ряд покупок не идёт или остыл. */
+  extra: number;
+  /** Секунд до остывания цены, целых вверх; 0 — надбавки нет. */
+  seconds: number;
+}
+
+/**
+ * Карточка «Дефицита GPU» в магазине: на сколько процентов подорожали Модели и когда цена остынет.
+ * Считается теми же `buyStreakNow` и параметрами Правила, что цена покупки, поэтому подпись не
+ * может разойтись с карточками Моделей. Секунды меняют срез раз в секунду, и только пока надбавка
+ * жива: после паузы срез неподвижен.
+ */
+export function scarcityView(s: GameState): ScarcityView {
+  const effect = ruleEffect(s, 'buyStreak');
+  if (!effect) return { active: false, extra: 0, seconds: 0 };
+  const streak = buyStreakNow(s);
+  if (streak === 0) return { active: true, extra: 0, seconds: 0 };
+  return {
+    active: true,
+    extra: Math.round(Math.min(effect.maxExtra, effect.perAgent * streak) * 100),
+    seconds: Math.max(0, Math.ceil((s.lastBuyAt + effect.resetSec * 1000 - s.lastTick) / 1000)),
+  };
+}
+
+export interface ThoughtMeterView {
+  /** Действует ли «Подумай ещё» в этом Поколении. */
+  active: boolean;
+  /** Идёт ли удержание: порция размышления пришла только что. */
+  holding: boolean;
+  /** Накопленные секунды с десятой долей, в нотации игрока. */
+  seconds: string;
+  /** Множитель выплаты за накопленное. */
+  mult: string;
+  /** Заполнение копилки в процентах, кратных пяти: полоса не дёргается на каждый тик. */
+  width: number;
+}
+
+/**
+ * Полоса размышления под кнопкой Клика. Секунды печатаются с десятой долью, поэтому срез меняется
+ * десять раз в секунду, но только пока идёт удержание; в покое он неподвижен.
+ */
+export function thoughtMeterView(s: GameState): ThoughtMeterView {
+  const effect = ruleEffect(s, 'heldThought');
+  const outlook = thoughtOutlook(s);
+  if (!effect || !outlook) {
+    return { active: false, holding: false, seconds: '', mult: '', width: 0 };
+  }
+  const notation = s.settings.notation;
+  return {
+    active: true,
+    holding: outlook.holding,
+    seconds: formatNumber(Math.round(outlook.seconds * 10) / 10, notation),
+    mult: formatNumber(Math.round(outlook.mult * 10) / 10, notation),
+    width: Math.round((outlook.seconds / effect.maxSec) * 20) * 5,
+  };
+}
+
+/** Плоский срез очереди для карточек Моделей: есть ли она и осталось ли в ней место. */
+export function queueSlots(s: GameState): { active: boolean; full: boolean; capacity: number; count: number } {
+  const capacity = queueCapacity(s);
+  return { active: capacity > 0, full: s.purchaseQueue.length >= capacity, capacity, count: s.purchaseQueue.length };
 }

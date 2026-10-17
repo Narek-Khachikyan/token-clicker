@@ -20,12 +20,14 @@ import {
   prestige,
   totalIncome,
 } from './engine';
-import { GEN_PERK_BASE_COST, GEN_PERK_STEP_COST, isGenPerkId, PERKS } from './perks';
+import { CHALLENGES, riskClass, toggleChallenge, type ChallengeDef } from './challenges';
+import { RESEARCH_OPENING_IDS } from './research';
+import { PERKS } from './perks';
 import { migrate } from './save';
 import { newGame, SAVE_VERSION, type GameState } from './state';
 import { QUIPS } from '../data/quips';
 import { SHADOW_ACHIEVEMENTS } from './shadow';
-import { CLICK_UPGRADES, clickUpgradeId } from './upgrades';
+import { assistUpgradeId, CLICK_UPGRADES, clickUpgradeId } from './upgrades';
 
 const T0 = 1_000_000;
 const HOUR = 3_600_000;
@@ -54,21 +56,11 @@ const clickN = (s: GameState, n: number): GameState => {
 const idle = (s: GameState, tokens: number): GameState => advance(s, (tokens * 4) / totalIncome(s));
 
 /** Перк «Скрипт-автокликер» куплен и Клики идут со скоростью 1/сек. */
-const autoClicking = (s: GameState): GameState => buyPerk({ ...s, compute: 25 }, 'autoclick');
+// Автокликер в дереве стоит под «Чётким промптом»: сначала предшественник, потом он сам.
+const autoClicking = (s: GameState): GameState => buyPerk(buyPerk({ ...s, compute: 28 }, 'click_x2'), 'autoclick');
 
-/**
- * Compute на весь список Перков.
- *
- * У особых Перков Поколения цена в таблице — только базовая: настоящая растёт с числом уже
- * купленных, поэтому сумма берётся из тех же констант, что и движок, а не складывается из
- * `p.cost`. Иначе сумма была бы меньше нужной, и последний особый Перк просто не купился бы.
- */
-const ALL_PERKS_COMPUTE =
-  PERKS.filter((p) => !isGenPerkId(p.id)).reduce((n, p) => n + p.cost, 0) +
-  CATALOG.reduce(
-    (n, _g, i) => n + GEN_PERK_BASE_COST + GEN_PERK_STEP_COST * i,
-    0
-  );
+/** Compute на всё дерево: хватает с запасом, цены берутся из самой таблицы. */
+const ALL_PERKS_COMPUTE = PERKS.reduce((n, p) => n + p.cost, 0);
 
 /**
  * Все Поколения пройдены Престижами, Флагман каждого куплен по-настоящему.
@@ -101,6 +93,11 @@ const firstGenerationCleared = (): GameState => {
   return idle(clickN(s, 10_000), 1e10);
 };
 
+/** Забег Поколения 1 под данными Испытаниями, закрытый настолько, что Престиж доступен: Флагман нанят. */
+// Испытание «Забег без Событий» открывается Исследованием (ТЗ #118): тени Класса риска считаются от открытого Забега.
+const closedUnder = (...ids: ChallengeDef['id'][]): GameState =>
+  buyAgents(rich(ids.reduce((s, id) => toggleChallenge(s, id), { ...newGame(T0), researchUnlocks: [...RESEARCH_OPENING_IDS] }), 1e30), g0.flagship.id, 1);
+
 /** Состояние, в котором выполнено условие каждой тени. Шутка недостижима by design. */
 const REACH: Record<string, () => GameState> = {
   // Перк даёт Клик в секунду: 100 000 Кликов — это 27 суток непрерывной игры.
@@ -120,12 +117,15 @@ const REACH: Record<string, () => GameState> = {
   shadow_100_hours: () => applyOffline(newGame(T0), T0 + 100 * HOUR).state,
   shadow_all_click_upgrades: () =>
     CLICK_UPGRADES.reduce((s, _, i) => buyUpgrade(s, clickUpgradeId(0, i)), rich(newGame(T0), 1e12)),
-  shadow_click_worth_1e24: () => lateGame(),
+  // Бонус Compute упирается в потолок (ADR-0010), поэтому одним Compute планку не взять:
+  // нужны оба Апгрейда-ассистента, у которых Клик растёт вместе с числом Агентов.
+  shadow_click_worth_1e24: () =>
+    ([1, 2] as const).reduce((s, i) => buyUpgrade(s, assistUpgradeId(LAST_GENERATION, i)), rich(lateGame(), 1e300)),
   shadow_one_model_1000: () => hireAll(prestigeToFrontier(), [last.models[0]], 1_000),
   shadow_flagship_500: () => hireAll(prestigeToFrontier(), [last.flagship], 500),
   shadow_swarm_10k: () => hireAll(prestigeToFrontier(), last.models, 2_000),
-  // Купить весь список: состояние берётся с последнего Поколения и с Флагманом, потому что
-  // особый Перк своего Поколения без canPrestige недоступен, а прошедшие Поколения открыты.
+  // Купить всё, что дерево пускает держать сразу: PERKS идёт сверху вниз, поэтому предшественник
+  // всегда куплен раньше зависимого, а верхние Перки чужих Ветвей отказывают сами.
   shadow_all_perks: () =>
     PERKS.reduce(
       (s, p) => buyPerk(s, p.id),
@@ -150,9 +150,9 @@ const REACH: Record<string, () => GameState> = {
     return idle(stocked, 1e6);
   },
   sh_hardcore: () => buyAgents(rich(newGame(T0), 1e30), g0.flagship.id, 1),
-  // 778³ × делитель — минимальный заработок, дающий прирост 777, и минус единица, чтобы
-  // кубический корень не перевалил через 778.
-  sh_777: () => ({ ...newGame(T0), runTokens: Math.pow(778, 3) * prestigeDivisor(0) - 1 }),
+  // 778³ × делитель — минимальный заработок, дающий прирост 778; чуть меньше, чтобы кубический
+  // корень не перевалил через 778. Вычитать единицу нельзя: на 1e20 она теряется в точности double.
+  sh_777: () => ({ ...newGame(T0), runTokens: Math.pow(778, 3) * prestigeDivisor(0) * (1 - 1e-9) }),
   // Числовая лестница: Доход последнего Поколения доводит общий счёт до любого рубежа.
   shadow_tok_33: () => idle(lateGame(), 1e33),
   shadow_tok_45: () => idle(lateGame(), 1e45),
@@ -167,6 +167,10 @@ const REACH: Record<string, () => GameState> = {
   // Спринт: все Престижи за шесть секунд игровых часов. Счётчик Престижей упирается в
   // число Поколений (Престиж запрещён на последнем), поэтому ускоряется здесь только время.
   shadow_all_prestiges_15m: () => prestigeToFrontier(1_000),
+  // Три тени Класса риска: пороги по сумме тяжести взятых Испытаний, Флагман нанят — Забег можно закрыть.
+  shadow_risk_3: () => closedUnder('no-synergy', 'no-click'),
+  shadow_risk_6: () => closedUnder('no-perks', 'no-synergy', 'cold'),
+  shadow_risk_max: () => closedUnder(...CHALLENGES.map((c) => c.id)),
   // Три тени «Говорящих Моделей»: состояния собираются из той же таблицы реплик,
   // что и игра, а не из захардкоженных id, иначе правка таблицы тихо роняла бы тест.
   shadow_quips_5: () => ({ ...newGame(T0), quipsSeen: QUIPS.slice(0, 5).map((q) => q.id) }),
@@ -348,7 +352,7 @@ describe('тени, пришедшие из ранней ветки', () => {
     expect(check('sh_hardcore')({ ...s, generation: 1, maxGeneration: 1 })).toBe(false);
   });
   it('sh_777: прирост Престижа с цифрами 777, и выдаётся только теньми', () => {
-    const gain = { ...newGame(T0), runTokens: Math.pow(778, 3) * prestigeDivisor(0) - 1 };
+    const gain = { ...newGame(T0), runTokens: Math.pow(778, 3) * prestigeDivisor(0) * (1 - 1e-9) };
     expect(check('sh_777')(gain)).toBe(true);
     expect(newlyEarnedShadows(gain)).toContain('sh_777');
     // Обычная выдача про это условие молчит: тень не смешивается с обычной лестницей.
@@ -384,5 +388,30 @@ describe('детерминированность', () => {
       Date.now = clock;
       Math.random = dice;
     }
+  });
+});
+
+describe('тени Класса риска', () => {
+  const shadow = (id: string) => SHADOW_ACHIEVEMENTS.find((a) => a.id === id)!;
+
+  it('берутся только закрытым Забегом: взять Испытания мало, нужен Флагман', () => {
+    const taken = CHALLENGES.reduce((s, c) => toggleChallenge(s, c.id), newGame(T0));
+    for (const id of ['shadow_risk_3', 'shadow_risk_6', 'shadow_risk_max']) expect(shadow(id).check(taken), id).toBe(false);
+  });
+
+  it('открываются по порогам, и каждый следующий труднее предыдущего', () => {
+    const passes = (s: GameState) => ['shadow_risk_3', 'shadow_risk_6', 'shadow_risk_max'].map((id) => shadow(id).check(s));
+    expect(passes(closedUnder('no-click'))).toEqual([false, false, false]);
+    expect(riskClass(closedUnder('no-synergy', 'no-click'))).toBe(3);
+    expect(passes(closedUnder('no-synergy', 'no-click'))).toEqual([true, false, false]);
+    expect(passes(closedUnder('no-perks', 'no-synergy', 'cold'))).toEqual([true, true, false]);
+    expect(passes(closedUnder(...CHALLENGES.map((c) => c.id)))).toEqual([true, true, true]);
+  });
+
+  it('не прибавляют ни Дохода, ни Датасета, как любая тень', () => {
+    const earned = awardShadowAchievements(closedUnder(...CHALLENGES.map((c) => c.id))).state;
+    expect(shadowEarned(earned)).toBeGreaterThanOrEqual(3);
+    expect(nonShadowCount(earned)).toBe(0);
+    expect(totalIncome(earned)).toBe(totalIncome(closedUnder(...CHALLENGES.map((c) => c.id))));
   });
 });

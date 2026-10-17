@@ -1,4 +1,4 @@
-import { CATALOG, type Generation, type Model } from './catalog';
+import { CATALOG, MODEL_BY_ID, type Generation, type Model } from './catalog';
 import { LAB_IDS, LABS, type LabId } from '../data/labs';
 import { nonShadowCount } from './achievements';
 import type { GameState } from './state';
@@ -13,6 +13,45 @@ export const MODEL_TIERS = [
   { threshold: 50, costMult: 50_000, name: '1M контекст', sprite: 'context-1m' },
   { threshold: 100, costMult: 5_000_000, name: 'Tool use', sprite: 'tool-use' },
 ] as const;
+
+/**
+ * Кривая порогов по Рангу (слой 6, #119): `MODEL_TIERS[t].threshold` — порог «середины» лестницы,
+ * а порог конкретной Модели — он, умноженный на долю между `TIER_SHARE_YOUNGEST` (младший Ранг
+ * Поколения) и `TIER_SHARE_FLAGSHIP` (Флагман), линейно по `r / (n − 1)` и с округлением. Ступень 0
+ * открывается на первом Агенте у всех: на ней держится первая покупка новичка. Цены ступеней
+ * (`costMult`) не меняются.
+ *
+ * Для игрока это выбор: у младшей Модели ступени открываются на 5, 23, 45 и 90 Агентах, у Флагмана
+ * на 6, 28, 55 и 110; середина лестницы держит прежнюю таблицу 5/25/50/100. Id Апгрейдов
+ * (`m:<модель>:<ступень>`) те же, что и были: кривая живёт в условии открытия, а не в сейве,
+ * поэтому миграции нет.
+ *
+ * Почему по Рангу, а не по Лаборатории: Ранги разных Лабораторий перемежаются, и сдвиг по
+ * Лаборатории дал бы соседним Рангам разницу в ступень (×2) в любую сторону, а шаг Дохода между
+ * ними на ростере из 19 Моделей всего 3,02 при базовом разбросе окупаемости до 2,16. Гладкая
+ * кривая по доле Ранга сдвигает соседей меньше чем на ступень. Направление выбрано так же: у
+ * младших Моделей окупаемость хуже, и ранние ступени её выравнивают; обратная кривая (Флагман
+ * раньше) растянула бы разброс до 5,5 (замер, доли 1,1/0,9).
+ *
+ * Размах мал намеренно (±10%) и держится вместе с Характерами. Сама по себе кривая держит порядок
+ * и полосу 3× пока отношение долей Флагмана и младшей меньше двух (отношения порогов соседних
+ * ступеней не меньше двух: 5, 5, 2, 2): они расходятся не больше чем на ступень, и худший разброс
+ * окупаемости по каталогу 2,64 (доли 0,5/1,4 дают 4,07). С Характерами запаса почти нет: без кривой
+ * на равных числах Агентов разброс 2,75, а любая различная пара порогов даёт окно в несколько
+ * Агентов, где у одной Модели ступенью больше (×2). «Конвейер» Alibaba при 0,05 на Модель (до ×1,9)
+ * выводил худший разброс на 3,84–4,04 и переворачивал порядок Ранга на 26% в трёх окнах Поколения 8,
+ * сужение до 0,98/1,02 окон не убирало. Поэтому «Конвейер» ослаблен до 0,02 на каждую другую
+ * Модель (`CHARACTERS.alibaba`): замер 0,03 — 3,28 и инверсии, 0,025 — 3,09, 0,022 — 2,97, 0,02 —
+ * 2,89 и порядок без единого окна, 0 — 2,61. Старший порог Флагмана (110) остаётся ниже
+ * `ASSIST1_THRESHOLD`.
+ *
+ * Замер `tools/sim.ts --campaign`: жадная политика покупает ступени на 17, 28, 45, 78 и 110 Агентах
+ * каждой Модели независимо от Ранга, то есть упирается в цену ступени, а не в порог, поэтому темп
+ * кампании почти не сдвинулся (476,8 минуты до кривой и ослабления «Конвейера», 480,8 после). Кривая работает на тех, кто собирает
+ * офис узко.
+ */
+export const TIER_SHARE_YOUNGEST = 0.9;
+export const TIER_SHARE_FLAGSHIP = 1.1;
 
 export const CLICK_UPGRADES = [
   { units: 100, kind: 'x2', name: 'Prompt engineering', desc: 'клик ×2', sprite: 'prompt-engineering' },
@@ -328,11 +367,34 @@ export function labWork(state: Pick<GameState, 'generation' | 'upgrades'>, lab: 
   return top >= 0 ? MODEL_TIERS[top].name : '';
 }
 
+/**
+ * Сколько Агентов Модели открывают ступень `tier` её Апгрейдов. Кривая и её причины — над
+ * `TIER_SHARE_YOUNGEST`. Пороги строго растут по ступеням: округление не должно сливать соседние.
+ */
+export function modelTierThreshold(model: Model, tier: number): number {
+  return TIER_THRESHOLDS[model.id][tier];
+}
+
+const TIER_THRESHOLDS: Record<string, number[]> = Object.fromEntries(
+  CATALOG.flatMap((g) =>
+    g.models.map((m) => {
+      const share = g.models.length > 1 ? m.rank / (g.models.length - 1) : 1;
+      const factor = TIER_SHARE_YOUNGEST + (TIER_SHARE_FLAGSHIP - TIER_SHARE_YOUNGEST) * share;
+      const thresholds: number[] = [];
+      MODEL_TIERS.forEach((t, tier) => {
+        const raw = tier === 0 ? 1 : Math.round(t.threshold * factor);
+        thresholds.push(tier === 0 ? raw : Math.max(raw, thresholds[tier - 1] + 1));
+      });
+      return [m.id, thresholds] as const;
+    }),
+  ),
+);
+
 /** Апгрейд появляется в магазине, когда выполнено его условие открытия. */
 export function isUpgradeUnlocked(state: GameState, u: Upgrade): boolean {
   switch (u.kind) {
     case 'model':
-      return (state.agents[u.modelId] ?? 0) >= MODEL_TIERS[u.tier].threshold;
+      return (state.agents[u.modelId] ?? 0) >= modelTierThreshold(MODEL_BY_ID[u.modelId], u.tier);
     case 'click': {
       // Ветка ассистентов открывается числом Агентов, а не цепочкой клик-апгрейдов.
       if (u.effect === 'assist1') return totalAgents(state) >= ASSIST1_THRESHOLD;

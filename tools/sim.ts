@@ -1,50 +1,122 @@
 /**
- * Симулятор раннего геймплея: гоняет настоящий движок без рендера и печатает,
- * сколько времени стоит каждая веха первых получаса, и как ведёт себя второй забег.
+ * Симулятор темпа: гоняет настоящий движок без рендера и печатает время вех и Поколений.
  *
  * Нужен, чтобы ритм прогрессии выбирался числами, а не ощущением. Правки баланса без него
  * означали бы вслепую: единственный способ узнать, что лестница Ранга перевёрнута или что
  * Compute дают слишком щедро, — это посмотреть на кривую.
  *
- * Запуск:
- *   npx tsx tools/sim.ts                     первый забег, 40 минут
- *   npx tsx tools/sim.ts --prestige          с престижами (порог --compute)
- *   npx tsx tools/sim.ts --gen 90 --prestige --compute 25   два забега подряд
+ * Запуск (tsx не объявлен зависимостью, `npx` подтянет его сам):
+ *   npx tsx tools/sim.ts --campaign            вся кампания до Финала контента против кривой
+ *   npx tsx tools/sim.ts                       первый забег, 40 минут
+ *   npx tsx tools/sim.ts --prestige            с Престижами, 40 минут
+ *   npx tsx tools/sim.ts --gen 90 --prestige   два забега подряд
  *
- * Политика игрока жадная и осознанно простая: покупает всё доступное по порядку цены,
- * престижит, когда взял флагман и хватает Compute на следующий круг. Настоящий игрок
- * отличается тем, что крутит Температуру, — но симулятор этого не делает намеренно:
- * он должен задавать МИНИМАЛЬНЫЙ темп, а шкала может только его ускорить.
+ * Главный режим — `--campaign`: Престиж по политике до тех пор, пока не куплен Флагман
+ * последнего Поколения, и таблица «Поколение, сколько заняло, сколько по кривой, отклонение».
+ * Кривая — данные в `src/data/paceCurve.ts`, а не числа здесь; её же читает проверка в `npm test`.
+ * Код возврата 0 всегда: симулятор меряет, а не проверяет.
+ *
+ * Флаги (число — следующим аргументом):
+ *   --campaign       Престижи до Финала контента, печатает таблицу против кривой
+ *   --prestige       Престижи в обычном режиме (в `--campaign` включены сами)
+ *   --gen N          сколько минут играть в обычном режиме (по умолчанию 40)
+ *   --max N          потолок минут для `--campaign` (по умолчанию 1500); не дошёл — таблица
+ *                    всё равно печатается, а Финал помечен недостигнутым
+ *   --cps N          Кликов в секунду (по умолчанию 5)
+ *   --farm N         секунд дофарма после взятого Флагмана перед Престижем (по умолчанию 0:
+ *                    Престиж сразу; ручка из docs/research/07, §3.2)
+ *   --reserve N      сколько свободного Compute политика не тратит на Перки (по умолчанию 25)
+ *   --min-gain N     Престиж только если он даст не меньше N Compute (по умолчанию 40)
+ *   --seed N         зерно генератора Событий (по умолчанию 1); тот же seed — тот же прогон
+ *   --thermal MODE   как политика крутит Температуру: off (по умолчанию) | safe | ride | max;
+ *                    safe держит безопасную Температуру офиса, ride — 1,0, max — предел шкалы
+ *   --course ID      какой Курс (ADR-0013) политика берёт на каждом Престиже: none (по умолчанию) |
+ *                    first (первый из трёх предложенных) | id Курса из `src/data/courses.ts`
+ *                    (`scale`, `rule:scarcity`…), когда пул Престижа его содержит
+ *   --challenge MODE Испытания Забега (ADR-0013, слой 5): none (по умолчанию) | all — все Испытания
+ *                    таблицы на каждом Забеге, то есть кампания на максимальном Классе риска
+ *   --catch          политика ловит каждое обычное Событие сразу (верхняя граница внимательного
+ *                    игрока); по умолчанию не ловит, и Золотые Токены ничего не платят
+ *   --uprising       политика поднимает стадию Восстания, как стор: красные События выпадают (по умолчанию
+ *                    их в прогоне нет — симулятор стора не гоняет); разбор — docs/plans/110-pace-report.md
+ *   --glitches MODE  Глюки: live (по умолчанию: растут, политика их не трогает) | pop (лопает сразу) | none
+ *   --research TERM  Исследование (ТЗ #115): none (по умолчанию) | 30m | 2h | 8h — закладывает этот срок в
+ *                    свободный слот и собирает созревшее сразу (верхняя граница внимательного игрока)
+ *   --no-characters  выключить Характеры Лабораторий (ADR-0011): база для сравнения «с / без»;
+ *                    таблица в памяти очищается, файлы не трогаются
+ *   --verbose        строка на каждую минуту
+ *
+ * Политика — `tools/greedyPolicy.ts`, общая с проверкой в `npm test`: жадная и осознанно простая,
+ * Температуру не крутит, поэтому задаёт МИНИМАЛЬНЫЙ темп, а шкала может только его ускорить.
+ * Престижит, когда взят Флагман, прошёл дофарм и Престиж даёт не меньше `--min-gain` Compute
+ * (по умолчанию 40, ориентир первого Престижа): без этого условия Престиж ложится на первый
+ * Флагман (~15-я минута), а его время ручки баланса не двигают.
+ *
+ * Политика не застревает на Compute: Престиж не требует свободного Compute (он его начисляет),
+ * а на Перки идёт только то, что сверх `--reserve`. Бонус Compute считается от свободного Compute
+ * (ADR-0010), и трата на Перки стоит Дохода, поэтому запас держит часть бонуса нетронутой.
  */
 import { CATALOG } from '../src/economy/catalog';
-import { newGame, type GameState } from '../src/economy/state';
-import {
-  advanceTime,
-  buyAgents,
-  buyPerk,
-  buyUpgrade,
-  canPrestige,
-  click,
-  prestige,
-  prestigeGain,
-  totalIncome,
-  clickValue,
-} from '../src/economy/engine';
-import { availableUpgrades } from '../src/economy/upgrades';
-import { PERKS } from '../src/economy/perks';
-import { migrate } from '../src/economy/save';
+import type { GameState } from '../src/economy/state';
+import { canPrestige, isContentFinale, prestigeGain, totalIncome, clickValue } from '../src/economy/engine';
+import { FIRST_PRESTIGE_WINDOW_MIN, PACE_CURVE, PACE_TOLERANCE, paceTotalMinutes } from '../src/data/paceCurve';
+import { CHARACTERS } from '../src/data/characters';
+import { LAB_IDS } from '../src/data/labs';
+import { characterStrength } from '../src/economy/character';
+import { safeTemp } from '../src/economy/thermal';
+import { DEFAULT_POLICY, DT, doPrestige, newSession, prestigeDue, tick, type PolicyOptions, type ThermalPolicy } from './greedyPolicy';
 
 const arg = (k: string, d: number) => {
   const i = process.argv.indexOf(`--${k}`);
   return i >= 0 ? Number(process.argv[i + 1]) : d;
 };
 const has = (k: string) => process.argv.includes(`--${k}`);
+const strArg = (k: string, d: string) => {
+  const i = process.argv.indexOf(`--${k}`);
+  return i >= 0 ? process.argv[i + 1] : d;
+};
 
-const T0 = 1_700_000_000_000;
-const DT = 1 / 20;
-const CPS = arg('cps', 5);
-/** Compute, ради которого стоит начинать новый круг: столько наберится к моменту престижа. */
-const TARGET_COMPUTE = arg('compute', 25);
+const modeArg = (): ThermalPolicy => {
+  const i = process.argv.indexOf('--thermal');
+  const v = i >= 0 ? process.argv[i + 1] : 'off';
+  if (v !== 'off' && v !== 'safe' && v !== 'ride' && v !== 'max') throw new Error(`--thermal: off|safe|ride|max, получено ${v}`);
+  return v;
+};
+const challengeArg = (): 'none' | 'all' => {
+  const i = process.argv.indexOf('--challenge');
+  const v = i >= 0 ? process.argv[i + 1] : 'none';
+  if (v !== 'none' && v !== 'all') throw new Error(`--challenge: none|all, получено ${v}`);
+  return v;
+};
+const glitchesArg = (): 'live' | 'pop' | 'none' => {
+  const v = strArg('glitches', 'live');
+  if (v !== 'live' && v !== 'pop' && v !== 'none') throw new Error(`--glitches: live|pop|none, получено ${v}`);
+  return v;
+};
+const researchArg = (): PolicyOptions['research'] => {
+  const v = strArg('research', 'none');
+  if (v !== 'none' && v !== '30m' && v !== '2h' && v !== '8h') throw new Error(`--research: none|30m|2h|8h, получено ${v}`);
+  return v;
+};
+if (has('no-characters')) for (const lab of LAB_IDS) delete CHARACTERS[lab];
+
+const POLICY = {
+  thermal: modeArg(),
+  cps: arg('cps', DEFAULT_POLICY.cps),
+  reserve: arg('reserve', DEFAULT_POLICY.reserve),
+  minGain: arg('min-gain', DEFAULT_POLICY.minGain),
+  farmSec: arg('farm', DEFAULT_POLICY.farmSec),
+  seed: arg('seed', DEFAULT_POLICY.seed),
+  course: strArg('course', DEFAULT_POLICY.course),
+  catchEvents: has('catch'),
+  challenges: challengeArg(),
+  uprising: has('uprising'),
+  glitches: glitchesArg(),
+  research: researchArg(),
+};
+const CAMPAIGN = has('campaign');
+const VERBOSE = has('verbose');
+const MAX_MIN = arg('max', 1500);
 
 const fmt = (n: number) => {
   if (!Number.isFinite(n)) return '∞';
@@ -56,66 +128,65 @@ const fmt = (n: number) => {
   return n.toFixed(1);
 };
 
-/** Покупает Перк, если хватает Compute. Дороже — раньше: дешёвые кончаются первыми. */
-function buyAffordablePerk(s: GameState): GameState {
-  const free = s.compute - s.computeSpent;
-  const sorted = [...PERKS].sort((a, b) => b.cost - a.cost);
-  for (const p of sorted) {
-    if (p.cost <= free && !s.perks.includes(p.id)) return buyPerk(s, p.id);
-  }
-  return s;
-}
-
-/**
- * Один проход покупок: Перк, все доступные Апгрейды, затем Агенты по кругу.
- *
- * Несколько проходов, потому что покупка Агента может открыть Синергию, а та — новый
- * Апгрейд: один проход оставил бы на экране покупки, до которых игрок уже дорос.
- */
-function spend(s: GameState): GameState {
-  let next = buyAffordablePerk(s);
-  for (let pass = 0; pass < 4; pass++) {
-    let changed = false;
-    for (const u of availableUpgrades(next)) {
-      if (u.cost <= next.tokens) {
-        const after = buyUpgrade(next, u.id);
-        if (after !== next) { next = after; changed = true; }
-      }
-    }
-    // Агенты — по кругу, а не «все у лучшей Модели»: так растёт число Лабораторий в офисе,
-    // а с ним и Синергия, и состав Сцены. Модели без Агентов пропускать нельзя, иначе
-    // политика никогда не поднимется выше первой ступени.
-    const models = CATALOG[next.generation].models
-      .map((m) => ({ m, owned: next.agents[m.id] ?? 0 }))
-      .sort((a, b) => (b.m.baseIncome / (b.m.baseCost * Math.pow(1.15, b.owned))) -
-                     (a.m.baseIncome / (a.m.baseCost * Math.pow(1.15, a.owned))));
-    for (const { m, owned } of models) {
-      let after = buyAgents(next, m.id, 'max');
-      while (after !== next) { next = after; after = buyAgents(next, m.id, 'max'); }
-      if ((next.agents[m.id] ?? 0) !== owned) changed = true;
-    }
-    if (!changed) break;
-  }
-  return next;
-}
-
 const MIN = (v: number) => (v < 60 ? `${v.toFixed(1)} с` : `${(v / 60).toFixed(1)} мин`);
 
-function run(minutes: number, doPrestige: boolean): void {
-  let s = migrate(null, T0);
-  let t = 0;
-  let clickCarry = 0;
+/** Сколько минут заняло Поколение; null — не закончено в отведённое время. */
+interface GenResult {
+  generation: number;
+  minutes: number | null;
+}
+
+/** Таблица «Поколение, факт, кривая, отклонение»; недостигнутое помечено, а не выдумано. */
+function printPace(results: GenResult[], finaleReached: boolean): void {
+  console.log('\n=== темп против целевой кривой (src/data/paceCurve.ts) ===');
+  console.log('Поколение'.padEnd(26) + 'факт, мин'.padStart(11) + 'кривая, мин'.padStart(13) + `отклонение (допуск ±${PACE_TOLERANCE * 100}%)`.padStart(40));
+  let actualSum = 0;
+  let targetSum = 0;
+  for (const target of PACE_CURVE) {
+    const r = results.find((x) => x.generation === target.generation);
+    const name = `${target.generation + 1}. ${CATALOG[target.generation].name}`.padEnd(26);
+    if (!r || r.minutes === null) {
+      console.log(`${name}${'—'.padStart(11)}${target.minutes.toFixed(0).padStart(13)}${'не дошёл'.padStart(40)}`);
+      continue;
+    }
+    actualSum += r.minutes;
+    targetSum += target.minutes;
+    const diff = r.minutes - target.minutes;
+    const pct = (diff / target.minutes) * 100;
+    const within = Math.abs(diff) <= target.minutes * PACE_TOLERANCE;
+    const dev = `${diff >= 0 ? '+' : ''}${diff.toFixed(1)} (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%) ${within ? 'ок' : 'вне допуска'}`;
+    console.log(`${name}${r.minutes.toFixed(1).padStart(11)}${target.minutes.toFixed(0).padStart(13)}${dev.padStart(40)}`);
+  }
+  const first = results.find((x) => x.generation === 0)?.minutes ?? null;
+  if (first !== null) {
+    const { from, to } = FIRST_PRESTIGE_WINDOW_MIN;
+    const verdict = first < from ? 'раньше окна' : first > to ? 'позже окна' : 'в окне';
+    console.log(`\nпервый Престиж: ${first.toFixed(1)} мин, окно ${from}–${to} мин — ${verdict}`);
+  }
+  if (finaleReached) {
+    console.log(
+      `Финал контента: ${actualSum.toFixed(1)} мин (${(actualSum / 60).toFixed(1)} ч), ` +
+      `кривая ${paceTotalMinutes()} мин (${(paceTotalMinutes() / 60).toFixed(1)} ч), ` +
+      `отклонение ${((actualSum / targetSum - 1) * 100).toFixed(0)}%`,
+    );
+  } else {
+    console.log(`Финал контента НЕ достигнут за ${MAX_MIN} мин: поднимите --max или проверьте политику.`);
+  }
+}
+
+function run(minutes: number, withPrestige: boolean): void {
+  const w = newSession(POLICY);
   const marks = new Map<string, number>();
-  const mark = (k: string) => { if (!marks.has(k)) marks.set(k, t); };
+  const mark = (k: string) => { if (!marks.has(k)) marks.set(k, w.t); };
   const owned = (x: GameState) => Object.values(x.agents).reduce((a, b) => a + b, 0);
   let lastLog = -1;
+  const results: GenResult[] = [];
+  let finale = false;
 
   const steps = Math.round((minutes * 60) / DT);
   for (let i = 0; i < steps; i++) {
-    clickCarry += CPS * DT;
-    while (clickCarry >= 1) { clickCarry -= 1; s = click(s); }
-    s = advanceTime(s, DT);
-    s = spend(s);
+    tick(w);
+    const s = w.s;
 
     const n = owned(s);
     if (n >= 1) mark('первый Агент');
@@ -131,39 +202,53 @@ function run(minutes: number, doPrestige: boolean): void {
       if ((s.agents[g.id] ?? 0) > 0) mark(`Агент: ${g.name}`);
     }
 
-    // Новый круг имеет смысл, когда взяты флагман и хватает Compute на следующий шаг.
-    if (canPrestige(s) && doPrestige && prestigeGain(s) >= TARGET_COMPUTE &&
-        (s.prestiges === 0 || s.compute - s.computeSpent >= TARGET_COMPUTE)) {
+    // Финал контента: Флагман последнего Поколения взят, дальше Престижа нет. Конец прогона.
+    if (CAMPAIGN && isContentFinale(s)) {
+      results.push({ generation: s.generation, minutes: (w.t - w.genStart) / 60 });
+      finale = true;
+      break;
+    }
+
+    if ((withPrestige || CAMPAIGN) && prestigeDue(w)) {
+      const gain = prestigeGain(s);
       mark(`ПРЕСТИЖ #${s.prestiges + 1} → ${CATALOG[s.generation + 1].name}`);
-      s = prestige(s, T0 + t * 1000);
+      const done = doPrestige(w);
+      results.push(done);
       console.log(
-        `>>> ПРЕСТИЖ #${s.prestiges} на ${MIN(t)} всего (${(t / 60).toFixed(1)} мин) → ` +
-        `${CATALOG[s.generation].name}, Compute ${s.compute}, Перков ${s.perks.length}`,
+        `>>> ПРЕСТИЖ #${w.s.prestiges} на ${(w.t / 60).toFixed(1)} мин → ` +
+        `${CATALOG[w.s.generation].name}, прирост ${gain}, Compute ${w.s.compute}, Перков ${w.s.perks.length}, Курс ${w.s.course ?? '—'}`,
       );
+      const strengths = LAB_IDS.filter((l) => CHARACTERS[l]).map((l) => `${l} ${characterStrength(s, l).toFixed(2)}`).join(', ');
+      console.log(`    Характеры в офисе перед Престижем: ${strengths || 'выключены'}; безопасная Температура ${safeTemp(s).toFixed(3)}`);
       mark('первый Compute');
-      mark(`престиж #${s.prestiges}`);
+      mark(`престиж #${w.s.prestiges}`);
       lastLog = -1;
     }
 
-    const minute = Math.floor(t / 60);
-    if (minute !== lastLog) {
+    const minute = Math.floor(w.t / 60);
+    if (VERBOSE && minute !== lastLog) {
       lastLog = minute;
+      const x = w.s;
       console.log(
-        `t=${String(minute).padStart(2)}м доход=${fmt(totalIncome(s)).padStart(8)}/с ` +
-        `кошелёк=${fmt(s.tokens).padStart(9)} агенты=${String(n).padStart(4)} ` +
-        `апгрейды=${String(s.upgrades.length).padStart(2)} клик=${fmt(clickValue(s)).padStart(8)} ` +
-        `поколение=${s.generation} compute=${s.compute}`,
+        `t=${String(minute).padStart(2)}м доход=${fmt(totalIncome(x)).padStart(8)}/с ` +
+        `кошелёк=${fmt(x.tokens).padStart(9)} агенты=${String(owned(x)).padStart(4)} ` +
+        `апгрейды=${String(x.upgrades.length).padStart(2)} клик=${fmt(clickValue(x)).padStart(8)} ` +
+        `поколение=${x.generation} compute=${x.compute}`,
       );
     }
-    t += DT;
   }
 
-  console.log('\n=== вехи ===');
-  for (const [k, v] of marks) console.log(`${k.padEnd(30)} ${MIN(v)}`);
+  if (!CAMPAIGN) {
+    console.log('\n=== вехи ===');
+    for (const [k, v] of marks) console.log(`${k.padEnd(30)} ${MIN(v)}`);
+  }
+  const x = w.s;
   console.log(
-    `итог: доход ${fmt(totalIncome(s))}/с, поколение ${s.generation}, ` +
-    `забег ${fmt(s.runTokens)}, престижей ${s.prestiges}, перков ${s.perks.length}`,
+    `итог: доход ${fmt(totalIncome(x))}/с, поколение ${x.generation}, ` +
+    `забег ${fmt(x.runTokens)}, престижей ${x.prestiges}, перков ${x.perks.length}`,
   );
+  if (CAMPAIGN) printPace(results, finale);
 }
 
-run(arg('gen', 40), has('prestige'));
+if (CAMPAIGN) run(MAX_MIN, true);
+else run(arg('gen', 40), has('prestige'));

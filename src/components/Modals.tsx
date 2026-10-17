@@ -3,13 +3,16 @@ import { useGameStore, useStateSlice, type EffectSwitch, type OfflineReport } fr
 import { ACHIEVEMENTS, nonShadowCount, shadowEarned } from '../economy/achievements';
 import { GLOSSARY } from '../data/glossary';
 import { ThermalSection } from './ThermalSection';
-import { PERKS } from '../economy/perks';
+import { MAX_OWNED_PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
+import { generationRule } from '../economy/rules';
 import { CATALOG } from '../economy/catalog';
 import {
+  computeBonus,
   computeShortfall,
   discountMult,
+  freeCompute,
   isContentFinale,
   maxAffordable,
   offlineCapHours,
@@ -19,6 +22,7 @@ import {
 import { availableUpgrades } from '../economy/upgrades';
 import { SHADOW_ACHIEVEMENTS } from '../economy/shadow';
 import { LABS } from '../data/labs';
+import { courseById } from '../data/courses';
 import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
@@ -701,13 +705,15 @@ const StatsBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
     ['Текущее Поколение', `${CATALOG[state.generation].id}: ${CATALOG[state.generation].name}`],
     ['Максимальное Поколение', `${CATALOG[state.maxGeneration].id}: ${CATALOG[state.maxGeneration].name}`],
     ['Престижей совершено', <Num key="prestiges">{state.prestiges}</Num>],
+    ['Всего Compute', <Num key="compute">{formatNumber(state.compute, notation)}</Num>],
     [
-      'Всего Compute',
+      'Свободный Compute',
       <>
-        <Num key="compute">{state.compute}</Num> (+<Num>{state.compute}</Num>% к доходу)
+        <Num key="free">{formatNumber(freeCompute(state), notation)}</Num> (+
+        <Num>{formatNumber(computeBonus(freeCompute(state)) * 100, notation)}</Num>% к доходу)
       </>,
     ],
-    ['Перков открыто', `${state.perks.length} / ${PERKS.length}`],
+    ['Перков открыто', `${state.perks.length} / ${MAX_OWNED_PERKS}`],
     ['Compute в час: этот Забег (с простоями)', perHour(runRate)],
     ['Compute в час: время до Забега (с простоями)', perHour(pastRate)],
     [
@@ -1483,18 +1489,22 @@ export const PrestigeModal: React.FC = () => {
 const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
   const dismiss = useGameStore((s) => s.dismissPrestigePrompt);
   const triggerPrestige = useGameStore((s) => s.triggerPrestige);
-  const openFinale = useGameStore((s) => s.openFinale);
+  const finaleTarget = useGameStore((s) => s.finaleTarget);
   const state = useGameStore((s) => s.state);
 
-  const preview = prestigePreview(state);
+  const preview = prestigePreview(state, finaleTarget);
+  const openCourseChoice = useGameStore((s) => s.openCourseChoice);
+  const chosenCourse = courseById(state.courseNext);
   const gen = CATALOG[state.generation];
   const nextGen = CATALOG[preview.generation];
+  const nextRule = generationRule(preview.generation);
   const flagship = gen.flagship;
   const finale = isContentFinale(state);
   const notation = state.settings.notation;
 
-  const blocked = finale
-    ? `Финал контента: Поколение ${gen.id} — последнее. Продолжение выйдет с новыми реальными Моделями.`
+  // На Финале переход ведёт в пройденное Поколение, которое игрок выбирает во вкладке «Престиж».
+  const blocked = preview.needsGeneration
+    ? `Финал контента: Поколение ${gen.id} — последнее. Выбери пройденное Поколение, в которое вернёшься, — оно ждёт во вкладке «Престиж».`
     : `Нужен 1 Агент Флагмана — ${flagship.name} (${LABS[flagship.lab].name}). Найми первого Агента, и Престиж откроется.`;
 
   const burns: [string, React.ReactNode][] = [
@@ -1525,13 +1535,6 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
   // уже сменил Поколение, и оставшийся кадр выхода показал бы вместо разбора «нужен Агент
   // Флагмана» нового Поколения — вперемешку с оверлеем Престижа.
   const handleConfirm = () => {
-    if (finale) {
-      // Финал — тупик с честным выходом: не сбрасываем забег молча, а открываем экран финала,
-      // где игрок видит итоги и сам решает, начинать ли заново.
-      dismiss();
-      openFinale();
-      return;
-    }
     triggerPrestige();
     dismiss();
   };
@@ -1554,15 +1557,17 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={preview.blocked && !finale}
+            disabled={preview.blocked || preview.needsCourse}
             className="pixel-btn pixel-btn-gold"
             style={{ flex: 2, padding: 'var(--space-3)' }}
           >
-            {finale
-              ? 'Экран финала'
+            {preview.needsGeneration
+              ? 'Сначала выбери Поколение'
               : preview.blocked
                 ? 'Нужен Агент Флагмана'
-                : 'Сделать Престиж!'}
+                : preview.needsCourse
+                  ? 'Сначала выбери Курс'
+                  : 'Сделать Престиж!'}
           </button>
         </>
       }
@@ -1573,7 +1578,13 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
           {!preview.blocked && (
             <>
               {' '}
-              Престиж завершит Забег и перенесёт тебя в Поколение {nextGen.id}: {nextGen.name}.
+              Престиж завершит Забег и {finale ? 'вернёт' : 'перенесёт'} тебя в Поколение {nextGen.id}: {nextGen.name}.
+              {nextRule && (
+                <>
+                  {' '}
+                  Правило Поколения: <b>{nextRule.name}</b> — {nextRule.summary}
+                </>
+              )}
             </>
           )}
         </div>
@@ -1592,7 +1603,7 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
               color: 'var(--red-text)',
             }}
           >
-            Престиж сейчас невозможен. {blocked}
+            {preview.needsGeneration ? blocked : <>Престиж сейчас невозможен. {blocked}</>}
           </div>
         ) : (
           <>
@@ -1614,6 +1625,36 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
                 <Num>{`+${formatNumber(preview.gain, notation)}`}</Num>
               </span>
             </div>
+
+            {/* Курс выбирается до подтверждения и во вкладке «Престиж»: окно называет выбранный или ведёт к выбору. */}
+            {preview.needsCourse ? (
+              <div
+                style={{
+                  backgroundColor: 'var(--tint-strong)',
+                  padding: 'var(--space-2) var(--space-3)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 'var(--space-2)',
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--text-main)',
+                }}
+              >
+                <span>Сначала выбери Курс нового Забега: три Курса ждут во вкладке «Престиж».</span>
+                <button
+                  className="pixel-btn pixel-btn-accent"
+                  onClick={openCourseChoice}
+                  style={{ padding: 'var(--space-1) var(--space-2)' }}
+                >
+                  К выбору Курса
+                </button>
+              </div>
+            ) : (
+              chosenCourse && (
+                <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>
+                  Курс нового Забега: <b>{chosenCourse.name}</b> — {chosenCourse.summary}
+                </div>
+              )
+            )}
 
             <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>Сгорит:</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
@@ -1646,6 +1687,64 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
 };
 
 /**
+ * Объяснение нового правила бонуса Compute (ADR-0010): показывается один раз игроку, у которого
+ * Доход после обновления упал, — молчаливое падение Дохода выглядело бы как поломка.
+ *
+ * Открытие целиком выводится из состояния (`computeBonusDrop`) и отметки браузера в сторе; в
+ * `GameState` признака нет. Пока открыт отчёт о простое, окно ждёт: два окна на одном входе
+ * гасили бы друг друга, а сумма простоя игроку нужнее.
+ */
+export const ComputeRuleModal: React.FC = () => {
+  const notice = useGameStore((s) => s.computeRuleNotice);
+  const offlineOpen = useGameStore((s) => s.offlineReport !== null);
+  const dismiss = useGameStore((s) => s.dismissComputeRuleNotice);
+  const notation = useGameStore((s) => s.state.settings.notation);
+  const { closing, requestClose } = useModalExit(notice !== null && !offlineOpen, dismiss);
+
+  if (!notice || offlineOpen) return null;
+
+  const pct = (share: number): React.ReactNode => <Num>+{formatNumber(share * 100, notation)}</Num>;
+
+  return (
+    <ModalFrame
+      isOpen
+      closing={closing}
+      requestClose={requestClose}
+      titleId="compute-rule-title"
+      tone="accent"
+      icon={<Icon name="bolt" size={22} />}
+      title="Compute теперь считается иначе"
+      footer={
+        <button onClick={requestClose} className="pixel-btn pixel-btn-accent" style={{ flex: 1, padding: 'var(--space-3)' }}>
+          Понятно
+        </button>
+      }
+    >
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>
+        Бонус к Доходу теперь даёт только свободный Compute: начисленный минус потраченный на Перки.
+        Купленный Перк забирает у бонуса ровно свою цену, поэтому Compute можно копить ради Дохода
+        или тратить ради Перков.
+      </div>
+      <div
+        style={{
+          fontSize: 'var(--text-md)',
+          backgroundColor: 'var(--tint-gold)',
+          border: 'var(--frame-w) solid var(--gold)',
+          padding: 'var(--space-2)',
+          color: 'var(--gold)',
+        }}
+      >
+        Твой бонус к Доходу: был {pct(notice.before)}%, стал {pct(notice.after)}%.
+      </div>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+        Выше +100% бонус растёт всё медленнее и упирается в потолок. Цена каждого Перка в бонусе
+        видна на его карточке во вкладке «Престиж».
+      </div>
+    </ModalFrame>
+  );
+};
+
+/**
  * Экран финала контента: полноценная модалка, открывающаяся при прохождении последнего
  * доступного Поколения и найме всех Моделей (isContentFinale === true).
  *
@@ -1661,7 +1760,7 @@ export const FinaleModal: React.FC = () => {
   const isFinale = useStateSlice(isContentFinale);
   const [confirmReset, setConfirmReset] = useState(false);
 
-  // Флаг «игрок закрыл» живёт в сторе вместе с openFinale: экран должен открываться сам при
+  // Флаг «игрок закрыл» живёт в сторе (finaleDismissed): экран должен открываться сам при
   // входе в последнее Поколение и возвращаться из Престижа — модульная переменная компонента
   // для этого не годится, её не видно ни в отладке, ни в тестах.
   const isOpen = isFinale && !finaleDismissed;
@@ -1789,6 +1888,21 @@ const FinaleBody: React.FC<
         }}
       >
         Продолжение выйдет с новыми реальными Моделями.
+      </div>
+
+      {/* Новая возможность (ADR-0013, слой 5): Престиж с Финала ведёт в любое пройденное Поколение. */}
+      <div
+        style={{
+          width: '100%',
+          padding: 'var(--space-2) var(--space-3)',
+          backgroundColor: 'var(--tint-strong)',
+          fontSize: 'var(--text-sm)',
+          color: 'var(--text-main)',
+          textAlign: 'center',
+        }}
+      >
+        <b>Новое:</b> Престиж ведёт в любое пройденное Поколение. Выбери его во вкладке «Престиж» и пройди
+        Забег снова — с Испытаниями и Классом риска.
       </div>
 
       {/* Итоги забега */}

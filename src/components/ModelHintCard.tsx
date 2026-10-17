@@ -1,5 +1,9 @@
 import React from 'react';
 import { useGameStore } from '../store/useGameStore';
+import { CHARACTERS } from '../data/characters';
+import { characterReadout } from '../economy/character';
+import { safeTemp } from '../economy/thermal';
+import { finetuneName, finetuneOf } from '../economy/finetune';
 import type { Model } from '../economy/catalog';
 import { formatCount, formatDuration, formatMultiplier, formatNumber } from '../economy/format';
 import {
@@ -25,16 +29,21 @@ const ROW_LABEL: Record<BreakdownKind, string> = {
   base: 'Доход одного Агента',
   agents: 'Агентов',
   upgrades: 'Апгрейды Модели',
+  finetune: 'Файнтюн',
   synergy: 'Синергия Лаборатории',
   flagship: 'Флагман: младшие Агенты',
   labPerk: 'Партнёрство Лаборатории',
   pairSynergy: 'Парная Синергия',
-  genPerk: 'Наследие Поколения',
+  character: 'Характер Лабораторий',
+  genPerk: 'Наследие поколений',
+  orchestra: 'Оркестратор',
+  rule: 'Правило Поколения',
   dataset: 'Датасет',
   compute: 'Compute',
   crystals: 'Кристаллы',
   covenant: 'Налог Лицензии',
   challenge: 'Испытания Забега',
+  course: 'Курс',
   surge: 'Прорыв',
 };
 
@@ -93,6 +102,7 @@ export const ModelHintCard: React.FC<{ model: Model }> = ({ model }) => {
   const notation = state.settings.notation;
   const card = modelCardSummary(state, model);
   const owned = state.agents[model.id] ?? 0;
+  const character = CHARACTERS[model.lab];
   const perSec = (n: number) => `${formatNumber(n, notation)} / сек`;
   const thermalColor =
     card.thermalMult < 1 ? 'var(--red-text)' : card.thermalMult > 1 ? 'var(--green-text)' : undefined;
@@ -101,7 +111,7 @@ export const ModelHintCard: React.FC<{ model: Model }> = ({ model }) => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 'var(--space-2)' }}>
         <span className="pixel-22" style={{ color: 'var(--text-main)' }}>
-          {model.name}
+          {finetuneName(model.name, finetuneOf(state, model.id))}
         </span>
         <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>Ранг {model.rank + 1}</span>
       </div>
@@ -126,7 +136,34 @@ export const ModelHintCard: React.FC<{ model: Model }> = ({ model }) => {
         {/* Температура — не сомножитель Модели, а множитель всего Дохода сейчас, поэтому
             отдельной строкой «сейчас» под итогом, а не в произведении. */}
         <Line label="Температура сейчас" value={formatMultiplier(card.thermalMult, notation)} muted color={thermalColor} />
+        {/* Порог своя у каждого Ранга (кривая порогов), поэтому карточка называет его, а не
+            отсылает к общей таблице: младшие Модели раскрываются на меньших числах Агентов. */}
+        {card.nextUpgrade && (
+          <Line
+            label={`Следующий Апгрейд: ${card.nextUpgrade.name}`}
+            value={
+              card.nextUpgrade.ready
+                ? 'в магазине'
+                : `с ${formatNumber(card.nextUpgrade.threshold, notation)} ${formatCount(card.nextUpgrade.threshold, 'Агента', 'Агентов', 'Агентов', notation)}`
+            }
+            muted
+          />
+        )}
       </Section>
+
+      {character && (
+        <Section title="Характер Лаборатории">
+          <div style={{ color: 'var(--text-main)' }}>
+            <span style={{ fontWeight: 700 }}>{character.name}</span>: {character.summary}
+          </div>
+          {characterReadout(state, model).map((row) => (
+            <Line key={row.label} label={row.label} value={row.value} muted />
+          ))}
+          {character.effects.some((e) => e.kind === 'heat' || e.kind === 'yield') && (
+            <Line label="Безопасная Температура офиса" value={formatNumber(safeTemp(state), notation)} muted />
+          )}
+        </Section>
+      )}
 
       <Section title="Следующий Агент">
         <Line
