@@ -51,6 +51,8 @@ import {
   pledgeAlert,
   pledgeView,
   prestigeCardView,
+  queueView,
+  ruleStatusText,
   purchaseProgressView,
   sparksView,
   thermalMiniView,
@@ -724,5 +726,65 @@ describe('pledge alert on the Upgrades tab', () => {
 
   it('stays dark under the Лицензия, where there is no Откуп to call to', () => {
     expect(pledgeAlert(at(2, true), 0)).toBe(false);
+  });
+});
+
+describe('rule status line on the Scene', () => {
+  const inGen = (generation: number, minutes = 0): GameState => ({
+    ...newGame(T0),
+    generation,
+    temp: 0,
+    heat: 0,
+    nextEventAt: FAR,
+    nextGlitchAt: FAR,
+    lastTick: T0 + minutes * 60_000,
+  });
+
+  it('is empty where the rule has nothing live to report', () => {
+    expect(ruleStatusText(inGen(0))).toBe('');
+    expect(ruleStatusText(inGen(3, 20))).toBe('');
+    expect(ruleStatusText(inGen(6))).toBe('');
+  });
+
+  it('counts the queue against its capacity', () => {
+    const ids = CATALOG[5].models.map((m) => m.id);
+    expect(ruleStatusText(inGen(5))).toBe('Очередь: 0 из 6');
+    expect(ruleStatusText({ ...inGen(5), purchaseQueue: [ids[0], ids[1]] })).toBe('Очередь: 2 из 6');
+  });
+
+  it('names the Arena leader and the minutes left, then names the next leader in the last minute', () => {
+    const calm = ruleStatusText(inGen(7, 1.2));
+    expect(calm).toMatch(/^Лидер: \S+ · ещё 4 мин$/);
+    const warn = ruleStatusText(inGen(7, 4.5));
+    expect(warn).toMatch(/^Лидер: \S+ · дальше \S+$/);
+  });
+
+  it('stays steady across idle ticks of a minute and moves at most when the minute turns', () => {
+    const start = inGen(7, 1.001);
+    const states = idle(start, 200);
+    expect(changes(states, ruleStatusText)).toBe(0);
+    expect(changes(idle(inGen(5), 200), ruleStatusText)).toBe(0);
+  });
+});
+
+describe('purchase queue card in the shop', () => {
+  const agentic: GameState = { ...newGame(T0), generation: 5, temp: 0, heat: 0, nextEventAt: FAR, nextGlitchAt: FAR };
+  const ids = CATALOG[5].models.map((m) => m.id);
+
+  it('is absent outside the «Агенты сами» rule', () => {
+    expect(queueView({ ...agentic, generation: 4 })).toBeNull();
+    expect(queueView({ ...newGame(T0) })).toBeNull();
+  });
+
+  it('lists the queued Models in hiring order with their card names and free places', () => {
+    const view = queueView({ ...agentic, purchaseQueue: [ids[2], ids[0], ids[2]] })!;
+    expect(view.entries.map((e) => e.name)).toEqual([
+      CATALOG[5].models[2].name,
+      CATALOG[5].models[0].name,
+      CATALOG[5].models[2].name,
+    ]);
+    expect(view.capacity).toBe(6);
+    expect(view.full).toBe(false);
+    expect(queueView({ ...agentic, purchaseQueue: ids.concat(ids).slice(0, 6) })!.full).toBe(true);
   });
 });

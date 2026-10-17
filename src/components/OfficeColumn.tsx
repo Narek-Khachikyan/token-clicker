@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motionAllowed, useGameStore, useStateSlice } from '../store/useGameStore';
-import { glitchesOf, labBoothLabels, labCardView } from '../store/selectors';
+import { glitchesOf, labBoothLabels, labCardView, ruleStatusText } from '../store/selectors';
 import { CATALOG } from '../economy/catalog';
 import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale } from '../economy/engine';
@@ -456,6 +456,8 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
   const gen = CATALOG[generation];
   const rule = generationRule(generation);
+  // Живая строка Правила (лидер Арены, места в очереди): пустая — и HUD показывает описание Правила.
+  const ruleStatus = useStateSlice(ruleStatusText);
   const flagship = gen.flagship;
   const flagshipOwned = (agents[flagship.id] ?? 0) >= 1;
 
@@ -848,7 +850,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {rule.summary}
+                  {ruleStatus || rule.summary}
                 </div>
               </Hint>
             )}

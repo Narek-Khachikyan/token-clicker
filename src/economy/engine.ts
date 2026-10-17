@@ -15,7 +15,8 @@ import {
 } from './thermal';
 import { perkEffects, perkLock, PERK_BY_ID, START_TOKENS_UNITS, type PerkEffect } from './perks';
 import type { GameState } from './state';
-import { ruleIncomeMult, rulePriceMult } from './rules';
+import { queueCapacity } from './purchaseQueue';
+import { ruleIncomeMult, ruleLiveIncomeMult, rulePriceMult } from './rules';
 import { nonShadowCount } from './achievements';
 import {
   catchUpClick,
@@ -389,8 +390,8 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
   const orchestra = agentBoostMult(effects);
   mult *= orchestra;
   note(out, 'orchestra', orchestra);
-  // Правило Поколения («Разнообразие») множит Модели своего Поколения одинаково, как особый Перк, поэтому лестницу Ранга не переворачивает.
-  const rule = ruleIncomeMult(state);
+  // Правило Поколения («Разнообразие», «Роутер») не переворачивает лестницу Ранга: первое множит все Модели одинаково, второе режет только младшие Ранги.
+  const rule = ruleIncomeMult(state, model);
   mult *= rule;
   note(out, 'rule', rule);
   // Датасет — последний множитель Модели: он считается от числа Достижений, а не от
@@ -431,11 +432,14 @@ function modelBaseIncome(state: GameState, model: Model): number {
 /**
  * Шаги умножения Дохода Модели в порядке, в котором их делает `modelIncome`: собственные
  * множители Модели, затем общие. Вместе с базой одного Агента и числом Агентов их произведение
- * равно `modelIncome` без «Прорыва» (его добавляет `surgeMultFor`).
+ * равно `modelIncome` без «Прорыва» (его добавляет `surgeMultFor`). Надбавка лидера Арены в нём есть.
  */
 export function modelFactors(state: GameState, model: Model): IncomeFactor[] {
   const out: IncomeFactor[] = [];
   modelMultiplier(state, model, out);
+  // Надбавка лидера Арены платится только живому тику и потому стоит не в `modelMultiplier`, а здесь:
+  // карточка Модели называет её тем же видом «Правило Поколения», что постоянные надбавки Правил.
+  note(out, 'rule', ruleLiveIncomeMult(state, model));
   return [...out, ...globalFactors(state)];
 }
 
@@ -462,7 +466,7 @@ export function agentBoostMult(effects: PerkEffect[]): number {
  * магазине и начисление считают один и тот же Доход, не протаскивая часы через каждую подпись.
  */
 export function modelIncome(state: GameState, model: Model, now: number = state.lastTick): number {
-  return modelBaseIncome(state, model) * surgeMultFor(state, model.id, now);
+  return modelBaseIncome(state, model) * surgeMultFor(state, model.id, now) * ruleLiveIncomeMult(state, model, now);
 }
 
 /**
@@ -699,6 +703,31 @@ export function buyAgents(state: GameState, modelId: string, n: number | 'max'):
   return { ...state, tokens: state.tokens - cost, agents: { ...state.agents, [modelId]: owned + count } };
 }
 
+/**
+ * Исполняет очередь закупок Правила «Агенты сами»: нанимает по одному Агенту с головы очереди,
+ * пока хватает Токенов. Порядок строгий: дорогая запись во главе ждёт Токенов и не пропускает
+ * дешёвую за собой, иначе очередь переставляла бы покупки за игрока. Цена — та же, что у ручной
+ * покупки (`buyAgents`), без скидок за делегирование.
+ *
+ * Зовётся только из `advance`, то есть из живого тика. Путь простоя (`applyOffline`) её не
+ * вызывает: очередь, исполняющаяся оффлайн, обошла бы потолок Оффлайн-дохода и сделала бы
+ * Правило автокликером без игрока. Без записей и вне Правила возвращает тот же объект.
+ */
+export function runPurchaseQueue(state: GameState): GameState {
+  if (state.purchaseQueue.length === 0 || queueCapacity(state) === 0) return state;
+  let next = state;
+  const rest = [...state.purchaseQueue];
+  while (rest.length > 0) {
+    // Запись не из текущего Поколения (битое сохранение) не должна запирать очередь навсегда.
+    if (MODEL_BY_ID[rest[0]]?.generation !== state.generation) { rest.shift(); continue; }
+    const bought = buyAgents(next, rest[0], 1);
+    if (bought === next) break;
+    next = bought;
+    rest.shift();
+  }
+  return rest.length === state.purchaseQueue.length ? state : { ...next, purchaseQueue: rest };
+}
+
 export function sellAgents(state: GameState, modelId: string, n: number): GameState {
   const model = MODEL_BY_ID[modelId];
   const owned = state.agents[modelId] ?? 0;
@@ -779,7 +808,9 @@ export function advance(state: GameState, dt: number, rnd: () => number = Math.r
   const auto = autoClicks > 0 && !noClick ? autoClicks * (clickValue(state, rate * glitch, now) - catchUp) + autoRefund : 0;
   // Глюки крадут из скорости без их множителя, поэтому десять штук отнимают ровно половину.
   const stepped = stepGlitches(state, rate, dt);
-  const s = earnTokens(stepped, rate * glitch * dt + auto);
+  const earned = earnTokens(stepped, rate * glitch * dt + auto);
+  // Очередь закупок платит из только что заработанных Токенов и только здесь, в живом тике.
+  const s = runPurchaseQueue(earned);
   // Температура идёт после начисления: перегрев режет уже посчитанную скорость этого тика,
   // а не подменяет её на следующем — иначе игрок, пойманный перегревом, терял бы ещё
   // и тот Доход, который успел заработать до сброса.
@@ -1073,6 +1104,7 @@ export function prestige(state: GameState, now: number = state.lastTick): GameSt
     runTokens: 0,
     runClicks: 0,
     agents: {},
+    purchaseQueue: [],
     upgrades: [],
     activeChallenge: null,
     challengesDone,

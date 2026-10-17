@@ -1,4 +1,4 @@
-import type { Model } from '../economy/catalog';
+import { MODEL_BY_ID, type Model } from '../economy/catalog';
 import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import {
   bulkCost,
@@ -29,6 +29,8 @@ import {
 import { THERMAL_HOT_HEAT, THERMAL_STATE_LABEL, thermalState, type ThermalStateId } from '../data/thermalCopy';
 import { prestigeForecast } from '../economy/prestigeForecast';
 import { milestoneHint, milestoneReward, nextMilestone, type Milestone } from '../economy/milestones';
+import { queueCapacity } from '../economy/purchaseQueue';
+import { arenaOutlook } from '../economy/rules';
 import type { GameState, Glitch } from '../economy/state';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
 import {
@@ -766,4 +768,52 @@ export function labBoothLabels(s: GameState): string[] {
     const synergy = view.synergy >= 0 ? `, Синергия +${view.synergyText}%` : '';
     return `${LABS[lab].name}: ${view.agents} ${view.agentsWord}${synergy}`;
   });
+}
+
+export interface QueueView {
+  /** Записи в порядке найма; `index` нужен кнопке «снять». */
+  entries: { index: number; name: string }[];
+  capacity: number;
+  full: boolean;
+}
+
+/** Записи очереди с именами Моделей; чистая функция от списка id, чтобы компонент считал её в `useMemo`. */
+export function queueEntries(ids: readonly string[]): QueueView['entries'] {
+  return ids.map((id, index) => ({ index, name: MODEL_BY_ID[id]?.name ?? id }));
+}
+
+/**
+ * Карточка очереди закупок в магазине; `null` вне «Агентов сами». Вложенный `entries` — новый
+ * массив на каждый вызов, поэтому в `useStateSlice` его не отдают: компонент читает плоские
+ * `queueSlots` и ссылку `purchaseQueue`, а записи собирает `queueEntries` в `useMemo`.
+ */
+export function queueView(s: GameState): QueueView | null {
+  const capacity = queueCapacity(s);
+  if (capacity === 0) return null;
+  return { entries: queueEntries(s.purchaseQueue), capacity, full: s.purchaseQueue.length >= capacity };
+}
+
+/**
+ * Живая строка Правила Поколения на Сцене: то, что в нём сейчас меняется. Пустая строка — у
+ * Правил, где живого нет (цена и Доход сами читаются с карточек), и HUD оставляет там описание.
+ *
+ * «Лидер Арены» называет лидера и минуты до смены; в последнюю минуту — следующего лидера, как и
+ * лента. Минуты целые, поэтому строка перерисовывается раз в минуту, а не двадцать раз в секунду.
+ */
+export function ruleStatusText(s: GameState): string {
+  const arena = arenaOutlook(s);
+  if (arena) {
+    const leader = LABS[arena.leader].name;
+    return arena.warning
+      ? `Лидер: ${leader} · дальше ${LABS[arena.next].name}`
+      : `Лидер: ${leader} · ещё ${Math.ceil(arena.secondsLeft / 60)} мин`;
+  }
+  const capacity = queueCapacity(s);
+  return capacity > 0 ? `Очередь: ${s.purchaseQueue.length} из ${capacity}` : '';
+}
+
+/** Плоский срез очереди для карточек Моделей: есть ли она и осталось ли в ней место. */
+export function queueSlots(s: GameState): { active: boolean; full: boolean; capacity: number; count: number } {
+  const capacity = queueCapacity(s);
+  return { active: capacity > 0, full: s.purchaseQueue.length >= capacity, capacity, count: s.purchaseQueue.length };
 }

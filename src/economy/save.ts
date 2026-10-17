@@ -5,6 +5,7 @@ import { MILESTONE_BY_ID } from './milestones';
 import { PERK_BY_ID } from './perks';
 import { DEFAULT_CHANNEL_VOLUME, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
 import { QUIPS_SEEN_CAP } from './quips';
+import { generationRule } from './rules';
 import { clampTemp, TEMP_START } from './thermal';
 import { UPGRADE_BY_ID } from './upgrades';
 
@@ -145,6 +146,15 @@ export const MIGRATIONS: Record<number, Migration> = {
       perkResetUsed: raw.perkResetUsed ?? false,
     };
   },
+  // Очередь закупок Правила «Агенты сами» появилась в v11 (ADR-0013, слой 3). Состояние всех
+  // Правил слоя приходит одним шагом: сейчас оно одно, и у живого сохранения его нет, а пустая
+  // очередь — ровно то, как игра выглядела до Правила. Чистое добавление, присутствующее поле
+  // остаётся: разбор ниже сам отсеет из него то, чего очередь держать не может.
+  10: (raw) => ({
+    ...raw,
+    version: 11,
+    purchaseQueue: raw.purchaseQueue ?? [],
+  }),
 };
 
 /** Особых Перков Поколения в прошлых версиях: по числу Поколений тогдашнего каталога. */
@@ -208,6 +218,19 @@ const level = (v: unknown, fallback: number): number => {
  * трогавший переключателя, остался бы без эффекта, который не выключал.
  */
 const flag = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+
+/**
+ * Очередь закупок из сохранения: только id Моделей текущего Поколения, не длиннее места в очереди,
+ * и только пока Правило её даёт. Чужой id, нестрока и очередь вне «Агентов сами» — мусор: он
+ * запер бы голову очереди навсегда или вернул бы Агента из Поколения, которого игрок не видит.
+ */
+const queueOf = (v: unknown, generation: number): string[] => {
+  const effect = generationRule(generation)?.effect;
+  if (effect?.kind !== 'purchaseQueue') return [];
+  return strList(v)
+    .filter((id) => hasOwn(MODEL_BY_ID, id) && MODEL_BY_ID[id].generation === generation)
+    .slice(0, effect.capacity);
+};
 
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
@@ -302,9 +325,11 @@ export function migrate(raw: unknown, now: number): GameState {
   const rawCaught = stamp(data.eventCaughtAt);
   const eventCaughtAt = clampFuture(rawCaught);
 
+  const generation = Math.min(CATALOG.length - 1, count(data.generation));
+
   return {
     version: SAVE_VERSION,
-    generation: Math.min(CATALOG.length - 1, count(data.generation)),
+    generation,
     maxGeneration: Math.min(CATALOG.length - 1, Math.max(count(data.generation), count(data.maxGeneration))),
     tokens: Math.max(0, num(data.tokens, 0)),
     runTokens: Math.max(0, num(data.runTokens, 0)),
@@ -318,6 +343,7 @@ export function migrate(raw: unknown, now: number): GameState {
     // за Перки при сбросе дерева создавал бы Compute из воздуха.
     computeSpent: Math.min(Math.max(0, num(data.compute, 0)), Math.max(0, num(data.computeSpent, 0))),
     perks: idList(data.perks, PERK_BY_ID),
+    purchaseQueue: queueOf(data.purchaseQueue, generation),
     perkResetUsed: !!data.perkResetUsed,
     prestiges: num(data.prestiges, 0),
     achievements: [...new Set(strList(data.achievements))],
