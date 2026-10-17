@@ -46,6 +46,8 @@ import { Icon } from './Icon';
 import { CoachArrow } from './CoachArrow';
 import { onTabRowKeyDown } from './tabRow';
 import { ChallengeCard, CourseCard, PrestigeForecastCard, PrestigeSectionNav, ReturnGenerationCard } from './PrestigeTab';
+// ПРОТОТИП #140, выбросить.
+import { ParadigmPrototype, paradigmPrototypeOn } from './ParadigmLayer.prototype';
 import { playDenySound } from '../audio/sound';
 import { thirdSlotBusy } from '../economy/research';
 import { buyAmountFor } from '../hotkeys';
@@ -1479,6 +1481,7 @@ const PerkShop: React.FC = () => {
 /** ВКЛАДКА ПРЕСТИЖА И ПЕРКОВ: три подраздела, выбранный хранит стор. */
 const PrestigeShopTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels }) => {
   const section = useGameStore((s) => s.prestigeSection);
+  if (paradigmPrototypeOn()) return <ParadigmPrototype />;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1532,7 +1535,8 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const setUprisingSeen = useGameStore((s) => s.setUprisingSeen);
   const pledgeCalls = useGameStore((s) => pledgeAlert(s.state, s.uprisingSeen));
   const prestigeReady = useStateSlice(canPrestige);
-  const { upgradesTab, prestigeTab } = useStateSlice(openUi);
+  const { upgradesTab, prestigeTab: prestigeTabOpen } = useStateSlice(openUi);
+  const prestigeTab = prestigeTabOpen || paradigmPrototypeOn();
   // Открытая вкладка не прячется (reveal.ts), но выбранной может оказаться вкладка, которой уже
   // нет, — после импорта сохранения с меньшим прогрессом. Тогда показываем «Модели».
   const shownTab = (tab === 'upgrades' && !upgradesTab) || (tab === 'prestige' && !prestigeTab) ? 'models' : tab;
