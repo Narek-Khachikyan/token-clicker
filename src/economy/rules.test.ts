@@ -314,7 +314,7 @@ describe('Правило «Подумай ещё» (Reasoning)', () => {
   it('молчит вне Reasoning и в Испытании без Кликов', () => {
     const s = { ...base(), generation: 3 };
     expect(holdThought(s)).toBe(s);
-    const noClick = { ...base(), activeChallenge: 'no-click' };
+    const noClick = { ...base(), activeChallenges: ['no-click'] };
     expect(holdThought(noClick)).toBe(noClick);
   });
 

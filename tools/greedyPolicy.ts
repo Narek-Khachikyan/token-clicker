@@ -28,10 +28,11 @@ import {
 } from '../src/economy/engine';
 import { grantAmount, isEventActive, isEventCaught } from '../src/economy/events';
 import { availableUpgrades } from '../src/economy/upgrades';
-import { PERKS, perkLock } from '../src/economy/perks';
+import { PERKS, perkEffects, perkLock } from '../src/economy/perks';
 import { clampTemp, safeTemp, TEMP_MAX } from '../src/economy/thermal';
 import { migrate } from '../src/economy/save';
 import { chooseCourse, coursePool, offerCourse } from '../src/economy/course';
+import { CHALLENGES, toggleChallenge } from '../src/economy/challenges';
 
 export const T0 = 1_700_000_000_000;
 /** Шаг симуляции, секунд: двадцать тиков в секунду, как у игры. */
@@ -72,6 +73,12 @@ export interface PolicyOptions {
    * игрока (Золотой Токен ловится всегда), нужна, чтобы замерить Курс «Охота за сигналом».
    */
   catchEvents: boolean;
+  /**
+   * Какие Испытания Забега политика берёт (ADR-0013, слой 5). `none` — никаких: так меряется база и
+   * так играет `pace.test.ts`. `all` — все Испытания таблицы разом на каждом Забеге: замер
+   * максимального Класса риска, тяжести и потолка множителя Compute.
+   */
+  challenges: 'none' | 'all';
 }
 
 /**
@@ -89,6 +96,7 @@ export const DEFAULT_POLICY: PolicyOptions = {
   seed: 1,
   course: 'none',
   catchEvents: false,
+  challenges: 'none',
 };
 
 /** Mulberry32: одно зерно — один и тот же розыгрыш Событий, чтобы прогоны сравнивались. */
@@ -167,7 +175,7 @@ export interface Session {
 export function newSession(opts: Partial<PolicyOptions> = {}): Session {
   const full = { ...DEFAULT_POLICY, ...opts };
   return {
-    s: migrate(null, T0),
+    s: takeChallenges(migrate(null, T0), full.challenges),
     t: 0,
     opts: full,
     rnd: seeded(full.seed),
@@ -175,6 +183,18 @@ export function newSession(opts: Partial<PolicyOptions> = {}): Session {
     flagshipAt: null,
     genStart: 0,
   };
+}
+
+/**
+ * Испытания берутся только на свежем Забеге: сразу после миграции и после Престижа. В `all` политика
+ * берёт все Испытания лишь там, где Забег может начаться: единственный источник стартовых Токенов
+ * без Кликов — Перк «Посевной раунд», и без него Забег без Кликов не наймёт ни одного Агента.
+ * Так играет и осторожный игрок: Испытания — со стартовым кошельком.
+ */
+function takeChallenges(s: GameState, mode: PolicyOptions['challenges']): GameState {
+  if (mode === 'none') return s;
+  if (!perkEffects(s.perks).some((e) => e.kind === 'startTokens')) return s;
+  return CHALLENGES.reduce((run, c) => toggleChallenge(run, c.id), s);
 }
 
 /**
@@ -237,6 +257,8 @@ export function doPrestige(w: Session): { generation: number; minutes: number } 
   const generation = w.s.generation;
   w.s = pickCourse(w.s, w.opts.course);
   w.s = prestige(w.s, T0 + w.t * 1000);
+  // Новый Забег — снова под Испытаниями, если политика взяла их в этом прогоне.
+  w.s = takeChallenges(w.s, w.opts.challenges);
   const minutes = (w.t - w.genStart) / 60;
   w.genStart = w.t;
   w.flagshipAt = null;

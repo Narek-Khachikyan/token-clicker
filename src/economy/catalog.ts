@@ -267,6 +267,9 @@ export const prestigeDivisor = (generation: number): number =>
  * единицы Compute в интерфейсе и теневым Достижением «Счастливый Compute». Формула одна: три копии
  * разошлись бы при первой же правке баланса, а цикл импортов обойти нечем — модуль ничего не
  * импортирует, поэтому копия не была вынуждена.
+ *
+ * `mult` — множитель Класса риска Забега (`challengeComputeMult`): он множит корень до округления,
+ * а не уже округлённый прирост, иначе мелкий Престиж не чувствовал бы его вовсе.
  */
-export const computeGain = (runTokens: number, generation: number): number =>
-  Math.floor(Math.cbrt(runTokens / prestigeDivisor(generation)));
+export const computeGain = (runTokens: number, generation: number, mult = 1): number =>
+  Math.floor(Math.cbrt(runTokens / prestigeDivisor(generation)) * mult);

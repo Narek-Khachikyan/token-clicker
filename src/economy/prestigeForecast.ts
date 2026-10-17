@@ -1,4 +1,5 @@
 import { computeGain, prestigeDivisor } from './catalog';
+import { challengeComputeMult } from './challenges';
 import { canPrestige, isContentFinale, prestigeGain } from './engine';
 import type { GameState } from './state';
 
@@ -36,10 +37,12 @@ export interface PrestigeForecast {
  */
 function boostShortfallFor(state: GameState, boostGain: number): number {
   const divisor = prestigeDivisor(state.generation);
-  let needed = Math.pow(boostGain, 3) * divisor;
+  // Класс риска множит корень (`computeGain`), поэтому порог для g — корень g / m, а не g.
+  const mult = challengeComputeMult(state);
+  let needed = Math.pow(boostGain / mult, 3) * divisor;
   const shortfallOf = (n: number): number => Math.max(0, n - state.runTokens);
   for (let i = 0; i < 8; i++) {
-    if (computeGain(state.runTokens + shortfallOf(needed), state.generation) >= boostGain) break;
+    if (computeGain(state.runTokens + shortfallOf(needed), state.generation, mult) >= boostGain) break;
     needed *= 1 + 4 * Number.EPSILON;
   }
   return shortfallOf(needed);
@@ -68,13 +71,14 @@ export const PRESTIGE_RESETS: readonly PrestigeEffect[] = [
   { label: 'Токены Забега', fields: ['tokens', 'runTokens', 'runClicks'] },
   { label: 'Агенты', fields: ['agents'] },
   { label: 'Апгрейды', fields: ['upgrades'] },
-  { label: 'Активное Испытание Забега (закрывается наградой)', fields: ['activeChallenge'] },
+  { label: 'Взятые Испытания Забега (Престиж закрывает их и платит за них Compute)', fields: ['activeChallenges'] },
   { label: 'Предложение Курса и выбор (выбранный Курс начнёт следующий Забег)', fields: ['courseOffer', 'courseNext'] },
   { label: 'Идущее Событие и цепочка пойманных', fields: ['event', 'eventCaughtAt', 'nextEventAt', 'combo'] },
 ];
 
 export const PRESTIGE_KEEPS: readonly PrestigeEffect[] = [
   { label: 'Compute и купленные Перки', fields: ['computeSpent', 'perks'] },
+  { label: 'Награда Испытаний, закрытых раньше (+10% к Доходу за каждое)', fields: ['challengesInherited'] },
   { label: 'Достижения и Датасет', fields: ['achievements'] },
   { label: 'Compute-кристаллы и ускорители', fields: ['crystals', 'crystalPlantedAt', 'crystalUpgrades'] },
   { label: 'Вехи', fields: ['milestones'] },

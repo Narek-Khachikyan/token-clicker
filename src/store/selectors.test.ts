@@ -17,7 +17,7 @@ import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import { LAB_IDS, LABS } from '../data/labs';
 import { canPrestige, isContentFinale, prestigeGain, shatterCrystal } from '../economy/engine';
 import { prestigeForecast } from '../economy/prestigeForecast';
-import { CHALLENGES, startChallenge } from '../economy/challenges';
+import { CHALLENGES, riskMult, RISK_MULT_MAX, toggleChallenge } from '../economy/challenges';
 import { CRYSTAL_UPGRADES, crystalCycleMs } from '../economy/crystal';
 import {
   canLicense,
@@ -452,21 +452,30 @@ describe('prestige tab slices', () => {
     expect(prestigeCardView({ ...ready, runTokens: 0 }).boostIsHalf).toBe(false);
   });
 
-  it('lets a challenge be picked only on a fresh run and shows which one is taken and which is closed', () => {
+  it('lets challenges be taken only on a fresh run and shows which are taken and which are closed', () => {
     const fresh = newGame(T0);
     expect(challengeCardView(fresh).canStart).toBe(true);
     expect(challengeCardView(fresh).none).toBe(true);
-    const picked = startChallenge(fresh, CHALLENGES[0].id);
+    const picked = toggleChallenge(toggleChallenge(fresh, CHALLENGES[0].id), CHALLENGES[1].id);
     expect(challengeCardView(picked).none).toBe(false);
     expect(challengeView(picked, CHALLENGES[0])).toEqual({ active: true, done: false });
-    expect(challengeView(picked, CHALLENGES[1])).toEqual({ active: false, done: false });
-    // Первый клик закрывает выбор: ядро больше не принимает Испытание.
+    expect(challengeView(picked, CHALLENGES[1])).toEqual({ active: true, done: false });
+    // Первый клик закрывает выбор: ядро больше не принимает Испытания.
     expect(challengeCardView({ ...fresh, runClicks: 1 }).canStart).toBe(false);
-    // Закрытое Испытание платит +10% к Доходу, и карточка называет сумму.
-    const closed = { ...fresh, challengesDone: [CHALLENGES[0].id, CHALLENGES[1].id] };
-    expect(challengeCardView(closed).bonusText).toBe(formatNumber(20));
-    expect(challengeCardView(closed).doneCount).toBe(2);
-    expect(challengeView(closed, CHALLENGES[1]).done).toBe(true);
+    // Класс риска — сумма тяжести взятых, и карточка называет множитель Compute с потолком.
+    const risk = CHALLENGES[0].weight + CHALLENGES[1].weight;
+    expect(challengeCardView(picked).risk).toBe(risk);
+    expect(challengeCardView(picked).multText).toBe(formatNumber(riskMult(risk)));
+    expect(challengeCardView(picked).capped).toBe(false);
+    // Полный набор догоняет потолок, и лишняя тяжесть сообщается как достигнутый потолок.
+    const everything = CHALLENGES.reduce((s, c) => toggleChallenge(s, c.id), fresh);
+    expect(challengeCardView(everything).multText).toBe(formatNumber(RISK_MULT_MAX));
+    expect(challengeCardView(everything).capped).toBe(true);
+    // Награда старых Испытаний — унаследованная, и карточка называет её сумму.
+    const closed = { ...fresh, challengesInherited: [CHALLENGES[0].id, CHALLENGES[1].id] };
+    expect(challengeCardView(closed).inheritedText).toBe(formatNumber(20));
+    expect(challengeCardView(closed).doneCount).toBe(0);
+    expect(challengeView({ ...closed, challengesDone: [CHALLENGES[1].id] }, CHALLENGES[1]).done).toBe(true);
   });
 
   it('opens the shatter button with the first whole crystal and names what it pays', () => {
@@ -688,7 +697,7 @@ describe('mascot card slice', () => {
   });
 
   it('promises no Synergy while the no-synergy Challenge cancels it', () => {
-    const s = { ...lateGame(), activeChallenge: 'no-synergy' };
+    const s = { ...lateGame(), activeChallenges: ['no-synergy'] };
     for (const lab of LAB_IDS) expect(labCardView(s, lab, true).synergy).toBe(-1);
   });
 

@@ -2,13 +2,12 @@ import React from 'react';
 import { useGameStore, useStateSlice, type PrestigeSection } from '../store/useGameStore';
 import { challengeCardView, challengeView, prestigeCardView } from '../store/selectors';
 import { CATALOG, LAST_GENERATION } from '../economy/catalog';
-import { CHALLENGES, CHALLENGE_REWARD_PCT, type ChallengeDef } from '../economy/challenges';
+import { CHALLENGES, INHERITED_REWARD_PCT, type ChallengeDef } from '../economy/challenges';
 import { COURSE_BY_ID, courseById, type Course } from '../data/courses';
 import { LABS } from '../data/labs';
 import { courseMissing } from '../economy/course';
 import { COMPUTE_BONUS } from '../economy/engine';
 import { PRESTIGE_KEEPS, PRESTIGE_RESETS, type PrestigeEffect } from '../economy/prestigeForecast';
-import { Hint } from './Hint';
 import { Num } from './Num';
 import { onTabRowKeyDown } from './tabRow';
 
@@ -182,7 +181,7 @@ export const PrestigeForecastCard: React.FC<{ onBackToModels: () => void }> = ({
 };
 
 const ChallengeOption: React.FC<{ def: ChallengeDef; canStart: boolean }> = ({ def, canStart }) => {
-  const startChallenge = useGameStore((s) => s.startChallenge);
+  const toggleChallenge = useGameStore((s) => s.toggleChallenge);
   const { active, done } = useStateSlice((s) => challengeView(s, def));
 
   return (
@@ -196,48 +195,44 @@ const ChallengeOption: React.FC<{ def: ChallengeDef; canStart: boolean }> = ({ d
         gap: 'var(--space-1)',
       }}
     >
-      <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>{def.name}</span>
+      <span style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 'var(--space-2)' }}>
+        <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>{def.name}</span>
+        {/* Тяжесть — вклад Испытания в Класс риска; видно до выбора, чтобы Класс собирали с открытыми глазами. */}
+        <span
+          className="pixel-22"
+          style={{ color: active ? 'var(--accent-color)' : 'var(--text-muted)', flexShrink: 0 }}
+        >
+          +<Num>{def.weight}</Num>
+        </span>
+      </span>
       <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{def.desc}</div>
       {done && (
         <div style={{ fontSize: '0.875rem', color: 'var(--green-text)' }}>
-          Закрыто: +<Num>{CHALLENGE_REWARD_PCT}</Num>% к Доходу уже у тебя
-          {active ? '' : ', повторное прохождение награды не добавит'}
+          Закрывалось раньше: +<Num>{INHERITED_REWARD_PCT}</Num>% к Доходу уже у тебя.
         </div>
       )}
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        {active ? (
-          <Hint as="span" content="Закроется Престижем" canOpen={() => !canStart}>
-            <button
-              onClick={() => startChallenge(null)}
-              disabled={!canStart}
-              className="pixel-btn"
-              style={{ padding: 'var(--space-1) var(--space-2)' }}
-            >
-              {canStart ? 'Снять выбор' : 'Выбрано на этот Забег'}
-            </button>
-          </Hint>
-        ) : (
-          <button
-            onClick={() => startChallenge(def.id)}
-            disabled={!canStart}
-            className="pixel-btn pixel-btn-accent"
-            style={{ padding: 'var(--space-1) var(--space-2)' }}
-          >
-            Принять
-          </button>
-        )}
+        <button
+          onClick={() => toggleChallenge(def.id)}
+          disabled={!canStart}
+          aria-pressed={active}
+          className={`pixel-btn ${active ? '' : 'pixel-btn-accent'}`}
+          style={{ padding: 'var(--space-1) var(--space-2)' }}
+        >
+          {active ? 'Снять' : canStart ? 'Взять' : 'Забег идёт'}
+        </button>
       </div>
     </div>
   );
 };
 
 /**
- * Выбор Испытания Забега рядом с прогнозом. Принять его можно только на свежем Забеге — без
- * Агентов, Апгрейдов и Кликов, — и карточка говорит об этом словами, а не молча гасит кнопки.
- * Решение за ядром (`startChallenge` в сторе): здесь только показ.
+ * Выбор Испытаний Забега рядом с прогнозом. Берут их только на свежем Забеге — без Агентов,
+ * Апгрейдов и Кликов, — и можно несколько сразу; карточка говорит об этом словами, а не молча
+ * гасит кнопки. Решение «можно ли» — за ядром (`toggleChallenge` в сторе): здесь только показ.
  */
 export const ChallengeCard: React.FC = () => {
-  const { canStart, none, bonusText, doneCount } = useStateSlice(challengeCardView);
+  const { canStart, none, risk, multText, capped, inheritedText, doneCount } = useStateSlice(challengeCardView);
 
   return (
     <div
@@ -245,23 +240,46 @@ export const ChallengeCard: React.FC = () => {
       style={{ padding: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}
     >
       <div className="pixel-22" style={{ color: 'var(--text-main)' }}>
-        Испытание Забега
+        Испытания Забега
       </div>
       <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-        Добровольное ограничение на весь Забег. Закроешь его Престижем — Доход вырастет на{' '}
-        <Num>{CHALLENGE_REWARD_PCT}</Num>% навсегда.
+        Добровольные ограничения на весь Забег; взять можно несколько сразу. Престиж закроет взятые
+        и заплатит за них Compute — тем больше, чем выше Класс риска.
         {doneCount > 0 && (
           <>
             {' '}
-            Закрыто <Num>{doneCount}</Num>, это уже +<Num>{bonusText}</Num>%.
+            Закрывалось раньше: +<Num>{inheritedText}</Num>% к Доходу навсегда.
           </>
         )}
+      </div>
+      {/* Класс риска виден до старта: сумма тяжести взятых и множитель Compute за этот Престиж. */}
+      <div
+        style={{
+          backgroundColor: 'var(--tint-strong)',
+          padding: 'var(--space-2)',
+          display: 'flex',
+          alignItems: 'baseline',
+          justifyContent: 'space-between',
+          gap: 'var(--space-2)',
+          flexWrap: 'wrap',
+        }}
+      >
+        <span className="pixel-22" style={{ color: none ? 'var(--text-muted)' : 'var(--accent-color)' }}>
+          Класс риска:{' '}
+          <Num>
+            {risk} → ×{multText}
+          </Num>{' '}
+          Compute
+        </span>
+        <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+          {capped ? 'потолок достигнут' : 'растёт с тяжестью, до потолка'}
+        </span>
       </div>
       {!canStart && (
         <div style={{ fontSize: '0.875rem', color: 'var(--text-main)' }}>
           {none
-            ? 'Испытание выбирается в начале Забега: пока нет Агентов, Апгрейдов и Кликов. Сделай Престиж, и выбор откроется снова.'
-            : 'Испытание принято и закроется Престижем. Сменить его уже нельзя: Забег идёт.'}
+            ? 'Испытания берутся в начале Забега: пока нет Агентов, Апгрейдов и Кликов. Сделай Престиж, и выбор откроется снова.'
+            : 'Испытания взяты и закроются Престижем. Сменить их уже нельзя: Забег идёт.'}
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>

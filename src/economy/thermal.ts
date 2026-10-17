@@ -1,5 +1,6 @@
 import { characterMods } from './character';
 import { courseThermalMods } from './course';
+import { hasChallenge, runPerks } from './challenges';
 import { perkEffects } from './perks';
 import type { GameState } from './state';
 
@@ -158,8 +159,8 @@ export function thermalMods(perks: string[]): ThermalMods {
  * Температуры остаётся не меньше единицы.
  * Тот же результат читают тик, шкала, магазин и справка, поэтому у них одна правда.
  */
-export function thermalModsFor(state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course'>): ThermalMods {
-  const perks = thermalMods(state.perks);
+export function thermalModsFor(state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course' | 'activeChallenges'>): ThermalMods {
+  const perks = thermalMods(runPerks(state));
   const office = characterMods(state);
   const course = courseThermalMods(state);
   if (office.heat === 1 && office.yield === 0 && office.hallu === 1 && course.heat === 1 && course.hallu === 1) return perks;
@@ -179,7 +180,7 @@ export function thermalModsFor(state: Pick<GameState, 'perks' | 'generation' | '
  */
 const safeTempOf = (mods: ThermalMods): number => Math.min(TEMP_MAX, HEAT_COOL_RATE / (HEAT_RATE * mods.heat));
 
-export const safeTemp = (state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course'>): number =>
+export const safeTemp = (state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course' | 'activeChallenges'>): number =>
   safeTempOf(thermalModsFor(state));
 
 export const heatRate = (temp: number, mods: ThermalMods = NO_THERMAL_MODS): number => HEAT_RATE * temp * mods.heat;
@@ -206,6 +207,14 @@ export const overheatStunMult = (state: GameState, now: number): number => {
   return 1 - HEAT_PENALTY * t;
 };
 
+/**
+ * Температура, которую читают Доход и тик: на шкале, а в Испытании «temperature = 0» — всегда ноль, что бы
+ * ни лежало в состоянии (импорт, старый сейв): ограничение держится на чтении, а не на том, что никто
+ * не тронул ползунок.
+ */
+export const effectiveTemp = (state: Pick<GameState, 'temp' | 'activeChallenges'>): number =>
+  hasChallenge(state, 'cold') ? TEMP_MIN : clampTemp(state.temp);
+
 export function clampTemp(temp: number): number {
   return Math.min(TEMP_MAX, Math.max(TEMP_MIN, Number.isFinite(temp) ? temp : TEMP_START));
 }
@@ -231,7 +240,7 @@ export interface ThermalRead {
 }
 
 export function thermalRead(state: GameState, now: number = state.lastTick): ThermalRead {
-  const temp = clampTemp(state.temp);
+  const temp = effectiveTemp(state);
   const stun = overheatStunMult(state, now);
   const mods = thermalModsFor(state);
   return {

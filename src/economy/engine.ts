@@ -1,5 +1,5 @@
 import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, type Model } from './catalog';
-import { challengeIncomeMult } from './challenges';
+import { challengeComputeMult, challengeIncomeMult, hasChallenge, runPerks } from './challenges';
 import { characterIncomeMult, characterMods, ecosystemBoost } from './character';
 import type { LabId } from '../data/labs';
 import { courseClickMult, courseEventWindowMult, courseIncomeMult, coursePriceMult, courseMissing, offerCourse, takeCourse } from './course';
@@ -12,6 +12,7 @@ import {
   HEAT_COOL_RATE,
   heatRate,
   halluRate,
+  effectiveTemp,
   thermalRead,
   thermalModsFor,
 } from './thermal';
@@ -126,7 +127,7 @@ export const OFFLINE_THRESHOLD_SEC = 10;
 export const START_PRICE_MULT = 0.7;
 
 export function discountMult(state: GameState): number {
-  const perk = perkEffects(state.perks).reduce((m, e) => (e.kind === 'discount' ? m * (1 - e.pct) : m), 1);
+  const perk = perkEffects(runPerks(state)).reduce((m, e) => (e.kind === 'discount' ? m * (1 - e.pct) : m), 1);
   // Стартовая скидка: первые два Агента забега дешевле на 30%. Яма 2–5 минут — это дорога от
   // первого Агента (0,1/сек) до второй Модели за 97,5 Токена (COST_BASE × COST_STEP); скидка
   // срезает её треть, не трогая лестницу Рангов (множитель общий для всех Моделей) и ±30%
@@ -293,6 +294,8 @@ export function datasetValue(state: GameState): number {
  * таблица и создаёт.
  */
 export function datasetMult(state: GameState): number {
+  // «Стена данных»: Датасет молчит весь Забег, а Достижения, из которых он растёт, остаются при игроке.
+  if (hasChallenge(state, 'no-dataset')) return 1;
   let owned = 0;
   for (let tier = 0; tier < DATASET_THRESHOLDS.length; tier++) {
     if (hasUpgrade(state, datasetUpgradeId(state.generation, tier))) owned++;
@@ -362,7 +365,7 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
   // Испытание «Забег без Синергий» гасит оба синергийных множителя — лабораторный и парный, —
   // а Апгрейды Модели, Флагман, Перки и Датасет продолжают работать: испытание отменяет
   // Синергии, а не все усиления сразу.
-  const noSynergy = state.activeChallenge === 'no-synergy';
+  const noSynergy = hasChallenge(state, 'no-synergy');
   if (!noSynergy && hasUpgrade(state, synergyUpgradeId(state.generation, model.lab))) {
     // «Экосистема» Google растит именно прибавку Синергии; у остальных Лабораторий множитель — единица.
     const synergy = 1 + SYNERGY_PER_AGENT * labAgents(state, model.lab) * ecosystemBoost(state, model.lab);
@@ -372,7 +375,7 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
   const flagship = flagshipMult(state, model);
   mult *= flagship;
   note(out, 'flagship', flagship);
-  for (const e of perkEffects(state.perks)) {
+  for (const e of perkEffects(runPerks(state))) {
     if (e.kind === 'labBoost' && e.lab === model.lab) {
       mult *= e.mult;
       note(out, 'labPerk', e.mult);
@@ -399,7 +402,7 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
   note(out, 'character', character);
   // «Наследие поколений» множит все Модели одинаково, поэтому ранговая лестница внутри Поколения
   // не инвертируется по построению. Здесь же верхний Перк Оркестратора: тоже один множитель на всех.
-  const effects = perkEffects(state.perks);
+  const effects = perkEffects(runPerks(state));
   const genPerk = legacyBoostMult(effects, state.maxGeneration);
   mult *= genPerk;
   note(out, 'genPerk', genPerk);
@@ -618,7 +621,7 @@ export function clickValue(state: GameState, income?: number, now: number = stat
   // иначе витрина обещала бы Токены, которых переход не даст.
   // Проверка стоит первой и до подсчёта income: иначе даже нулевой Клик считал бы полный
   // Доход через дефолтный аргумент на каждом тике теневого Достижения.
-  if (state.activeChallenge === 'no-click') return 0;
+  if (hasChallenge(state, 'no-click')) return 0;
   const gen = state.generation;
   // Клик стартует с масштаба Поколения, а не с 1: в Поколении 0 это 1, а дальше ×1000, и
   // без этого клик перестал бы что-то значить ровно там, где Доход уже измеряется триллионами.
@@ -630,7 +633,7 @@ export function clickValue(state: GameState, income?: number, now: number = stat
     else pct += 0.01;
   });
   flat += assistClickBonus(state);
-  for (const e of perkEffects(state.perks)) if (e.kind === 'clickMult') flat *= e.mult;
+  for (const e of perkEffects(runPerks(state))) if (e.kind === 'clickMult') flat *= e.mult;
   // Датасет множит только flat-часть: pct-часть уже содержит его через income.
   flat *= datasetMult(state);
   // Доход нужен только pct-части: без Апгрейдов «+1% дохода за клик» полный проход по Моделям
@@ -660,7 +663,7 @@ function clickCatchUp(state: GameState, now: number): number {
 }
 
 export function autoclicksPerSecond(state: GameState): number {
-  return perkEffects(state.perks).reduce((s, e) => (e.kind === 'autoclick' ? s + e.perSecond : s), 0);
+  return perkEffects(runPerks(state)).reduce((s, e) => (e.kind === 'autoclick' ? s + e.perSecond : s), 0);
 }
 
 // ---------- Действия ----------
@@ -686,7 +689,7 @@ export function click(state: GameState): GameState {
   // Испытание «Забег без Кликов»: выплаты нет, но счётчики растут — по ним стор выдаёт реплики
   // Моделей и пишет Переписку, а котёл «Ночного кодинга» не трогается: раз ничего не выплачено,
   // и возвращать нечего, иначе пустые Клики подъедали бы чужой возврат.
-  if (state.activeChallenge === 'no-click') {
+  if (hasChallenge(state, 'no-click')) {
     return { ...state, clicks: state.clicks + 1, runClicks: state.runClicks + 1 };
   }
   const catchUp = clickCatchUp(state, state.lastTick);
@@ -817,7 +820,8 @@ export function buyUpgrade(state: GameState, id: string): GameState {
 
 export function buyPerk(state: GameState, id: string): GameState {
   const p = PERK_BY_ID[id];
-  if (!p || perkLock(state.perks, id)) return state;
+  // «Забег без Перков»: новый Перк в этом Забеге не заработал бы, и Compute на него ушёл бы впустую.
+  if (!p || hasChallenge(state, 'no-perks') || perkLock(state.perks, id)) return state;
   if (p.cost > freeCompute(state)) return state;
   return { ...state, computeSpent: state.computeSpent + p.cost, perks: [...state.perks, id] };
 }
@@ -867,7 +871,7 @@ export function advance(state: GameState, dt: number, rnd: () => number = Math.r
   // много, а окно стоит одних 10 с Дохода. Дробный автоклик возвращает долю объёма.
   // В Испытании «Забег без Кликов» автоклик тоже не платит и не трогает котёл возврата — по той же
   // причине, что ручной Клик выше, — но в счётчики он по-прежнему попадает строкой ниже.
-  const noClick = state.activeChallenge === 'no-click';
+  const noClick = hasChallenge(state, 'no-click');
   const catchUp = noClick ? 0 : clickCatchUp(state, now);
   const autoRefund = noClick ? 0 : Math.min(autoClicks, 1) * catchUp;
   const auto = autoClicks > 0 && !noClick ? autoClicks * (clickValue(state, rate * glitch, now) - catchUp) + autoRefund : 0;
@@ -918,7 +922,7 @@ function applyHallucination(state: GameState): GameState {
  * ещё и 4% кошелька за событие, которое тут же началось с нуля.
  */
 function advanceThermal(state: GameState, dt: number, rnd: () => number, now: number): GameState {
-  const temp = state.temp;
+  const temp = effectiveTemp(state);
   const mods = thermalModsFor(state);
   // Нижняя граница обязательна: без неё перегрев уходил бы в минус, и отрицательный
   // перегрев резал бы Доход сильнее полного — то есть охлаждение платило бы игроку.
@@ -1083,7 +1087,7 @@ export function canPrestige(state: GameState): boolean {
 }
 
 export function prestigeGain(state: GameState): number {
-  return computeGain(state.runTokens, state.generation);
+  return computeGain(state.runTokens, state.generation, challengeComputeMult(state));
 }
 
 /**
@@ -1099,7 +1103,8 @@ export function prestigeGain(state: GameState): number {
  * под точность double и честно читается как ноль — такой суммы игра не набирает.
  */
 export function computeShortfall(state: GameState): number {
-  return shortfall(Math.pow(prestigeGain(state) + 1, 3) * prestigeDivisor(state.generation), state.runTokens);
+  // Класс риска множит корень, поэтому для следующей единицы нужен корень (g + 1) / m, а не g + 1.
+  return shortfall(Math.pow((prestigeGain(state) + 1) / challengeComputeMult(state), 3) * prestigeDivisor(state.generation), state.runTokens);
 }
 
 export function isContentFinale(state: GameState): boolean {
@@ -1156,13 +1161,13 @@ export function prestige(state: GameState, now: number = state.lastTick): GameSt
   // тестам, которые двигают часы вручную.
   const clock = Number.isFinite(now) ? now : state.lastTick;
   const next = state.generation + 1;
-  // Испытание закрывается Престижем: активное дописывается в закрытые без дублей, иначе повторный
-  // забег с тем же Испытанием платил бы награду дважды. Переписка при этом не трогается —
-  // коллекция собирается всю игру, а не Забег.
-  const challengesDone =
-    state.activeChallenge !== null && !state.challengesDone.includes(state.activeChallenge)
-      ? [...state.challengesDone, state.activeChallenge]
-      : state.challengesDone;
+  // Испытания закрываются Престижем: взятые дописываются в закрытые без дублей. Награда за них — Compute
+  // этого же Престижа (`prestigeGain` ниже множит прирост на Класс риска), поэтому повторное закрытие
+  // платит снова: список нужен интерфейсу как память, а не как защита от двойной выплаты. Переписка при
+  // этом не трогается — коллекция собирается всю игру, а не Забег.
+  const challengesDone = state.activeChallenges.some((id) => !state.challengesDone.includes(id))
+    ? [...state.challengesDone, ...state.activeChallenges.filter((id) => !state.challengesDone.includes(id))]
+    : state.challengesDone;
   return {
     ...state,
     generation: next,
@@ -1182,7 +1187,7 @@ export function prestige(state: GameState, now: number = state.lastTick): GameSt
     thought: 0,
     thoughtAt: 0,
     upgrades: [],
-    activeChallenge: null,
+    activeChallenges: [],
     challengesDone,
     // Кристаллы и их ускорители, как и Достижения, переживают Престиж: они растут в реальном
     // времени, и сброс забега не должен отнимать у игрока то, за что он ждал в стену часами.
