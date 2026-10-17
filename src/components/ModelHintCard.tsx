@@ -160,7 +160,7 @@ export const ModelHintCard: React.FC<{ model: Model }> = ({ model }) => {
             <Line key={row.label} label={row.label} value={row.value} muted />
           ))}
           {character.effects.some((e) => e.kind === 'heat' || e.kind === 'yield') && (
-            <Line label="Безопасная Температура офиса" value={safeTemp(state).toFixed(2)} muted />
+            <Line label="Безопасная Температура офиса" value={formatNumber(safeTemp(state), notation)} muted />
           )}
         </Section>
       )}
