@@ -56,6 +56,40 @@ export function isResearchReady(job: ResearchJob, now: number): boolean {
 }
 
 /**
+ * Доля полного срока, которую сокращает один Compute-кристалл, потраченный на ускорение (ТЗ #117):
+ * четверть, то есть 7,5 минуты у срока 30 минут и два часа у срока 8 часов. Число — черновик слоя 6,
+ * его утверждает разработчик по замеру; живёт здесь, а не в интерфейсе, как и сроки.
+ */
+export const RESEARCH_HASTE_SHARE = 0.25;
+
+/**
+ * На сколько сдвинет готовность один кристалл: четверть полного срока, но не больше остатка. Последний
+ * кристалл не уводит отметку готовности в прошлое дальше «сейчас», поэтому остаток обрезается. Ноль,
+ * если Исследование уже созрело: ускорять нечего.
+ */
+export function researchHasteMs(job: ResearchJob, now: number): number {
+  const duration = RESEARCH_DURATION_MS[job.term];
+  const left = duration - Math.max(0, now - job.startedAt);
+  return Math.max(0, Math.min(duration * RESEARCH_HASTE_SHARE, left));
+}
+
+/**
+ * Ускорение созревающего Исследования одним целым Compute-кристаллом из запаса (ТЗ #117).
+ *
+ * Кристалл уходит из запаса вместе со своим процентом к Доходу: эту цену интерфейс показывает до траты.
+ * Готовность сдвигается сдвигом старта назад, а не новым полем: срок, окно усиления и сохранение не меняются,
+ * и старое сохранение читается без миграции. Пустой слот, уже созревшее Исследование или нет целого
+ * кристалла — тот же объект, как у остальных переходов.
+ */
+export function hasteResearch(state: GameState, index: number, now: number): GameState {
+  const job = state.research[index];
+  if (!job || isResearchReady(job, now) || Math.floor(state.crystals) < 1) return state;
+  const shift = researchHasteMs(job, now);
+  const research = state.research.map((j, i) => (i === index ? { ...j, startedAt: j.startedAt - shift } : j));
+  return { ...state, crystals: state.crystals - 1, research };
+}
+
+/**
  * Закладка в свободный слот. Без свободного слота, неизвестного вида или срока возвращает тот же
  * объект: переход не изменил ничего, и стор не должен трогать сейв.
  */

@@ -49,7 +49,7 @@ import { LAB_IDS, type LabId } from '../data/labs';
 import { HEAT_COOL_SEC, HEAT_PENALTY, heatRate, OVERHEAT_STUN_SEC, overheatStunMult, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX, thermalRead } from './thermal';
 import { claimMilestones, MILESTONES, milestoneHint, nextMilestone } from './milestones';
 import { GLOSSARY } from '../data/glossary';
-import { RESEARCH_BOOST_MULT, RESEARCH_BOOST_WINDOW_MS, RESEARCH_DURATION_MS, RESEARCH_FINETUNE_YIELD } from './research';
+import { RESEARCH_BOOST_MULT, RESEARCH_BOOST_WINDOW_MS, RESEARCH_DURATION_MS, RESEARCH_FINETUNE_YIELD, RESEARCH_HASTE_SHARE } from './research';
 import { FINETUNE_SPEC } from './finetune';
 import { GEN_SCALE, PRESTIGE_DIVISOR_UNITS, PRESTIGE_PACE } from './catalog';
 
@@ -2813,6 +2813,12 @@ describe('glossary', () => {
     expect(stock).toContain(`Срок 30 минут даёт ${words[RESEARCH_FINETUNE_YIELD['30m']]} Заготовку`);
     expect(stock).toContain(`2 часа — ${words[RESEARCH_FINETUNE_YIELD['2h']]}`);
     expect(stock).toContain(`8 часов — ${words[RESEARCH_FINETUNE_YIELD['8h']]}`);
+  });
+
+  it('quotes the crystal speed-up share from the research constant', () => {
+    // Доля ускорения живёт в research.ts: правка числа без правки глоссария здесь не пройдёт.
+    const text = GLOSSARY.find((g) => g.term === 'Compute-кристалл')?.text ?? '';
+    expect(text).toContain(`на ${RESEARCH_HASTE_SHARE * 100}% полного срока раньше`);
   });
 
   it('quotes the event schedule from the event constants', () => {

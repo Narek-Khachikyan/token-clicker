@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { CATALOG } from './catalog';
 import { newGame } from './state';
 import { advanceTime, applyOffline, buyAgents, prestige, totalIncome } from './engine';
+import { crystalIncomeMult } from './crystal';
 import {
   collectResearch,
+  hasteResearch,
   isResearchReady,
   plantResearch,
   RESEARCH_BOOST_MULT,
@@ -192,5 +194,54 @@ describe('Заготовка Файнтюна как результат Иссл
     expect(RESEARCH_FINETUNE_YIELD['2h']).toBeGreaterThan(RESEARCH_FINETUNE_YIELD['30m']);
     expect(RESEARCH_FINETUNE_YIELD['8h']).toBeGreaterThan(RESEARCH_FINETUNE_YIELD['2h']);
     expect(per('8h')).toBeLessThan(per('30m'));
+  });
+});
+
+describe('ускорение созревающего Исследования Compute-кристаллом', () => {
+  const withCrystals = (crystals: number) => ({ ...newGame(T0), crystals });
+
+  it('тратит один кристалл и сдвигает готовность на четверть срока', () => {
+    // Срок 2 часа, четверть — 30 минут: при закладке в T0 готовность была бы в 120-й минуте,
+    // после ускорения — в 90-й. Тот же срок, но сдвинутый назад старт, а не новый таймер.
+    const planted = plantResearch(withCrystals(3), 'boost', '2h', T0);
+    const s = hasteResearch(planted, 0, T0 + MIN);
+    expect(s.crystals).toBe(2);
+    expect(isResearchReady(s.research[0], T0 + 90 * MIN - 1)).toBe(false);
+    expect(isResearchReady(s.research[0], T0 + 90 * MIN)).toBe(true);
+  });
+
+  it('уносит с кристаллом его процент: запас падает на 1% к Доходу', () => {
+    const before = plantResearch(withCrystals(3), 'boost', '2h', T0);
+    const after = hasteResearch(before, 0, T0 + MIN);
+    expect(crystalIncomeMult(after)).toBeCloseTo(crystalIncomeMult(before) - 0.01, 9);
+  });
+
+  it('сверх потолка запаса кристалл не уносит процента, потому что запас выше 100 бонуса не даёт', () => {
+    const before = plantResearch(withCrystals(150), 'boost', '2h', T0);
+    const after = hasteResearch(before, 0, T0 + MIN);
+    expect(after.crystals).toBe(149);
+    expect(crystalIncomeMult(after)).toBe(crystalIncomeMult(before));
+  });
+
+  it('без целого кристалла возвращает тот же объект: ни запаса, ни срока не трогает', () => {
+    const empty = plantResearch(withCrystals(0), 'boost', '2h', T0);
+    expect(hasteResearch(empty, 0, T0 + MIN)).toBe(empty);
+    // Дробного кристалла в запасе не бывает: 0,9 — это ещё не кристалл для траты.
+    const fraction = { ...empty, crystals: 0.9 };
+    expect(hasteResearch(fraction, 0, T0 + MIN)).toBe(fraction);
+  });
+
+  it('пустой слот и уже готовое Исследование кристалл не тратят', () => {
+    const planted = plantResearch(withCrystals(3), 'boost', '2h', T0);
+    expect(hasteResearch(planted, 1, T0 + MIN)).toBe(planted);
+    expect(hasteResearch(planted, 0, T0 + 120 * MIN)).toBe(planted);
+  });
+
+  it('последнее ускорение не сдвигает дальше остатка: готовность ровно в срок, а не раньше', () => {
+    // Осталось 10 минут из 2 часов: четверть срока (30 минут) здесь не нужна, хватает остатка.
+    const now = T0 + 110 * MIN;
+    const s = hasteResearch(plantResearch(withCrystals(3), 'boost', '2h', T0), 0, now);
+    expect(isResearchReady(s.research[0], now - 1)).toBe(false);
+    expect(isResearchReady(s.research[0], now)).toBe(true);
   });
 });

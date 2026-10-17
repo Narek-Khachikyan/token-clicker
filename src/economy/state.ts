@@ -64,7 +64,8 @@ export type ResearchTermId = '30m' | '2h' | '8h';
 export interface ResearchJob {
   kind: ResearchKind;
   term: ResearchTermId;
-  /** Мс часов игры (тот же `lastTick`, что у Compute-кристалла) в момент закладки. */
+  /** Мс часов игры (тот же `lastTick`, что у Compute-кристалла) в момент закладки. Ускорение кристаллом
+   *  сдвигает эту отметку назад (`hasteResearch`), и срок считается уже от неё: поле одно и то же. */
   startedAt: number;
 }
 

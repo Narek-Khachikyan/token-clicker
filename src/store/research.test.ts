@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameStore } from './useGameStore';
 import { newGame, type GameState } from '../economy/state';
-import { RESEARCH_BOOST_WINDOW_MS, RESEARCH_DURATION_MS, RESEARCH_FINETUNE_YIELD } from '../economy/research';
+import { isResearchReady, RESEARCH_BOOST_WINDOW_MS, RESEARCH_DURATION_MS, RESEARCH_FINETUNE_YIELD } from '../economy/research';
 import { CATALOG } from '../economy/catalog';
 import { FINETUNE_QUIPS } from '../data/finetuneQuips';
 import { playAchievementSound, playUpgradeSound } from '../audio/sound';
@@ -148,5 +148,28 @@ describe('Файнтюн в сторе (ТЗ #116)', () => {
     expect(state()).toBe(before);
     expect(vi.mocked(playUpgradeSound)).not.toHaveBeenCalled();
     expect(store().lastQuip).toBeNull();
+  });
+});
+
+describe('ускорение Исследования в сторе', () => {
+  it('тратит кристалл, сдвигает готовность на четверть срока и звучит как трата', () => {
+    useGameStore.setState({ state: { ...state(), crystals: 2 } });
+    store().plantResearch('2h');
+    vi.mocked(playUpgradeSound).mockClear();
+    store().hasteResearch(0);
+    expect(state().crystals).toBe(1);
+    // Срок 2 часа, четверть — полчаса: готовность от закладки в T0 наступает на 90-й минуте, а не на 120-й.
+    expect(isResearchReady(state().research[0], T0 + 90 * 60_000 - 1)).toBe(false);
+    expect(isResearchReady(state().research[0], T0 + 90 * 60_000)).toBe(true);
+    expect(vi.mocked(playUpgradeSound)).toHaveBeenCalledTimes(1);
+  });
+
+  it('без целого кристалла ничего не меняет и молчит', () => {
+    store().plantResearch('2h');
+    const before = state();
+    vi.mocked(playUpgradeSound).mockClear();
+    store().hasteResearch(0);
+    expect(state()).toBe(before);
+    expect(vi.mocked(playUpgradeSound)).not.toHaveBeenCalled();
   });
 });

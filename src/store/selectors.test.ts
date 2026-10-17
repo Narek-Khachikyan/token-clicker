@@ -55,6 +55,7 @@ import {
   finetuneChoiceViews,
   finetuneYieldText,
   researchBoostView,
+  researchHasteView,
   researchSlotView,
   ruleStatusText,
   scarcityView,
@@ -919,5 +920,37 @@ describe('research slot views', () => {
     const [thinking, turbo] = finetuneChoiceViews();
     expect(thinking).toMatchObject({ archetype: 'thinking', label: 'Thinking', incomeText: 'Доход ×1,08', heatText: 'жар +20%' });
     expect(turbo).toMatchObject({ archetype: 'turbo', label: 'Turbo', incomeText: 'Доход ×0,92', heatText: 'жар −20%' });
+  });
+});
+
+describe('ускорение Исследования: цена до траты', () => {
+  const RUN = { ...newGame(T0), temp: 0, heat: 0, nextEventAt: FAR, nextGlitchAt: FAR };
+  const planted = (crystals: number) => ({
+    ...RUN,
+    crystals,
+    research: [{ kind: 'boost' as const, term: '2h' as const, startedAt: T0 }],
+  });
+
+  it('не предлагает ускорение пустому слоту, готовому Исследованию и без целого кристалла', () => {
+    expect(researchHasteView(planted(3), 1).canHaste).toBe(false);
+    expect(researchHasteView({ ...planted(3), lastTick: T0 + 120 * 60_000 }, 0).canHaste).toBe(false);
+    expect(researchHasteView(planted(0), 0).canHaste).toBe(false);
+    expect(researchHasteView(planted(0.9), 0).canHaste).toBe(false);
+  });
+
+  it('называет процент, который уйдёт с кристаллом, и на сколько раньше станет готово', () => {
+    // Срок 2 часа, прошла минута: четверть срока — полчаса.
+    const view = researchHasteView({ ...planted(3), lastTick: T0 + 60_000 }, 0);
+    expect(view).toMatchObject({ canHaste: true, lostText: '1', losesBonus: true, shiftText: '30 мин 0 с' });
+  });
+
+  it('не обещает сдвига больше остатка: за десять минут до готовности он весь остаток', () => {
+    const view = researchHasteView({ ...planted(3), lastTick: T0 + 110 * 60_000 }, 0);
+    expect(view).toMatchObject({ canHaste: true, shiftText: '10 мин 0 с' });
+  });
+
+  it('говорит, что процента нет, когда запас выше потолка бонуса', () => {
+    const view = researchHasteView({ ...planted(150), lastTick: T0 + 60_000 }, 0);
+    expect(view).toMatchObject({ canHaste: true, lostText: '0', losesBonus: false });
   });
 });

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useGameStore, useStateSlice } from '../store/useGameStore';
-import { finetuneYieldText, researchBoostView, researchSlotView, RESEARCH_KIND_TEXT, RESEARCH_TERM_TEXT } from '../store/selectors';
+import { finetuneYieldText, researchBoostView, researchHasteView, researchSlotView, RESEARCH_KIND_TEXT, RESEARCH_TERM_TEXT } from '../store/selectors';
 import { RESEARCH_BOOST_WINDOW_MS, RESEARCH_KINDS, RESEARCH_SLOTS, RESEARCH_TERM_IDS } from '../economy/research';
 import type { ResearchKind, ResearchTermId } from '../economy/state';
 import { Num } from './Num';
@@ -120,6 +120,8 @@ const ResearchSlot: React.FC<{ index: number }> = ({ index }) => {
         />
       </div>
 
+      {!view.ready && <HasteControl index={index} />}
+
       {view.ready && (
         <button
           onClick={() => collectResearch(index)}
@@ -129,6 +131,43 @@ const ResearchSlot: React.FC<{ index: number }> = ({ index }) => {
           Собрать результат
         </button>
       )}
+    </div>
+  );
+};
+
+/**
+ * Ускорение созревающего слота одним кристаллом (ТЗ #117). Цена названа до нажатия: процент к Доходу,
+ * который уйдёт с кристаллом, и сдвиг готовности. Без целого кристалла кнопка выключена и говорит, чего не хватает.
+ */
+const HasteControl: React.FC<{ index: number }> = ({ index }) => {
+  const haste = useStateSlice((s) => researchHasteView(s, index));
+  const hasteResearch = useGameStore((s) => s.hasteResearch);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+      {/* Кнопка короткая и во всю ширину слота: цена стоит строкой под ней, до нажатия, и не рвёт кнопку на 320 px. */}
+      <button
+        onClick={() => hasteResearch(index)}
+        disabled={!haste.canHaste}
+        className="pixel-btn"
+        style={{ width: '100%', padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)' }}
+      >
+        Ускорить за кристалл
+      </button>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+        {haste.canHaste ? (
+          <>
+            {haste.losesBonus ? (
+              <>Цена: −<Num>{haste.lostText}</Num>% к Доходу</>
+            ) : (
+              'Цена: процент не теряется, запас выше потолка'
+            )}
+            . Готово раньше на <Num>{haste.shiftText}</Num>
+          </>
+        ) : (
+          'Нужен целый кристалл в запасе'
+        )}
+      </div>
     </div>
   );
 };
