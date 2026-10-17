@@ -34,7 +34,11 @@ import {
 import { activeSpec, grantAmount, isEventActive, isEventCaught } from '../economy/events';
 import { formatCount, formatNumber } from '../economy/format';
 import { buyCrystalUpgrade as engineBuyCrystalUpgrade } from '../economy/crystal';
-import { collectResearch as engineCollectResearch, plantResearch as enginePlantResearch } from '../economy/research';
+import {
+  collectResearch as engineCollectResearch,
+  hasteResearch as engineHasteResearch,
+  plantResearch as enginePlantResearch,
+} from '../economy/research';
 import { hasChallenge, toggleChallenge as engineToggleChallenge, type ChallengeDef } from '../economy/challenges';
 import { claimMilestones } from '../economy/milestones';
 import {
@@ -369,6 +373,8 @@ interface GameStore {
   plantResearch: (term: ResearchTermId) => void;
   /** Забирает созревшее Исследование из слота по индексу: выплачивает результат и освобождает слот. */
   collectResearch: (index: number) => void;
+  /** Ускоряет созревающее Исследование слота по индексу одним Compute-кристаллом из запаса (ТЗ #117). */
+  hasteResearch: (index: number) => void;
   /** Ловит живое событие кликом по Золотому Токену: разовый вид платит, временный засчитывается. */
   catchEvent: () => void;
   /** Удар по Глюку; на третьем он лопается и выплата идёт через earnTokens. */
@@ -1417,6 +1423,20 @@ export const useGameStore = create<GameStore>((set, get) => {
       const next = engineCollectResearch(state, index, state.lastTick);
       if (next === state) return;
       playAchievementSound(state.settings);
+      set({ state: next });
+      saveNow();
+    },
+
+    /**
+     * Ускоряет созревающее Исследование одним кристаллом: кристалл и его процент уходят, срок сокращается.
+     * Трата, поэтому звук покупки, а не награды. Пустой слот, готовое или нет кристалла — ядро возвращает
+     * тот же объект, и стор молчит.
+     */
+    hasteResearch: (index: number) => {
+      const { state } = get();
+      const next = engineHasteResearch(state, index, state.lastTick);
+      if (next === state) return;
+      playUpgradeSound(state.settings);
       set({ state: next });
       saveNow();
     },

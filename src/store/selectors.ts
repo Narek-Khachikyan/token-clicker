@@ -37,6 +37,7 @@ import {
   RESEARCH_BOOST_MULT,
   RESEARCH_DURATION_MS,
   researchBoostActive,
+  researchHasteMs,
 } from '../economy/research';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
 import {
@@ -693,6 +694,35 @@ export function researchBoostView(s: GameState): ResearchBoostView {
     active,
     multText: String(RESEARCH_BOOST_MULT).replace('.', ','),
     leftText: active ? formatDuration(Math.ceil((s.researchBoostUntil - s.lastTick) / 1000)) : '',
+  };
+}
+
+/**
+ * Ускорение созревающего Исследования: подпись кнопки до траты (ТЗ #117). Процент — та же разница
+ * `crystalIncomeMult`, что уносит трата, а сдвиг — тот же `researchHasteMs`, что платит `hasteResearch`:
+ * цена называется из тех же функций, которые её списывают.
+ */
+export interface ResearchHasteView {
+  /** Слот созревает и в запасе есть целый кристалл: ускорить можно. */
+  canHaste: boolean;
+  /** Сколько процентов Дохода уйдёт вместе с кристаллом. */
+  lostText: string;
+  /** Уйдёт ли хоть что-то: сверх потолка запаса кристалл процента не несёт. */
+  losesBonus: boolean;
+  /** На сколько раньше станет готово, словами; пусто, когда ускорять нечего. */
+  shiftText: string;
+}
+
+export function researchHasteView(s: GameState, index: number): ResearchHasteView {
+  const notation = s.settings.notation;
+  const job = s.research[index];
+  const growing = job !== undefined && !isResearchReady(job, s.lastTick);
+  const lost = Math.round((crystalIncomeMult(s) - crystalIncomeMult({ ...s, crystals: s.crystals - 1 })) * 100);
+  return {
+    canHaste: growing && Math.floor(s.crystals) >= 1,
+    lostText: formatNumber(lost, notation),
+    losesBonus: lost > 0,
+    shiftText: job && growing ? formatDuration(researchHasteMs(job, s.lastTick) / 1000) : '',
   };
 }
 

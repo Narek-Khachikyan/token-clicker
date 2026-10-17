@@ -49,7 +49,7 @@ import { LAB_IDS, type LabId } from '../data/labs';
 import { HEAT_COOL_SEC, HEAT_PENALTY, heatRate, OVERHEAT_STUN_SEC, overheatStunMult, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX, thermalRead } from './thermal';
 import { claimMilestones, MILESTONES, milestoneHint, nextMilestone } from './milestones';
 import { GLOSSARY } from '../data/glossary';
-import { RESEARCH_BOOST_MULT, RESEARCH_BOOST_WINDOW_MS, RESEARCH_DURATION_MS } from './research';
+import { RESEARCH_BOOST_MULT, RESEARCH_BOOST_WINDOW_MS, RESEARCH_DURATION_MS, RESEARCH_HASTE_SHARE } from './research';
 import { GEN_SCALE, PRESTIGE_DIVISOR_UNITS, PRESTIGE_PACE } from './catalog';
 
 const T0 = 1_000_000;
@@ -2799,6 +2799,12 @@ describe('glossary', () => {
       expect(text).toContain(`${RESEARCH_BOOST_WINDOW_MS[term] / 60_000} минут`);
     }
     expect(text).toContain(`в ${String(RESEARCH_BOOST_MULT).replace('.', ',')} раза`);
+  });
+
+  it('quotes the crystal speed-up share from the research constant', () => {
+    // Доля ускорения живёт в research.ts: правка числа без правки глоссария здесь не пройдёт.
+    const text = GLOSSARY.find((g) => g.term === 'Compute-кристалл')?.text ?? '';
+    expect(text).toContain(`на ${RESEARCH_HASTE_SHARE * 100}% полного срока раньше`);
   });
 
   it('quotes the event schedule from the event constants', () => {
