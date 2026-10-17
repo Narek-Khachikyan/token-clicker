@@ -37,6 +37,9 @@
  *                    таблицы на каждом Забеге, то есть кампания на максимальном Классе риска
  *   --catch          политика ловит каждое обычное Событие сразу (верхняя граница внимательного
  *                    игрока); по умолчанию не ловит, и Золотые Токены ничего не платят
+ *   --uprising       политика поднимает стадию Восстания, как стор: красные События выпадают (по умолчанию
+ *                    их в прогоне нет — симулятор стора не гоняет); разбор — docs/plans/110-pace-report.md
+ *   --glitches MODE  Глюки: live (по умолчанию: растут, политика их не трогает) | pop (лопает сразу) | none
  *   --no-characters  выключить Характеры Лабораторий (ADR-0011): база для сравнения «с / без»;
  *                    таблица в памяти очищается, файлы не трогаются
  *   --verbose        строка на каждую минуту
@@ -83,6 +86,11 @@ const challengeArg = (): 'none' | 'all' => {
   if (v !== 'none' && v !== 'all') throw new Error(`--challenge: none|all, получено ${v}`);
   return v;
 };
+const glitchesArg = (): 'live' | 'pop' | 'none' => {
+  const v = strArg('glitches', 'live');
+  if (v !== 'live' && v !== 'pop' && v !== 'none') throw new Error(`--glitches: live|pop|none, получено ${v}`);
+  return v;
+};
 if (has('no-characters')) for (const lab of LAB_IDS) delete CHARACTERS[lab];
 
 const POLICY = {
@@ -95,6 +103,8 @@ const POLICY = {
   course: strArg('course', DEFAULT_POLICY.course),
   catchEvents: has('catch'),
   challenges: challengeArg(),
+  uprising: has('uprising'),
+  glitches: glitchesArg(),
 };
 const CAMPAIGN = has('campaign');
 const VERBOSE = has('verbose');
