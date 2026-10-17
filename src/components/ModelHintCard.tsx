@@ -3,6 +3,7 @@ import { useGameStore } from '../store/useGameStore';
 import { CHARACTERS } from '../data/characters';
 import { characterReadout } from '../economy/character';
 import { safeTemp } from '../economy/thermal';
+import { finetuneName, finetuneOf } from '../economy/finetune';
 import type { Model } from '../economy/catalog';
 import { formatCount, formatDuration, formatMultiplier, formatNumber } from '../economy/format';
 import {
@@ -28,6 +29,7 @@ const ROW_LABEL: Record<BreakdownKind, string> = {
   base: 'Доход одного Агента',
   agents: 'Агентов',
   upgrades: 'Апгрейды Модели',
+  finetune: 'Файнтюн',
   synergy: 'Синергия Лаборатории',
   flagship: 'Флагман: младшие Агенты',
   labPerk: 'Партнёрство Лаборатории',
@@ -109,7 +111,7 @@ export const ModelHintCard: React.FC<{ model: Model }> = ({ model }) => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 'var(--space-2)' }}>
         <span className="pixel-22" style={{ color: 'var(--text-main)' }}>
-          {model.name}
+          {finetuneName(model.name, finetuneOf(state, model.id))}
         </span>
         <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>Ранг {model.rank + 1}</span>
       </div>

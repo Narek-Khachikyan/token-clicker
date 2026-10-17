@@ -2,6 +2,7 @@ import { characterMods } from './character';
 import { courseThermalMods } from './course';
 import { hasChallenge, runPerks } from './challenges';
 import { perkEffects } from './perks';
+import { finetuneHeatMult } from './finetune';
 import type { GameState } from './state';
 
 /**
@@ -159,15 +160,21 @@ export function thermalMods(perks: string[]): ThermalMods {
  * Температуры остаётся не меньше единицы.
  * Тот же результат читают тик, шкала, магазин и справка, поэтому у них одна правда.
  */
-export function thermalModsFor(state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course' | 'activeChallenges'>): ThermalMods {
+export function thermalModsFor(
+  state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course' | 'activeChallenges' | 'finetunes'>,
+): ThermalMods {
   const perks = thermalMods(runPerks(state));
   const office = characterMods(state);
   const course = courseThermalMods(state);
-  if (office.heat === 1 && office.yield === 0 && office.hallu === 1 && course.heat === 1 && course.hallu === 1) return perks;
+  // Файнтюны офиса («Thinking» греет, «Turbo» охлаждает) стоят поверх Перков и Характеров (ТЗ #116).
+  const finetune = finetuneHeatMult(state);
+  if (office.heat === 1 && office.yield === 0 && office.hallu === 1 && course.heat === 1 && course.hallu === 1 && finetune === 1) {
+    return perks;
+  }
   return {
     ...perks,
     // Курс «Холодная голова» стоит поверх Перков и Характеров: все три копятся, как Осторожность с охлаждением.
-    heat: perks.heat * office.heat * course.heat,
+    heat: perks.heat * office.heat * course.heat * finetune,
     hallu: perks.hallu * office.hallu * course.hallu,
     yield: Math.max(-1, perks.yield + office.yield),
   };
@@ -180,7 +187,7 @@ export function thermalModsFor(state: Pick<GameState, 'perks' | 'generation' | '
  */
 const safeTempOf = (mods: ThermalMods): number => Math.min(TEMP_MAX, HEAT_COOL_RATE / (HEAT_RATE * mods.heat));
 
-export const safeTemp = (state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course' | 'activeChallenges'>): number =>
+export const safeTemp = (state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course' | 'activeChallenges' | 'finetunes'>): number =>
   safeTempOf(thermalModsFor(state));
 
 export const heatRate = (temp: number, mods: ThermalMods = NO_THERMAL_MODS): number => HEAT_RATE * temp * mods.heat;

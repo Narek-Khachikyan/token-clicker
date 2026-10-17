@@ -35,6 +35,7 @@ import { activeSpec, grantAmount, isEventActive, isEventCaught } from '../econom
 import { formatCount, formatNumber } from '../economy/format';
 import { buyCrystalUpgrade as engineBuyCrystalUpgrade } from '../economy/crystal';
 import { collectResearch as engineCollectResearch, plantResearch as enginePlantResearch } from '../economy/research';
+import { applyFinetune as engineApplyFinetune, pickFinetuneQuip } from '../economy/finetune';
 import { hasChallenge, toggleChallenge as engineToggleChallenge, type ChallengeDef } from '../economy/challenges';
 import { claimMilestones } from '../economy/milestones';
 import {
@@ -71,7 +72,7 @@ import {
   SAVE_KEY,
   serialize,
 } from '../economy/save';
-import { newGame, type GameState, type Notation, type ResearchTermId } from '../economy/state';
+import { newGame, type FinetuneArchetype, type GameState, type Notation, type ResearchKind, type ResearchTermId } from '../economy/state';
 import {
   playAchievementSound,
   playBuySound,
@@ -365,10 +366,13 @@ interface GameStore {
   buyCrystalUpgrade: (id: string) => void;
   /** Разбивает целый Compute-кристалл из запаса в разовые Токены. */
   shatterCrystal: () => void;
-  /** Закладывает Исследование (временное усиление) в свободный слот на выбранный срок (ТЗ #115). */
-  plantResearch: (term: ResearchTermId) => void;
+  /** Закладывает Исследование в свободный слот на выбранный срок (ТЗ #115); вид результата — временное
+   *  усиление по умолчанию или Заготовка Файнтюна (ТЗ #116). */
+  plantResearch: (term: ResearchTermId, kind?: ResearchKind) => void;
   /** Забирает созревшее Исследование из слота по индексу: выплачивает результат и освобождает слот. */
   collectResearch: (index: number) => void;
+  /** Применяет Заготовку Файнтюна к нанятой Модели текущего Забега: Модель получает архетип и реплику. */
+  applyFinetune: (modelId: string, archetype: FinetuneArchetype) => void;
   /** Ловит живое событие кликом по Золотому Токену: разовый вид платит, временный засчитывается. */
   catchEvent: () => void;
   /** Удар по Глюку; на третьем он лопается и выплата идёт через earnTokens. */
@@ -826,9 +830,14 @@ export const useGameStore = create<GameStore>((set, get) => {
   const speakCharacter = (lab: LabId, on: CharacterQuipTrigger, salt: number, withSound: boolean): void => {
     const quip = pickCharacterQuip(lab, on, salt);
     if (!quip) return;
+    showLine({ id: quip.id, text: quip.text, lab: quip.lab }, withSound);
+  };
+
+  /** Пузырь с репликой: один и тот же канал для Характера и для Файнтюна, гаснет через QUIP_HIDE_MS. */
+  const showLine = (line: { id: string; text: string; lab: LabId }, withSound: boolean): void => {
     const nonce = ++quipCounter;
     if (withSound) playQuipSound(get().state.settings);
-    set({ lastQuip: { id: quip.id, text: quip.text, lab: quip.lab, nonce } });
+    set({ lastQuip: { id: line.id, text: line.text, lab: line.lab, nonce } });
     setTimeout(() => {
       if (get().lastQuip?.nonce === nonce) set({ lastQuip: null });
     }, QUIP_HIDE_MS);
@@ -1399,9 +1408,9 @@ export const useGameStore = create<GameStore>((set, get) => {
      * созревает тем же временем, что и тик, и отметка не расходится с часами, которыми его читают.
      * Слотов нет или вид/срок неизвестны — ядро возвращает тот же объект, и стор молчит.
      */
-    plantResearch: (term: ResearchTermId) => {
+    plantResearch: (term: ResearchTermId, kind: ResearchKind = 'boost') => {
       const { state } = get();
-      const next = enginePlantResearch(state, 'boost', term, state.lastTick);
+      const next = enginePlantResearch(state, kind, term, state.lastTick);
       if (next === state) return;
       playUpgradeSound(state.settings);
       set({ state: next });
@@ -1419,6 +1428,23 @@ export const useGameStore = create<GameStore>((set, get) => {
       playAchievementSound(state.settings);
       set({ state: next });
       saveNow();
+    },
+
+    /**
+     * Применяет Заготовку к Модели: ядро проверяет Заготовку, найм и отсутствие Файнтюна. Отказ — тот же
+     * объект и тишина. Успех — звук, сохранение и реплика Модели о своём архетипе: голос Лаборатории этой
+     * Модели, без записи в «Переписку» и без экономики.
+     */
+    applyFinetune: (modelId: string, archetype: FinetuneArchetype) => {
+      const { state } = get();
+      const next = engineApplyFinetune(state, modelId, archetype);
+      if (next === state) return;
+      playUpgradeSound(state.settings);
+      set({ state: next });
+      saveNow();
+      const quip = pickFinetuneQuip(archetype, next.lastTick);
+      const lab = MODEL_BY_ID[modelId]?.lab;
+      if (quip && lab) showLine({ id: quip.id, text: quip.text, lab }, true);
     },
 
     catchEvent: () => {

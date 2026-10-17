@@ -5,6 +5,7 @@ import type { LabId } from '../data/labs';
 import { courseClickMult, courseEventWindowMult, courseIncomeMult, coursePriceMult, courseMissing, offerCourse, takeCourse } from './course';
 import { collectCrystals, crystalIncomeMult } from './crystal';
 import { researchBoostMult } from './research';
+import { finetuneIncomeMult } from './finetune';
 import {
   applyOverheat,
   HALLUC_HEAT,
@@ -319,6 +320,7 @@ export function assistClickBonus(state: GameState): number {
  */
 export type IncomeFactorKind =
   | 'upgrades'
+  | 'finetune'
   | 'synergy'
   | 'flagship'
   | 'labPerk'
@@ -346,9 +348,9 @@ const note = (out: IncomeFactor[] | undefined, kind: IncomeFactorKind, mult: num
 };
 
 /**
- * Множитель Модели от её собственных усилений: Апгрейды, Синергия Лаборатории, парная Синергия,
- * Флагман, Перки (включая особые) и Датасет. Compute и прочие постоянные множители всех Моделей
- * сразу — в `globalMult`.
+ * Множитель Модели от её собственных усилений: Апгрейды, Файнтюн (ТЗ #116), Синергия Лаборатории,
+ * парная Синергия, Флагман, Перки (включая особые) и Датасет. Compute и прочие постоянные множители всех
+ * Моделей сразу — в `globalMult`.
  *
  * Единственное место, где этот множитель считается: тик и карточка Модели в магазине читают его
  * отсюда, поэтому разбивка на карточке не может разойтись с Доходом. `out` — необязательный
@@ -363,6 +365,10 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
       note(out, 'upgrades', 2);
     }
   }
+  // Файнтюн — постоянный множитель этой Модели, как её Апгрейд: сразу после них, до Синергий.
+  const finetune = finetuneIncomeMult(state, model.id);
+  mult *= finetune;
+  note(out, 'finetune', finetune);
   // Испытание «Забег без Синергий» гасит оба синергийных множителя — лабораторный и парный, —
   // а Апгрейды Модели, Флагман, Перки и Датасет продолжают работать: испытание отменяет
   // Синергии, а не все усиления сразу.
@@ -1251,6 +1257,8 @@ export function prestige(state: GameState, now: number = state.lastTick, chosen:
     // Временное усиление Исследования принадлежит Забегу, как Событие: окно, дожившее до Престижа,
     // поднимало бы Доход нового Забега без его Агентов. Сами Исследования в `research` не трогаются.
     researchBoostUntil: 0,
+    // Файнтюны принадлежат Забегу, как Агенты: Модель их теряет. Заготовка (`finetuneStock`) не трогается.
+    finetunes: {},
     runStartedAt: clock,
     lastTick: clock,
   };

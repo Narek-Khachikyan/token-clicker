@@ -49,7 +49,8 @@ import { LAB_IDS, type LabId } from '../data/labs';
 import { HEAT_COOL_SEC, HEAT_PENALTY, heatRate, OVERHEAT_STUN_SEC, overheatStunMult, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX, thermalRead } from './thermal';
 import { claimMilestones, MILESTONES, milestoneHint, nextMilestone } from './milestones';
 import { GLOSSARY } from '../data/glossary';
-import { RESEARCH_BOOST_MULT, RESEARCH_BOOST_WINDOW_MS, RESEARCH_DURATION_MS } from './research';
+import { RESEARCH_BOOST_MULT, RESEARCH_BOOST_WINDOW_MS, RESEARCH_DURATION_MS, RESEARCH_FINETUNE_YIELD } from './research';
+import { FINETUNE_SPEC } from './finetune';
 import { GEN_SCALE, PRESTIGE_DIVISOR_UNITS, PRESTIGE_PACE } from './catalog';
 
 const T0 = 1_000_000;
@@ -2799,6 +2800,19 @@ describe('glossary', () => {
       expect(text).toContain(`${RESEARCH_BOOST_WINDOW_MS[term] / 60_000} минут`);
     }
     expect(text).toContain(`в ${String(RESEARCH_BOOST_MULT).replace('.', ',')} раза`);
+  });
+
+  it('quotes the Файнтюн multipliers, heat shift and Заготовка yields from their constants', () => {
+    const comma = (n: number) => String(n).replace('.', ',');
+    const finetune = GLOSSARY.find((g) => g.term === 'Файнтюн')?.text ?? '';
+    expect(finetune).toContain(`Доход Модели ×${comma(FINETUNE_SPEC.thinking.incomeMult)}`);
+    expect(finetune).toContain(`Доход ×${comma(FINETUNE_SPEC.turbo.incomeMult)}`);
+    expect(finetune).toContain(`на ${Math.round(FINETUNE_SPEC.thinking.heatDelta * 100)}%`);
+    const stock = GLOSSARY.find((g) => g.term === 'Заготовка Файнтюна')?.text ?? '';
+    const words: Record<number, string> = { 1: 'одну', 2: 'две', 4: 'четыре' };
+    expect(stock).toContain(`Срок 30 минут даёт ${words[RESEARCH_FINETUNE_YIELD['30m']]} Заготовку`);
+    expect(stock).toContain(`2 часа — ${words[RESEARCH_FINETUNE_YIELD['2h']]}`);
+    expect(stock).toContain(`8 часов — ${words[RESEARCH_FINETUNE_YIELD['8h']]}`);
   });
 
   it('quotes the event schedule from the event constants', () => {
