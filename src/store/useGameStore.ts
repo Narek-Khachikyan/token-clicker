@@ -8,7 +8,6 @@ import {
   buyPerk as engineBuyPerk,
   resetPerkTree as engineResetPerkTree,
   buyUpgrade as engineBuyUpgrade,
-  canPrestige,
   click as engineClick,
   computeBonusDrop,
   clickValue,
@@ -19,7 +18,9 @@ import {
   offlineBreakdown,
   type OfflineRow,
   prestige as enginePrestige,
+  prestigeDestination,
   prestigeGain,
+  returnGenerations,
   sellAgents as engineSellAgents,
   shatterCrystal as engineShatterCrystal,
   thoughtPayout,
@@ -436,8 +437,13 @@ interface GameStore {
    *  экран и живёт дальше, но вернуть его можно из вкладки Престижа — без этого финал был бы
    *  односторонней дверью. В GameState не живёт: состояние «окно закрыто» прогресса не меняет. */
   finaleDismissed: boolean;
-  openFinale: () => void;
   dismissFinale: () => void;
+  /** Пройденное Поколение, в которое игрок выбрал вернуться с Финала контента (ADR-0013, слой 5), до
+   *  подтверждения Престижа. Вне GameState: выбор делается заново после перезагрузки, как и подтверждение,
+   *  поэтому миграции сохранения не нужно. Ядро проверяет, что Поколение пройдено (`returnGenerations`). */
+  finaleTarget: number | null;
+  /** Выбирает Поколение для возврата с Финала; чужой номер и выбор вне Финала возвращают то же состояние. */
+  chooseFinaleTarget: (generation: number) => void;
   /** Объяснение нового правила бонуса Compute (ADR-0010): `before` и `after` — доли, 0,8 = +80%.
    *  Показывается игроку, чей Доход упал после обновления, и один раз: отметка лежит под своим
    *  ключом хранилища, а не в `GameState`, чтобы поля сейва не росли. null — объяснять нечего. */
@@ -1522,18 +1528,19 @@ export const useGameStore = create<GameStore>((set, get) => {
     // намеренно — условия отказа живут в triggerPrestige, а вторая проверка в окне
     // разошлась бы с переходом.
     requestPrestige: () => {
-      const { state } = get();
+      const { state, finaleTarget } = get();
       // Щелчок «защёлки» обещает переход, поэтому звучит, только когда переход возможен: окно
       // открывается и для отказа, и объясняет его словами.
-      if (canPrestige(state) && !isContentFinale(state)) playPrestigeConfirmSound(state.settings);
+      if (prestigeDestination(state, finaleTarget) !== null) playPrestigeConfirmSound(state.settings);
       set({ prestigePrompt: true });
     },
     dismissPrestigePrompt: () => set({ prestigePrompt: false }),
 
     triggerPrestige: () => {
-      const { state } = get();
-      // На финальном Поколении Престиж обнулил бы забег без перехода в новое Поколение.
-      if (!canPrestige(state) || isContentFinale(state)) return;
+      const { state, finaleTarget } = get();
+      // Куда ведёт переход, решает ядро: вне Финала — следующее Поколение, на Финале — выбранное пройденное.
+      // Без перехода (нет Флагмана, финал без выбора) Забег не обнуляется.
+      if (prestigeDestination(state, finaleTarget) === null) return;
       // Курс выбирается до подтверждения: без выбора Забег начался бы без Курса, который игрок не отверг, а просто не заметил.
       if (courseMissing(state)) return;
       playPrestigeSound(state.settings);
@@ -1541,10 +1548,17 @@ export const useGameStore = create<GameStore>((set, get) => {
       const gain = prestigeGain(state);
       // Оверлей Престижа называет Испытания, которые закрыл этот переход.
       const done = state.activeChallenges;
-      const next = awardEarned(enginePrestige(state));
+      const next = awardEarned(enginePrestige(state, state.lastTick, finaleTarget));
       // Момент награды прошлого Поколения не переходит в новое: Сцена пуста, и его место займёт
-      // уже первая покупка.
-      set({ state: next, news: activeRule(next)?.news ?? pickNews(next), sceneMoment: null });
+      // уже первая покупка. Экран финала открывается снова, если игрок вернётся в последнее Поколение:
+      // флаг возвращается в исходное состояние, как и при рестарте.
+      set({
+        state: next,
+        news: activeRule(next)?.news ?? pickNews(next),
+        sceneMoment: null,
+        finaleTarget: null,
+        finaleDismissed: false,
+      });
       announceRule(next);
       // Ставится после awardEarned намеренно: если тот же тик выполнил Достижение, тряска
       // перебивает его отклик. Тост Достижения всё равно живёт и озвучен — теряется только веер искр.
@@ -1715,8 +1729,15 @@ toggleMute: () => {
     // Экран финала открывается сам, пока игрок его не закрыл: новое прохождение после
     // рестарта снова покажет его, поэтому сброс возвращает флаг в исходное состояние.
     finaleDismissed: false,
-    openFinale: () => set({ finaleDismissed: false }),
     dismissFinale: () => set({ finaleDismissed: true }),
+    finaleTarget: null,
+    chooseFinaleTarget: (generation: number) => {
+      const { state, finaleTarget } = get();
+      // Выбор только из пройденных Поколений и только на Финале; повтор того же выбора — тот же объект.
+      if (!returnGenerations(state).includes(generation) || generation === finaleTarget) return;
+      playUpgradeSound(state.settings);
+      set({ finaleTarget: generation });
+    },
 
     dismissComputeRuleNotice: () => {
       markComputeRuleSeen();
@@ -1793,6 +1814,7 @@ toggleMute: () => {
         // вернуть флаг в исходное состояние: иначе второе прохождение до последнего
         // Поколения встретило бы игрока молчащим финалом.
         finaleDismissed: false,
+        finaleTarget: null,
         // Новая игра начинается без потраченного Compute: объяснять нечего.
         computeRuleNotice: null,
       });

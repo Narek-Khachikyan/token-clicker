@@ -34,10 +34,15 @@ function prestigeOpen(state: Pick<GameState, 'generation' | 'agents'>): boolean 
 }
 
 /**
- * Курсы, из которых собирается предложение: собственные и Правило каждого пройденного Поколения
- * (`maxGeneration` — самое дальнее достигнутое; Поколение, из которого уходят, уже пройдено).
+ * Курсы, из которых собирается предложение: собственные и Правило каждого Поколения, через которое
+ * игрок проходит до текущего включительно (то есть то, что отдал бы пул при первом проходе).
  * Правило Поколения, куда ведёт Престиж, в пул не входит: оно и так начнёт действовать, и Курс
  * с ним удвоил бы не выбор, а повтор.
+ *
+ * Пул читает только `generation`, а не `maxGeneration`: после Престижа с Финала контента
+ * `maxGeneration` последнее, и если бы пул брал его, в Поколения впереди попали бы Правила, Курсы
+ * которых ломают полосу окупаемости (ADR-0013, слой 5; `courseLadder.test.ts`). Поле оставлено в
+ * типе, чтобы вызовы остались прежними.
  */
 export function coursePool(state: Pick<GameState, 'generation' | 'maxGeneration'>): Course[] {
   const target = Math.min(state.generation + 1, LAST_GENERATION);
@@ -46,7 +51,7 @@ export function coursePool(state: Pick<GameState, 'generation' | 'maxGeneration'
     if (c.effect.kind !== 'rule') return true;
     const ruleId = c.effect.rule;
     const rule = GENERATION_RULES.find((r) => r.id === ruleId);
-    return !!rule && rule.generation <= state.maxGeneration && rule.id !== ownRule;
+    return !!rule && rule.generation <= state.generation && rule.id !== ownRule;
   });
 }
 

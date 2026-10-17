@@ -1601,6 +1601,63 @@ describe('the finale screen flag', () => {
   });
 });
 
+describe('the Prestige from the content finale', () => {
+  const last = CATALOG.length - 1;
+  /** Игрок на Финале контента с нанятым Флагманом: Престиж открыт, но без выбранного Поколения закрыт. */
+  const atFinale = (): void => {
+    reachedGeneration(last);
+    hire(CATALOG[last].flagship.id, 1);
+    expect(isContentFinale(state())).toBe(true);
+  };
+
+  it('takes no Prestige until a passed generation is chosen, and refuses a generation never passed', () => {
+    atFinale();
+    vi.mocked(playPrestigeSound).mockClear();
+    const before = state();
+    prestigeNow();
+    expect(state()).toBe(before);
+    store().chooseFinaleTarget(last);
+    store().chooseFinaleTarget(last + 1);
+    expect(store().finaleTarget).toBeNull();
+    prestigeNow();
+    expect(state()).toBe(before);
+    expect(vi.mocked(playPrestigeSound)).not.toHaveBeenCalled();
+  });
+
+  it('returns to the chosen generation, pays its Compute and reopens the finale for the next time', () => {
+    atFinale();
+    store().chooseFinaleTarget(2);
+    expect(store().finaleTarget).toBe(2);
+    const before = state();
+    const gain = prestigeGain(before);
+    store().triggerPrestige();
+    expect(state().generation).toBe(2);
+    expect(state().compute).toBe(before.compute + gain);
+    expect(store().burst?.prestige?.generation).toBe(2);
+    expect(store().finaleTarget).toBeNull();
+    expect(store().finaleDismissed).toBe(false);
+    expect(isContentFinale(state())).toBe(false);
+  });
+
+  it('keeps the chosen generation until it is confirmed, and a repeat choice changes nothing', () => {
+    atFinale();
+    store().chooseFinaleTarget(4);
+    store().chooseFinaleTarget(5);
+    expect(store().finaleTarget).toBe(5);
+    const before = state();
+    store().chooseFinaleTarget(5);
+    expect(state()).toBe(before);
+    expect(store().finaleTarget).toBe(5);
+  });
+
+  it('forgets the chosen generation on a reset', () => {
+    atFinale();
+    store().chooseFinaleTarget(3);
+    store().resetGame();
+    expect(store().finaleTarget).toBeNull();
+  });
+});
+
 describe('shattering a crystal', () => {
   it('pays the gain into the wallet and sounds the achievement', () => {
     freshStore();

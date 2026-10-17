@@ -1489,10 +1489,10 @@ export const PrestigeModal: React.FC = () => {
 const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
   const dismiss = useGameStore((s) => s.dismissPrestigePrompt);
   const triggerPrestige = useGameStore((s) => s.triggerPrestige);
-  const openFinale = useGameStore((s) => s.openFinale);
+  const finaleTarget = useGameStore((s) => s.finaleTarget);
   const state = useGameStore((s) => s.state);
 
-  const preview = prestigePreview(state);
+  const preview = prestigePreview(state, finaleTarget);
   const openCourseChoice = useGameStore((s) => s.openCourseChoice);
   const chosenCourse = courseById(state.courseNext);
   const gen = CATALOG[state.generation];
@@ -1502,8 +1502,9 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
   const finale = isContentFinale(state);
   const notation = state.settings.notation;
 
-  const blocked = finale
-    ? `Финал контента: Поколение ${gen.id} — последнее. Продолжение выйдет с новыми реальными Моделями.`
+  // На Финале переход ведёт в пройденное Поколение, которое игрок выбирает во вкладке «Престиж».
+  const blocked = preview.needsGeneration
+    ? `Финал контента: Поколение ${gen.id} — последнее. Выбери пройденное Поколение, в которое вернёшься, — оно ждёт во вкладке «Престиж».`
     : `Нужен 1 Агент Флагмана — ${flagship.name} (${LABS[flagship.lab].name}). Найми первого Агента, и Престиж откроется.`;
 
   const burns: [string, React.ReactNode][] = [
@@ -1534,13 +1535,6 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
   // уже сменил Поколение, и оставшийся кадр выхода показал бы вместо разбора «нужен Агент
   // Флагмана» нового Поколения — вперемешку с оверлеем Престижа.
   const handleConfirm = () => {
-    if (finale) {
-      // Финал — тупик с честным выходом: не сбрасываем забег молча, а открываем экран финала,
-      // где игрок видит итоги и сам решает, начинать ли заново.
-      dismiss();
-      openFinale();
-      return;
-    }
     triggerPrestige();
     dismiss();
   };
@@ -1563,12 +1557,12 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={(preview.blocked && !finale) || preview.needsCourse}
+            disabled={preview.blocked || preview.needsCourse}
             className="pixel-btn pixel-btn-gold"
             style={{ flex: 2, padding: 'var(--space-3)' }}
           >
-            {finale
-              ? 'Экран финала'
+            {preview.needsGeneration
+              ? 'Сначала выбери Поколение'
               : preview.blocked
                 ? 'Нужен Агент Флагмана'
                 : preview.needsCourse
@@ -1584,7 +1578,7 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
           {!preview.blocked && (
             <>
               {' '}
-              Престиж завершит Забег и перенесёт тебя в Поколение {nextGen.id}: {nextGen.name}.
+              Престиж завершит Забег и {finale ? 'вернёт' : 'перенесёт'} тебя в Поколение {nextGen.id}: {nextGen.name}.
               {nextRule && (
                 <>
                   {' '}
@@ -1609,7 +1603,7 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
               color: 'var(--red-text)',
             }}
           >
-            Престиж сейчас невозможен. {blocked}
+            {preview.needsGeneration ? blocked : <>Престиж сейчас невозможен. {blocked}</>}
           </div>
         ) : (
           <>
@@ -1771,7 +1765,7 @@ export const FinaleModal: React.FC = () => {
   const isFinale = useStateSlice(isContentFinale);
   const [confirmReset, setConfirmReset] = useState(false);
 
-  // Флаг «игрок закрыл» живёт в сторе вместе с openFinale: экран должен открываться сам при
+  // Флаг «игрок закрыл» живёт в сторе (finaleDismissed): экран должен открываться сам при
   // входе в последнее Поколение и возвращаться из Престижа — модульная переменная компонента
   // для этого не годится, её не видно ни в отладке, ни в тестах.
   const isOpen = isFinale && !finaleDismissed;
@@ -1899,6 +1893,21 @@ const FinaleBody: React.FC<
         }}
       >
         Продолжение выйдет с новыми реальными Моделями.
+      </div>
+
+      {/* Новая возможность (ADR-0013, слой 5): Престиж с Финала ведёт в любое пройденное Поколение. */}
+      <div
+        style={{
+          width: '100%',
+          padding: 'var(--space-2) var(--space-3)',
+          backgroundColor: 'var(--tint-strong)',
+          fontSize: 'var(--text-sm)',
+          color: 'var(--text-main)',
+          textAlign: 'center',
+        }}
+      >
+        <b>Новое:</b> Престиж ведёт в любое пройденное Поколение. Выбери его во вкладке «Престиж» и пройди
+        Забег снова — с Испытаниями и Классом риска.
       </div>
 
       {/* Итоги забега */}

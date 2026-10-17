@@ -90,6 +90,17 @@ describe('Курс: предложение трёх вариантов', () => {
     }
   });
 
+  it('после Престижа с Финала пул тот же, что при первом проходе: Правила впереди в него не попадают', () => {
+    // Возврат с Финала не должен менять, какие Курсы бывают: каждое Поколение проходят тем же пулом, что
+    // и в первый раз. Иначе Курс Правила Фронтира (Поколение 6) ломал бы полосу окупаемости своего Поколения.
+    const last = CATALOG.length - 1;
+    for (let k = 0; k < last; k++) {
+      const afterFinale = coursePool({ generation: k, maxGeneration: last }).map((c) => c.id);
+      const firstPass = coursePool(runAt(k)).map((c) => c.id);
+      expect(afterFinale, `Поколение ${k}`).toEqual(firstPass);
+    }
+  });
+
   it('любой Курс пула может выпасть', () => {
     const g = 6;
     const seen = new Set<string>();
