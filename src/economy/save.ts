@@ -1,5 +1,6 @@
 import { CATALOG, MODEL_BY_ID } from './catalog';
-import { CHALLENGES, challengeOpen } from './challenges';
+import { CHALLENGES } from './challenges';
+import { openedByResearch } from './gate';
 import { COURSE_OFFER_SIZE, offerCourse } from './course';
 import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
@@ -546,7 +547,7 @@ export function migrate(raw: unknown, now: number): GameState {
     // или мусора) не должен включать ограничение, которого игрок не выбирал, и не имеет веса в Классе
     // риска. Порядок — порядок таблицы, как у `toggleChallenge`, дубли схлопываются.
     // Испытание, которое игрок ещё не открыл, в списке взятых не держится: такого выбора он сделать не мог.
-    activeChallenges: CHALLENGES.filter((c) => strList(data.activeChallenges).includes(c.id) && challengeOpen(c, researchUnlocks)).map((c) => c.id),
+    activeChallenges: CHALLENGES.filter((c) => strList(data.activeChallenges).includes(c.id) && openedByResearch(c, researchUnlocks)).map((c) => c.id),
     // Закрытые и унаследованные — как Достижения, а не как Перки: id проверяются только на тип, а не на
     // известность таблице, поэтому запись переживает правку таблицы Испытаний.
     challengesDone: [...new Set(strList(data.challengesDone))],
