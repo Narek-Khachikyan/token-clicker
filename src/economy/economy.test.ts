@@ -329,8 +329,8 @@ describe('income and click', () => {
     expect(totalIncome(s)).toBeCloseTo(base * 4);
   });
   it('locks model upgrades until agent threshold', () => {
-    // Порог второй ступени младшей Модели — 4 Агента (кривая порогов, tierCurve.test.ts).
-    const s = buyAgents(rich(cold(newGame(T0))), first.id, 3);
+    // Порог второй ступени младшей Модели — 5 Агентов (кривая порогов, tierCurve.test.ts).
+    const s = buyAgents(rich(cold(newGame(T0))), first.id, 4);
     expect(buyUpgrade(s, modelUpgradeId(first.id, 1))).toBe(s);
   });
   it('applies lab synergy', () => {

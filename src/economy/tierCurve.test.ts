@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOG, type Model } from './catalog';
-import { buyAgents, buyUpgrade, modelIncome } from './engine';
+import { bulkCost, buyAgents, buyUpgrade, discountMult, modelIncome } from './engine';
 import { migrate } from './save';
 import { newGame, SAVE_VERSION, type GameState } from './state';
 import { ASSIST1_THRESHOLD, MODEL_TIERS, modelTierThreshold, modelUpgradeId, UPGRADE_BY_ID } from './upgrades';
@@ -28,28 +28,28 @@ describe('пороги Апгрейдов Модели', () => {
   const flagship = models[models.length - 1];
 
   it('Модель младшего Ранга открывает ступени раньше Флагмана', () => {
-    // Литералы посчитаны руками: порог «середины» 1/5/25/50/100 × доля 0,7 у младшей и 1,3 у
-    // Флагмана, то есть 1/4/18/35/70 и 1/7/33/65/130; 3,5, 17,5, 6,5 и 32,5 округляются вверх.
+    // Литералы посчитаны руками: порог «середины» 1/5/25/50/100 × доля 0,9 у младшей и 1,1 у
+    // Флагмана, то есть 1/5/23/45/90 и 1/6/28/55/110; 4,5, 22,5, 5,5 и 27,5 округляются вверх.
     expect(tiersUnlockedAt(0, youngest.id, 1)).toBe(1);
-    expect(tiersUnlockedAt(0, youngest.id, 3)).toBe(1);
-    expect(tiersUnlockedAt(0, youngest.id, 4)).toBe(2);
-    expect(tiersUnlockedAt(0, youngest.id, 18)).toBe(3);
-    expect(tiersUnlockedAt(0, youngest.id, 35)).toBe(4);
-    expect(tiersUnlockedAt(0, youngest.id, 69)).toBe(4);
-    expect(tiersUnlockedAt(0, youngest.id, 70)).toBe(5);
+    expect(tiersUnlockedAt(0, youngest.id, 4)).toBe(1);
+    expect(tiersUnlockedAt(0, youngest.id, 5)).toBe(2);
+    expect(tiersUnlockedAt(0, youngest.id, 23)).toBe(3);
+    expect(tiersUnlockedAt(0, youngest.id, 45)).toBe(4);
+    expect(tiersUnlockedAt(0, youngest.id, 89)).toBe(4);
+    expect(tiersUnlockedAt(0, youngest.id, 90)).toBe(5);
 
-    expect(tiersUnlockedAt(0, flagship.id, 6)).toBe(1);
-    expect(tiersUnlockedAt(0, flagship.id, 7)).toBe(2);
-    expect(tiersUnlockedAt(0, flagship.id, 33)).toBe(3);
-    expect(tiersUnlockedAt(0, flagship.id, 65)).toBe(4);
-    expect(tiersUnlockedAt(0, flagship.id, 129)).toBe(4);
-    expect(tiersUnlockedAt(0, flagship.id, 130)).toBe(5);
+    expect(tiersUnlockedAt(0, flagship.id, 5)).toBe(1);
+    expect(tiersUnlockedAt(0, flagship.id, 6)).toBe(2);
+    expect(tiersUnlockedAt(0, flagship.id, 28)).toBe(3);
+    expect(tiersUnlockedAt(0, flagship.id, 55)).toBe(4);
+    expect(tiersUnlockedAt(0, flagship.id, 109)).toBe(4);
+    expect(tiersUnlockedAt(0, flagship.id, 110)).toBe(5);
   });
 
   it('Модель середины ростера лежит между младшей и Флагманом', () => {
-    // Ранг 4 из 8 Моделей Поколения 0: доля 0,7 + 0,6 × 4/7 = 1,043; 5, 25, 50, 100 × 1,043 = 5,2, 26,1, 52,1, 104,3.
+    // Ранг 4 из 8 Моделей Поколения 0: доля 0,9 + 0,2 × 4/7 = 1,014; 5, 25, 50, 100 × 1,014 = 5,07, 25,4, 50,7, 101,4.
     const mid = models[4];
-    expect([1, 2, 3, 4].map((t) => modelTierThreshold(mid, t))).toEqual([5, 26, 52, 104]);
+    expect([1, 2, 3, 4].map((t) => modelTierThreshold(mid, t))).toEqual([5, 25, 51, 101]);
   });
 
   it('держит порядок: пороги растут по ступеням и по Рангу, а старший не выше ассистов', () => {
@@ -128,13 +128,69 @@ describe('кривые порогов и лестница Ранга', () => {
     }
   });
 
+  describe('вместе со всеми Характерами Лабораторий', () => {
+    /**
+     * Настоящий офис: по `n` Агентов каждой Модели Поколения (при n ≥ 5 «Конвейер» Alibaba и
+     * «Открытые веса» Meta в полную силу), куплены все открытые Апгрейды Моделей, все восемь
+     * Характеров включены. Равные числа Агентов — худший случай для лестницы: обычная игра их
+     * разводит, а здесь любая разница в ступенях между Моделями видна целиком.
+     */
+    function officeAt(gen: number, n: number): GameState {
+      let s: GameState = cold({ ...newGame(T0), generation: gen, maxGeneration: gen });
+      for (const m of CATALOG[gen].models) s = buyAgents(rich(s), m.id, n);
+      for (const m of CATALOG[gen].models) {
+        for (let tier = 0; tier < TIERS; tier++) s = buyUpgrade(rich(s), modelUpgradeId(m.id, tier));
+      }
+      return s;
+    }
+
+    /**
+     * Что здесь НЕ утверждается, точно. Любая кривая порогов, где у соседей разные пороги, даёт окно
+     * в несколько Агентов, где у одной Модели ступенью больше (×2). Без кривой на равных числах
+     * Агентов разброс окупаемости с Характерами 2,75, и запаса на ×2 нет: в окне, где ступенью
+     * больше у Модели Alibaba («Конвейер», до ×1,9 в полном офисе), строгий порядок Дохода по Рангу
+     * и полоса 3× нарушаются. Замер: 0,9/1,1 — три окна с обратным порядком (Поколение 8, Alibaba выше
+     * соседа на 26%) и разброс до 3,84; сузить до 0,98/1,02 не помогает, пока пороги вообще различаются.
+     * Поэтому вне окон (все Модели на одном числе ступеней) держится всё строго, а в окнах — порядок
+     * для каждой пары, где нижняя Модель не Alibaba, и две границы: перевёрнутая пара Alibaba не
+     * более 1,3, разброс окупаемости не более 4.
+     */
+    const WINDOW_BAND_LIMIT = 4;
+    const ALIBABA_INVERSION_LIMIT = 1.3;
+
+    it('держит порядок Дохода и полосу окупаемости 3× с Характерами на любом числе Агентов, кроме окон Alibaba', () => {
+      for (const g of CATALOG) {
+        for (let n = 1; n <= 300; n++) {
+          const office = officeAt(g.index, n);
+          const discount = discountMult(office);
+          const cost = g.models.map((m) => bulkCost(m, 0, 1, discount));
+          const income = g.models.map((m) => modelIncome(office, m) / n);
+          const tiers = g.models.map((m) => tiersOf(m, n));
+          const plateau = tiers.every((k) => k === tiers[0]);
+          const where = `Поколение ${g.index}, Агентов ${n}`;
+          for (let i = 1; i < g.models.length; i++) {
+            expect(cost[i], where).toBeGreaterThan(cost[i - 1]);
+            if (plateau || g.models[i - 1].lab !== 'alibaba') {
+              expect(income[i], `${where}, ранг ${i}`).toBeGreaterThan(income[i - 1]);
+            } else {
+              expect(income[i - 1] / income[i], `${where}, ранг ${i - 1} Alibaba`).toBeLessThan(ALIBABA_INVERSION_LIMIT);
+            }
+          }
+          const payback = cost.map((c, i) => c / income[i]);
+          const spread = Math.max(...payback) / Math.min(...payback);
+          expect(spread, where).toBeLessThanOrEqual(plateau ? 3 : WINDOW_BAND_LIMIT);
+        }
+      }
+    });
+  });
+
   it('платит движок ровно столько, сколько открыла кривая', () => {
     // Одна Модель в офисе, Характеры без разнообразия молчат: Доход = baseIncome × Агенты × 2^ступени.
     const models = CATALOG[0].models;
     for (const [m, agents, tiers] of [
-      [models[0], 5, 2], // порог второй ступени младшей — 4
-      [models[models.length - 1], 5, 1], // порог Флагмана — 7
-      [models[models.length - 1], 7, 2],
+      [models[0], 5, 2], // порог второй ступени младшей — 5
+      [models[models.length - 1], 5, 1], // порог Флагмана — 6
+      [models[models.length - 1], 6, 2],
     ] as const) {
       let s: GameState = cold({ ...newGame(T0), generation: 0 });
       s = buyAgents(rich(s), m.id, agents);

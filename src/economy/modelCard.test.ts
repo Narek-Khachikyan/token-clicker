@@ -237,15 +237,15 @@ describe('карточка Модели: следующий Апгрейд', () 
   it('называет ступень и число Агентов, которое её открывает, — у младшей раньше, чем у Флагмана', () => {
     expect(modelCardSummary(fresh, youngest).nextUpgrade).toEqual({ name: 'Fine-tuning', threshold: 1, ready: false });
     const one = (m: Model) => buyUpgrade(buyAgents(fresh, m.id, 1), modelUpgradeId(m.id, 0));
-    // Пороги второй ступени — 4 у младшей и 7 у Флагмана (tierCurve.test.ts).
-    expect(modelCardSummary(one(youngest), youngest).nextUpgrade).toEqual({ name: 'RLHF', threshold: 4, ready: false });
-    expect(modelCardSummary(one(flagship), flagship).nextUpgrade).toEqual({ name: 'RLHF', threshold: 7, ready: false });
+    // Пороги второй ступени — 5 у младшей и 6 у Флагмана (tierCurve.test.ts).
+    expect(modelCardSummary(one(youngest), youngest).nextUpgrade).toEqual({ name: 'RLHF', threshold: 5, ready: false });
+    expect(modelCardSummary(one(flagship), flagship).nextUpgrade).toEqual({ name: 'RLHF', threshold: 6, ready: false });
   });
 
   it('говорит «готово», когда ступень открыта, но не куплена, и молчит, когда куплены все', () => {
     const open = buyAgents(fresh, youngest.id, 4);
     expect(modelCardSummary(open, youngest).nextUpgrade).toEqual({ name: 'Fine-tuning', threshold: 1, ready: true });
-    let all = buyAgents(fresh, youngest.id, 70);
+    let all = buyAgents(fresh, youngest.id, 90);
     for (let tier = 0; tier < 5; tier++) all = buyUpgrade(all, modelUpgradeId(youngest.id, tier));
     expect(all.upgrades).toHaveLength(5);
     expect(modelCardSummary(all, youngest).nextUpgrade).toBeNull();
