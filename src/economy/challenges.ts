@@ -1,4 +1,5 @@
 import type { GameState } from './state';
+import { openedByResearch } from './gate';
 
 /**
  * Испытание Забега: добровольное ограничение на весь Забег (ADR-0013). Испытания берутся только на
@@ -72,16 +73,9 @@ const CHALLENGE_BY_ID: Record<string, ChallengeDef> = Object.fromEntries(CHALLEN
 export const isChallengeId = (id: unknown): id is ChallengeDef['id'] =>
   typeof id === 'string' && Object.prototype.hasOwnProperty.call(CHALLENGE_BY_ID, id);
 
-/**
- * Открыто ли Испытание: обычные открыты всегда, а `gated` — только если его id лежит в постоянных открытиях
- * Исследований (ТЗ #118). Открытие переживает Престиж, поэтому раз открытое Испытание остаётся в пуле навсегда.
- */
-export const challengeOpen = (def: ChallengeDef, unlocks: readonly string[]): boolean =>
-  !def.gated || unlocks.includes(def.id);
-
-/** Испытания, которые игрок может взять: обычные и открытые Исследованием. Порядок таблицы. */
+/** Испытания, которые игрок может взять: обычные и открытые Исследованием (`openedByResearch`). Порядок таблицы. */
 export const challengePool = (state: Pick<GameState, 'researchUnlocks'>): ChallengeDef[] =>
-  CHALLENGES.filter((def) => challengeOpen(def, state.researchUnlocks));
+  CHALLENGES.filter((def) => openedByResearch(def, state.researchUnlocks));
 
 /** Взято ли Испытание на текущий Забег. */
 export const hasChallenge = (state: Pick<GameState, 'activeChallenges'>, id: ChallengeDef['id']): boolean =>
@@ -143,7 +137,7 @@ export function canStartChallenge(state: GameState): boolean {
 export function toggleChallenge(state: GameState, id: ChallengeDef['id']): GameState {
   if (!isChallengeId(id) || !canStartChallenge(state)) return state;
   // Закрытое Исследованием Испытание не берётся, даже если его id известен таблице (ТЗ #118).
-  if (!challengeOpen(CHALLENGE_BY_ID[id], state.researchUnlocks)) return state;
+  if (!openedByResearch(CHALLENGE_BY_ID[id], state.researchUnlocks)) return state;
   const taken = state.activeChallenges.includes(id);
   const activeChallenges = CHALLENGES.map((c) => c.id).filter((x) =>
     x === id ? !taken : state.activeChallenges.includes(x),

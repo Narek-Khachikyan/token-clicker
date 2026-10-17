@@ -311,23 +311,22 @@ describe('третий слот Исследований открывается 
     expect(plantResearch(owned, 'boost', '8h', T0).research).toHaveLength(3);
   });
 
-  it('сброс дерева закрывает слот, а заложенное в нём Исследование остаётся и собирается', () => {
+  it('сброс дерева ждёт, пока третий слот занят, и проходит после сбора Исследования в нём', () => {
     let s = buyPerk(withCompute(newGame(T0)), 'research_slot');
     s = plantResearch(s, 'boost', '30m', T0);
     s = plantResearch(s, 'boost', '2h', T0);
     s = plantResearch(s, 'unlock', '8h', T0);
     expect(s.research).toHaveLength(3);
 
-    const reset = resetPerkTree(s);
-    expect(reset.perks).toEqual([]);
-    expect(reset.research).toEqual(s.research);
-    expect(researchSlots(reset)).toBe(2);
-    // Три заняты, а слотов два: новая закладка не проходит.
-    expect(plantResearch(reset, 'boost', '30m', T0)).toBe(reset);
+    // Сброс вернул бы Compute, а работа в третьем слоте осталась бы без Перка: поэтому отказ.
+    expect(resetPerkTree(s)).toBe(s);
 
-    const collected = collectResearch(reset, 2, T0 + 480 * MIN);
-    expect(collected.research).toHaveLength(2);
+    const collected = collectResearch(s, 2, T0 + 480 * MIN);
     expect(collected.researchUnlocks).toEqual(['night']);
+    const reset = resetPerkTree(collected);
+    expect(reset.perks).toEqual([]);
+    expect(researchSlots(reset)).toBe(2);
+    expect(reset.research).toHaveLength(2);
   });
 
   it('Забег без Перков тоже закрывает третий слот: Перк в нём не действует', () => {

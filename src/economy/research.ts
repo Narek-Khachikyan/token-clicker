@@ -14,11 +14,21 @@ export const RESEARCH_SLOTS = 2;
 export const RESEARCH_MAX_SLOTS = 3;
 
 /**
- * Слотов в этом Забеге. Третий открывает Перк, пока он держится в Забеге: сброс дерева и «Забег без Перков»
- * закрывают его, а заложенное в третьем слоте остаётся в `research` до сбора (ТЗ #118).
+ * Слотов в этом Забеге. Третий открывает Перк, пока он держится в Забеге: «Забег без Перков» закрывает его,
+ * и заложенное в третьем слоте остаётся в `research` до сбора (ТЗ #118). Сброс дерева его не закрывает, пока
+ * слот занят: см. `thirdSlotBusy`.
  */
 export function researchSlots(state: Pick<GameState, 'perks' | 'activeChallenges'>): number {
   return perkEffects(runPerks(state)).some((e) => e.kind === 'researchSlot') ? RESEARCH_MAX_SLOTS : RESEARCH_SLOTS;
+}
+
+/**
+ * Занят ли третий слот: в `research` больше базовых двух закладок. Сброс дерева снял бы Перк, а Исследование
+ * в слоте осталось бы: Compute вернулся бы, а работа — нет. Поэтому сброс ждёт сбора. Отмену закладки не
+ * выбрали: она сожгла бы работу, которую игрок оплатил Перком.
+ */
+export function thirdSlotBusy(state: Pick<GameState, 'research'>): boolean {
+  return state.research.length > RESEARCH_SLOTS;
 }
 
 export const RESEARCH_KINDS: readonly ResearchKind[] = ['boost', 'finetune', 'unlock'];

@@ -3,6 +3,7 @@ import { generationRule, seededRandom } from './rules';
 import type { GameState } from './state';
 import { COURSES, courseById, type Course, type CourseEffect } from '../data/courses';
 import { GENERATION_RULES } from '../data/generationRules';
+import { openedByResearch } from './gate';
 
 /**
  * КУРС (ADR-0013, слой 4): на каждом Престиже игрок выбирает Курс нового Забега из трёх
@@ -51,7 +52,7 @@ export function coursePool(state: Pick<GameState, 'generation' | 'maxGeneration'
   const target = Math.min(state.generation + 1, LAST_GENERATION);
   const ownRule = generationRule(target)?.id;
   return COURSES.filter((c) => {
-    if (c.gated) return state.researchUnlocks.includes(c.id);
+    if (!openedByResearch(c, state.researchUnlocks)) return false;
     if (c.effect.kind !== 'rule') return true;
     const ruleId = c.effect.rule;
     const rule = GENERATION_RULES.find((r) => r.id === ruleId);

@@ -6,6 +6,7 @@ import { formatNumber } from '../economy/format';
 import { computeBonus } from '../economy/engine';
 import { Num } from './Num';
 import { Icon } from './Icon';
+import { Hint } from './Hint';
 
 interface HeaderProps {
   onOpenAchievements: () => void;
@@ -88,14 +89,18 @@ const HeaderView: React.FC<HeaderProps> = ({
               </span>
             </span>
           </span>
+          {/* Подсказка — Hint, а не title: title не открывается на телефоне и не стилизуется под игру. Класс
+              уходит на сам Hint, чтобы бейдж остался одним узлом в столбике узкой шапки. */}
           {compute > 0 && (
-            <span
+            <Hint
+              as="span"
+              variant="text"
               className="pixel-22 header-compute"
-              title="Бонус к Доходу даёт только свободный Compute: потраченный на Перки в него не входит"
+              content="Бонус к Доходу даёт только свободный Compute: потраченный на Перки в него не входит"
             >
               <Num>{formatNumber(compute, notation)}</Num> Compute (+
               <Num>{formatNumber(computeBonus(compute) * 100, notation)}</Num>%)
-            </span>
+            </Hint>
           )}
         </div>
       </div>

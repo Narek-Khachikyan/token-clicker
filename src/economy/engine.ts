@@ -4,7 +4,7 @@ import { characterIncomeMult, characterMods, ecosystemBoost } from './character'
 import type { LabId } from '../data/labs';
 import { courseClickMult, courseEventWindowMult, courseIncomeMult, courseMissing, courseOfflineMult, coursePriceMult, offerCourse, takeCourse } from './course';
 import { collectCrystals, crystalIncomeMult } from './crystal';
-import { researchBoostMult } from './research';
+import { researchBoostMult, thirdSlotBusy } from './research';
 import { finetuneIncomeMult } from './finetune';
 import {
   applyOverheat,
@@ -849,9 +849,13 @@ export function buyPerk(state: GameState, id: string): GameState {
  * Перки, и вычитание сумм оставило бы в «потрачено» хвост, если Перк когда-то продавался по другой
  * цене, — игрок потерял бы его насовсем. Без Перков сбрасывать нечего, и единственный сброс
  * не тратится.
+ *
+ * Сброс не проходит, пока третий слот Исследований занят (`thirdSlotBusy`): он снял бы Перк, который
+ * эту работу оплатил. Отказ — тот же объект, и единственный сброс остаётся нетронутым: после сбора
+ * он доступен как раньше.
  */
 export function resetPerkTree(state: GameState): GameState {
-  if (state.perkResetUsed || state.perks.length === 0) return state;
+  if (state.perkResetUsed || state.perks.length === 0 || thirdSlotBusy(state)) return state;
   return { ...state, perks: [], computeSpent: 0, perkResetUsed: true };
 }
 

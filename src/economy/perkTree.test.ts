@@ -4,6 +4,7 @@ import { HALLUC_RATE, HEAT_RATE, OVERHEAT_STUN_SEC, TEMP_YIELD_MAX, halluRate, h
 import { CATALOG } from './catalog';
 import { BRANCHES, PERK_BY_ID, PERKS, perkLock, treeCost } from './perks';
 import { newGame, type GameState } from './state';
+import { collectResearch, plantResearch } from './research';
 
 const T0 = 1_000_000;
 
@@ -126,6 +127,21 @@ describe('сброс дерева', () => {
   it('без купленных Перков не тратит единственный сброс', () => {
     const s = funded();
     expect(resetPerkTree(s)).toBe(s);
+  });
+
+  it('не проходит, пока третий слот Исследований занят: Compute вернулся бы, а работа в слоте осталась', () => {
+    let s = buyAll(funded(100), ['research_slot']);
+    s = plantResearch(s, 'boost', '30m', T0);
+    s = plantResearch(s, 'boost', '2h', T0);
+    s = plantResearch(s, 'boost', '8h', T0);
+    expect(s.research).toHaveLength(3);
+    expect(resetPerkTree(s)).toBe(s);
+    // Два занятых слота сбросу не мешают: его слот ещё не используется.
+    const twoBusy = { ...s, research: s.research.slice(0, 2) };
+    expect(resetPerkTree(twoBusy).perks).toEqual([]);
+    // Сбор третьего освобождает слот, и сброс проходит.
+    const collected = collectResearch(s, 2, T0 + 480 * 60_000);
+    expect(resetPerkTree(collected).perks).toEqual([]);
   });
 
   it('возвращённый Compute снова даёт бонус к Доходу, а покупка его снова отнимает', () => {

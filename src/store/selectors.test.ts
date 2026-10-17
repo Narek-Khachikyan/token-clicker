@@ -464,8 +464,8 @@ describe('prestige tab slices', () => {
     expect(challengeCardView(fresh).none).toBe(true);
     const picked = toggleChallenge(toggleChallenge(fresh, CHALLENGES[0].id), CHALLENGES[1].id);
     expect(challengeCardView(picked).none).toBe(false);
-    expect(challengeView(picked, CHALLENGES[0])).toEqual({ active: true, done: false });
-    expect(challengeView(picked, CHALLENGES[1])).toEqual({ active: true, done: false });
+    expect(challengeView(picked, CHALLENGES[0])).toEqual({ active: true, inherited: false });
+    expect(challengeView(picked, CHALLENGES[1])).toEqual({ active: true, inherited: false });
     // Первый клик закрывает выбор: ядро больше не принимает Испытания.
     expect(challengeCardView({ ...fresh, runClicks: 1 }).canStart).toBe(false);
     // Класс риска — сумма тяжести взятых, и карточка называет множитель Compute с потолком.
@@ -480,8 +480,19 @@ describe('prestige tab slices', () => {
     // Награда старых Испытаний — унаследованная, и карточка называет её сумму.
     const closed = { ...fresh, challengesInherited: [CHALLENGES[0].id, CHALLENGES[1].id] };
     expect(challengeCardView(closed).inheritedText).toBe(formatNumber(20));
-    expect(challengeCardView(closed).doneCount).toBe(0);
-    expect(challengeView({ ...closed, challengesDone: [CHALLENGES[1].id] }, CHALLENGES[1]).done).toBe(true);
+    expect(challengeCardView(closed).inheritedCount).toBe(2);
+    expect(challengeView(closed, CHALLENGES[1]).inherited).toBe(true);
+  });
+
+  it('shows the inherited reward only for Испытания, закрытые до обновления, а не за любое закрытое', () => {
+    const fresh = newGame(T0);
+    // Первое Испытание, закрытое уже после обновления, платит Compute, а не +10% к Доходу навсегда.
+    const closedNow = { ...fresh, challengesDone: [CHALLENGES[0].id] };
+    expect(challengeCardView(closedNow).inheritedCount).toBe(0);
+    expect(challengeView(closedNow, CHALLENGES[0]).inherited).toBe(false);
+    const inherited = { ...closedNow, challengesInherited: [CHALLENGES[0].id] };
+    expect(challengeCardView(inherited).inheritedCount).toBe(1);
+    expect(challengeView(inherited, CHALLENGES[0]).inherited).toBe(true);
   });
 
   it('opens the shatter button with the first whole crystal and names what it pays', () => {

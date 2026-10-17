@@ -1715,33 +1715,28 @@ export const ComputeRuleModal: React.FC = () => {
       icon={<Icon name="bolt" size={22} />}
       title="Compute теперь считается иначе"
       footer={
-        <button
-          onClick={requestClose}
-          className="pixel-btn pixel-btn-accent"
-          style={{ flex: 1, padding: '12px', fontSize: '1.1rem' }}
-        >
+        <button onClick={requestClose} className="pixel-btn pixel-btn-accent" style={{ flex: 1, padding: 'var(--space-3)' }}>
           Понятно
         </button>
       }
     >
-      <div style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>
         Бонус к Доходу теперь даёт только свободный Compute: начисленный минус потраченный на Перки.
         Купленный Перк забирает у бонуса ровно свою цену, поэтому Compute можно копить ради Дохода
         или тратить ради Перков.
       </div>
       <div
         style={{
-          fontSize: '0.95rem',
+          fontSize: 'var(--text-md)',
           backgroundColor: 'var(--tint-gold)',
-          border: '1px solid var(--gold)',
-          borderRadius: '4px',
-          padding: '8px 10px',
+          border: 'var(--frame-w) solid var(--gold)',
+          padding: 'var(--space-2)',
           color: 'var(--gold)',
         }}
       >
         Твой бонус к Доходу: был {pct(notice.before)}%, стал {pct(notice.after)}%.
       </div>
-      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
         Выше +100% бонус растёт всё медленнее и упирается в потолок. Цена каждого Перка в бонусе
         видна на его карточке во вкладке «Престиж».
       </div>

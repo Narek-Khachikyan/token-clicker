@@ -505,12 +505,15 @@ export function prestigeCardView(s: GameState): PrestigeCardView {
 export interface ChallengeView {
   /** Это Испытание взято на текущий Забег. */
   active: boolean;
-  /** Оно уже закрыто Престижем: награда — Compute того Престижа, списком — память. */
-  done: boolean;
+  /**
+   * Его +10% к Доходу уже в игре: закрыто до обновления, когда награда была процентом. Закрытое позже
+   * платит Compute и в этот список не входит, поэтому строку «уже у тебя» показываем не за любое закрытое.
+   */
+  inherited: boolean;
 }
 
 export function challengeView(s: GameState, def: ChallengeDef): ChallengeView {
-  return { active: hasChallenge(s, def.id), done: s.challengesDone.includes(def.id) };
+  return { active: hasChallenge(s, def.id), inherited: s.challengesInherited.includes(def.id) };
 }
 
 export interface ChallengeCardView {
@@ -526,8 +529,8 @@ export interface ChallengeCardView {
   capped: boolean;
   /** Награда Испытаний, закрытых до Compute-награды, в процентах — +10% за каждое. */
   inheritedText: string;
-  /** Сколько Испытаний Престиж хоть раз закрывал; память для игрока, не награда. */
-  doneCount: number;
+  /** Сколько Испытаний унаследовали награду в процентах; строку «закрывалось раньше» без них не показываем. */
+  inheritedCount: number;
 }
 
 export function challengeCardView(s: GameState): ChallengeCardView {
@@ -541,7 +544,7 @@ export function challengeCardView(s: GameState): ChallengeCardView {
     multText: formatNumber(mult, notation),
     capped: mult >= RISK_MULT_MAX,
     inheritedText: formatNumber(inherited * INHERITED_REWARD_PCT, notation),
-    doneCount: new Set(s.challengesDone).size,
+    inheritedCount: inherited,
   };
 }
 
