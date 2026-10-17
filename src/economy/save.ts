@@ -5,7 +5,8 @@ import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
 import { MILESTONE_BY_ID } from './milestones';
 import { PERK_BY_ID } from './perks';
-import { DEFAULT_CHANNEL_VOLUME, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
+import { DEFAULT_CHANNEL_VOLUME, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch, type ResearchJob, type ResearchKind, type ResearchTermId } from './state';
+import { RESEARCH_KINDS, RESEARCH_SLOTS, RESEARCH_TERM_IDS } from './research';
 import { QUIPS_SEEN_CAP } from './quips';
 import { buyStreakLimit, ruleEffect } from './rules';
 import { COURSE_BY_ID } from '../data/courses';
@@ -198,6 +199,15 @@ export const MIGRATIONS: Record<number, Migration> = {
       challengesInherited: raw.challengesInherited ?? strList(raw.challengesDone),
     };
   },
+  // Слоты Исследований и временное усиление пришли в v15 (ТЗ #115). У живого сохранения их нет, а пустой
+  // список и ноль — ровно то, как игра выглядела до Исследований. Чистое добавление: присутствующие поля
+  // остаются, разбор ниже сам отсеет то, что Исследование держать не может.
+  14: (raw) => ({
+    ...raw,
+    version: 15,
+    research: raw.research ?? [],
+    researchBoostUntil: raw.researchBoostUntil ?? 0,
+  }),
 };
 
 /** Особых Перков Поколения в прошлых версиях: по числу Поколений тогдашнего каталога. */
@@ -310,6 +320,25 @@ const courseId = (v: unknown): string | null => (typeof v === 'string' && hasOwn
 const courseOfferOf = (v: unknown): string[] => {
   const ids = [...new Set(strList(v))].filter((id) => hasOwn(COURSE_BY_ID, id));
   return ids.length === COURSE_OFFER_SIZE ? ids : [];
+};
+
+/**
+ * Исследования из сохранения: только известные вид и срок, с отметкой закладки и не длиннее слотов.
+ * Закладка из будущего притягивается к `now` (как у кристалла и событий), иначе срок тикал бы с
+ * отрицательного старта. Запись без отметки отбрасывается: без неё нельзя ни созреть, ни показать срок.
+ */
+const researchOf = (v: unknown, clampFuture: (v: number) => number): ResearchJob[] => {
+  if (!Array.isArray(v)) return [];
+  const jobs: ResearchJob[] = [];
+  for (const item of v) {
+    if (!isPlainRecord(item)) continue;
+    const kind = (RESEARCH_KINDS as readonly unknown[]).includes(item.kind) ? (item.kind as ResearchKind) : null;
+    const term = (RESEARCH_TERM_IDS as readonly unknown[]).includes(item.term) ? (item.term as ResearchTermId) : null;
+    const startedAt = clampFuture(stamp(item.startedAt));
+    if (kind === null || term === null || startedAt <= 0) continue;
+    jobs.push({ kind, term, startedAt });
+  }
+  return jobs.slice(0, RESEARCH_SLOTS);
 };
 
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -445,6 +474,9 @@ export function migrate(raw: unknown, now: number): GameState {
     // Дубликат ускорителя укоротил бы цикл дважды (16ч → 12ч без второй покупки), поэтому
     // список дедуплицируется, а неизвестный id отбрасывается, как и у Перков.
     crystalUpgrades: idList(data.crystalUpgrades, CRYSTAL_UPGRADE_BY_ID),
+    research: researchOf(data.research, clampFuture),
+    // Окно усиления — мс часов игры: из будущего притягивается к `now`, как и остальные окна.
+    researchBoostUntil: clampFuture(stamp(data.researchBoostUntil)),
     eventsSeen: count(data.eventsSeen),
     eventCaughtAt,
     catchUpPaid: Math.max(0, num(data.catchUpPaid, 0)),

@@ -4,6 +4,7 @@ import { CRYSTAL_CYCLE_MS, crystalCycleMs } from './crystal';
 import { CATALOG } from './catalog';
 import { challengeIncomeMult } from './challenges';
 import { DEFAULT_VOLUME, newGame, SAVE_VERSION } from './state';
+import { plantResearch } from './research';
 
 const encodeRaw = (raw: unknown): string => {
   const bytes = new TextEncoder().encode(JSON.stringify(raw));
@@ -13,6 +14,7 @@ const encodeRaw = (raw: unknown): string => {
 };
 
 const T0 = 1_700_000_000_000;
+const MIN = 60_000;
 
 /** Сохранение версии 6: поля громкости в нём ещё не существует. */
 const v6Save = (settings?: Record<string, unknown>) => ({
@@ -633,6 +635,79 @@ describe('migration of the risk class', () => {
   it('holds the scale at zero for a save that carries «temperature = 0» with a hot scale', () => {
     const s = migrate({ ...newGame(T0), activeChallenges: ['cold'], temp: 1.4, heat: 0.5 }, T0);
     expect([s.temp, s.heat]).toEqual([0, 0]);
+  });
+});
+
+describe('migration of the research slots', () => {
+  /** Сохранение v14 в форме, какой его писала игра: слотов Исследований и усиления в нём ещё нет. */
+  const v14Save = (over: Record<string, unknown>) => {
+    const { research: _r, researchBoostUntil: _b, ...base } = newGame(T0);
+    return { ...base, version: 14, ...over };
+  };
+
+  it('gives a save of the previous version empty slots and no boost, and keeps everything the player had', () => {
+    const s = migrate(v14Save({ generation: 3, tokens: 4e9, crystals: 2, course: 'frugal', challengesDone: ['no-click'], challengesInherited: ['no-click'] }), T0);
+    expect(s.version).toBe(SAVE_VERSION);
+    expect(s.research).toEqual([]);
+    expect(s.researchBoostUntil).toBe(0);
+    expect([s.generation, s.tokens, s.crystals, s.course]).toEqual([3, 4e9, 2, 'frugal']);
+    expect(s.challengesInherited).toEqual(['no-click']);
+  });
+
+  it('loads an export code of the previous version without loss', () => {
+    const s = importSave(encodeRaw(v14Save({ generation: 4, maxGeneration: 6, tokens: 12345, prestiges: 4, crystals: 2 })), T0)!;
+    expect(s).not.toBeNull();
+    expect(s.version).toBe(SAVE_VERSION);
+    expect([s.generation, s.maxGeneration, s.tokens, s.prestiges, s.crystals]).toEqual([4, 6, 12345, 4, 2]);
+    expect(s.research).toEqual([]);
+  });
+
+  it('migrates a save from every earlier version to the same empty slots', () => {
+    for (let version = 6; version <= 14; version++) {
+      const s = migrate({ version, tokens: 77, crystals: 1 }, T0);
+      expect(s.version, `v${version}`).toBe(SAVE_VERSION);
+      expect(s.research, `v${version}`).toEqual([]);
+      expect(s.researchBoostUntil, `v${version}`).toBe(0);
+      expect(s.tokens, `v${version}`).toBe(77);
+    }
+  });
+
+  it('keeps the running research and its start through a save, an export and an import', () => {
+    // Закладка до загрузки: часы сохранения и часы игры совпадают, и отметка не уезжает в будущее.
+    const s = plantResearch(plantResearch(newGame(T0 - 60 * MIN), 'boost', '8h', T0 - 50 * MIN), 'boost', '30m', T0 - 20 * MIN);
+    expect(migrate(JSON.parse(JSON.stringify(s)), T0).research).toEqual(s.research);
+    expect(importSave(exportSave(s), T0)!.research).toEqual(s.research);
+  });
+
+  it('drops a job of an unknown kind or term or without a start, and keeps at most the slots', () => {
+    const s = migrate(
+      v14Save({
+        research: [
+          { kind: 'boost', term: '2h', startedAt: T0 - MIN },
+          { kind: 'boost', term: '1h', startedAt: T0 - MIN },
+          { kind: 'mana', term: '30m', startedAt: T0 - MIN },
+          { kind: 'boost', term: '30m' },
+          { kind: 'boost', term: '8h', startedAt: T0 - 2 * MIN },
+          { kind: 'boost', term: '30m', startedAt: T0 - 3 * MIN },
+        ],
+      }),
+      T0,
+    );
+    expect(s.research).toEqual([
+      { kind: 'boost', term: '2h', startedAt: T0 - MIN },
+      { kind: 'boost', term: '8h', startedAt: T0 - 2 * MIN },
+    ]);
+  });
+
+  it('reads a non-list as no research and clamps a boost from the future and a negative one', () => {
+    expect(migrate(v14Save({ research: 'boost' }), T0).research).toEqual([]);
+    expect(migrate(v14Save({ researchBoostUntil: T0 + 99 * MIN }), T0).researchBoostUntil).toBe(T0);
+    expect(migrate(v14Save({ researchBoostUntil: -5 }), T0).researchBoostUntil).toBe(0);
+  });
+
+  it('clamps a start from the future to now, so the research cannot ripen before it was planted', () => {
+    const s = migrate(v14Save({ research: [{ kind: 'boost', term: '30m', startedAt: T0 + 9 * MIN }] }), T0);
+    expect(s.research).toEqual([{ kind: 'boost', term: '30m', startedAt: T0 }]);
   });
 });
 

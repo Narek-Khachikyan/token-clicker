@@ -34,6 +34,8 @@ import { migrate } from '../src/economy/save';
 import { chooseCourse, coursePool, offerCourse } from '../src/economy/course';
 import { CHALLENGES, toggleChallenge } from '../src/economy/challenges';
 import { popGlitch, uprisingStage } from '../src/economy/glitches';
+import { collectResearch, plantResearch, RESEARCH_SLOTS } from '../src/economy/research';
+import type { ResearchTermId } from '../src/economy/state';
 
 export const T0 = 1_700_000_000_000;
 /** Шаг симуляции, секунд: двадцать тиков в секунду, как у игры. */
@@ -93,6 +95,12 @@ export interface PolicyOptions {
    * (внимательный игрок: три клика, выплата 1,1× украденного). `none` — Глюков нет вовсе.
    */
   glitches: 'live' | 'pop' | 'none';
+  /**
+   * Какой срок Исследования политика закладывает в свободный слот (ТЗ #115). `none` — не закладывает:
+   * так меряется база без Исследований. Срок — закладывает его, как только слот освободился, и собирает
+   * созревшее тем же тиком: это внимательный игрок, который не пропускает сбор, то есть верхняя граница.
+   */
+  research: 'none' | ResearchTermId;
 }
 
 /**
@@ -113,6 +121,7 @@ export const DEFAULT_POLICY: PolicyOptions = {
   challenges: 'none',
   uprising: false,
   glitches: 'live',
+  research: 'none',
 };
 
 /** Mulberry32: одно зерно — один и тот же розыгрыш Событий, чтобы прогоны сравнивались. */
@@ -250,6 +259,22 @@ function handleGlitches(s: GameState, mode: PolicyOptions['glitches']): GameStat
   return next;
 }
 
+/**
+ * Исследования по правилу `PolicyOptions.research`: собирает созревшее (с конца, чтобы индексы не
+ * съезжали) и закладывает выбранный срок во все свободные слоты. Часы — `lastTick`, как у движка.
+ */
+function handleResearch(s: GameState, mode: PolicyOptions['research']): GameState {
+  if (mode === 'none') return s;
+  let next = s;
+  for (let i = next.research.length - 1; i >= 0; i--) next = collectResearch(next, i, next.lastTick);
+  while (next.research.length < RESEARCH_SLOTS) {
+    const planted = plantResearch(next, 'boost', mode, next.lastTick);
+    if (planted === next) break;
+    next = planted;
+  }
+  return next;
+}
+
 /** Один тик: клики, время движка, покупки. */
 export function tick(w: Session): void {
   const target = thermalTarget(w.s, w.opts.thermal);
@@ -258,6 +283,7 @@ export function tick(w: Session): void {
   w.clickCarry += w.opts.cps * DT;
   while (w.clickCarry >= 1) { w.clickCarry -= 1; w.s = click(w.s); }
   w.s = advanceTime(w.s, DT, w.rnd);
+  w.s = handleResearch(w.s, w.opts.research);
   if (w.opts.catchEvents) w.s = catchEvent(w.s);
   w.s = spend(w.s, w.opts.reserve);
   if (w.opts.uprising && canPrestige(w.s) && w.s.uprising < uprisingStage(w.s.generation)) {

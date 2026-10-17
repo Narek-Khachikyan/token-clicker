@@ -33,6 +33,7 @@ import {
 import { activeSpec, grantAmount, isEventActive, isEventCaught } from '../economy/events';
 import { formatCount, formatNumber } from '../economy/format';
 import { buyCrystalUpgrade as engineBuyCrystalUpgrade } from '../economy/crystal';
+import { collectResearch as engineCollectResearch, plantResearch as enginePlantResearch } from '../economy/research';
 import { hasChallenge, toggleChallenge as engineToggleChallenge, type ChallengeDef } from '../economy/challenges';
 import { claimMilestones } from '../economy/milestones';
 import {
@@ -69,7 +70,7 @@ import {
   SAVE_KEY,
   serialize,
 } from '../economy/save';
-import { newGame, type GameState, type Notation } from '../economy/state';
+import { newGame, type GameState, type Notation, type ResearchTermId } from '../economy/state';
 import {
   playAchievementSound,
   playBuySound,
@@ -105,7 +106,7 @@ export type PrestigeSection = 'prestige' | 'perks' | 'crystals';
  *  размонтирует смена нижней вкладки на телефоне, а горячие клавиши 1/2/3 приходят снаружи. */
 export type ShopTab = 'models' | 'upgrades' | 'prestige';
 
-export type ActiveTab = 'click' | 'office' | 'shop' | 'upgrades' | 'prestige' | 'stats' | 'achievements' | 'settings';
+export type ActiveTab = 'click' | 'office' | 'shop' | 'research' | 'upgrades' | 'prestige' | 'stats' | 'achievements' | 'settings';
 
 export interface ToastMessage {
   id: string;
@@ -363,6 +364,10 @@ interface GameStore {
   buyCrystalUpgrade: (id: string) => void;
   /** Разбивает целый Compute-кристалл из запаса в разовые Токены. */
   shatterCrystal: () => void;
+  /** Закладывает Исследование (временное усиление) в свободный слот на выбранный срок (ТЗ #115). */
+  plantResearch: (term: ResearchTermId) => void;
+  /** Забирает созревшее Исследование из слота по индексу: выплачивает результат и освобождает слот. */
+  collectResearch: (index: number) => void;
   /** Ловит живое событие кликом по Золотому Токену: разовый вид платит, временный засчитывается. */
   catchEvent: () => void;
   /** Удар по Глюку; на третьем он лопается и выплата идёт через earnTokens. */
@@ -1377,6 +1382,33 @@ export const useGameStore = create<GameStore>((set, get) => {
     shatterCrystal: () => {
       const { state } = get();
       const next = engineShatterCrystal(state);
+      if (next === state) return;
+      playAchievementSound(state.settings);
+      set({ state: next });
+      saveNow();
+    },
+
+    /**
+     * Закладывает Исследование в свободный слот. Часы — игровые (`lastTick`), как у кристалла: срок
+     * созревает тем же временем, что и тик, и отметка не расходится с часами, которыми его читают.
+     * Слотов нет или вид/срок неизвестны — ядро возвращает тот же объект, и стор молчит.
+     */
+    plantResearch: (term: ResearchTermId) => {
+      const { state } = get();
+      const next = enginePlantResearch(state, 'boost', term, state.lastTick);
+      if (next === state) return;
+      playUpgradeSound(state.settings);
+      set({ state: next });
+      saveNow();
+    },
+
+    /**
+     * Забирает созревшее Исследование: результат (временное усиление) ложится в состояние, слот
+     * освобождается. Не созревшее или пустой слот — тот же объект и тишина: награда не звучит дважды.
+     */
+    collectResearch: (index: number) => {
+      const { state } = get();
+      const next = engineCollectResearch(state, index, state.lastTick);
       if (next === state) return;
       playAchievementSound(state.settings);
       set({ state: next });

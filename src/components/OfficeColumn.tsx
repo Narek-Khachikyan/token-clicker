@@ -17,6 +17,7 @@ import { QuipLogModal, SceneQuipBubble } from './QuipBubble';
 import { SceneDrone, SceneGlitchBand } from './SceneEvents';
 import { GLITCH_CLICKS } from '../economy/glitches';
 import { GlitchPopSprite, GlitchSprite } from './EventSprites';
+import { ResearchBlock } from './ResearchBlock';
 import {
   MASCOT_CARD_GAP,
   mascotCardBottom,
@@ -1177,6 +1178,9 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             рисоваться поверх обоих. Слой не перехватывает указатель — см. .scene__drone. */}
         <SceneDrone />
       </div>
+
+      {/* Исследования — блок под Сценой на десктопе. На телефоне (full) у них своя вкладка, а не место в Офисе. */}
+      {!full && <ResearchBlock />}
 
       <QuipLogModal isOpen={quipLogOpen} onClose={() => setQuipLogOpen(false)} />
     </div>
