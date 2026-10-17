@@ -2,7 +2,7 @@ import React from 'react';
 import { useGameStore, useStateSlice, type PrestigeSection } from '../store/useGameStore';
 import { challengeCardView, challengeView, prestigeCardView } from '../store/selectors';
 import { CATALOG, LAST_GENERATION } from '../economy/catalog';
-import { CHALLENGES, INHERITED_REWARD_PCT, type ChallengeDef } from '../economy/challenges';
+import { challengePool, INHERITED_REWARD_PCT, type ChallengeDef } from '../economy/challenges';
 import { COURSE_BY_ID, courseById, type Course } from '../data/courses';
 import { LABS } from '../data/labs';
 import { courseMissing } from '../economy/course';
@@ -322,6 +322,8 @@ const ChallengeOption: React.FC<{ def: ChallengeDef; canStart: boolean }> = ({ d
  */
 export const ChallengeCard: React.FC = () => {
   const { canStart, none, risk, multText, capped, inheritedText, doneCount } = useStateSlice(challengeCardView);
+  // Открытые Исследованием Испытания (ТЗ #118): список переписывается только при открытии, а не каждый тик.
+  const unlocks = useStateSlice((s) => s.researchUnlocks);
 
   return (
     <div
@@ -372,7 +374,7 @@ export const ChallengeCard: React.FC = () => {
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        {CHALLENGES.map((def) => (
+        {challengePool({ researchUnlocks: unlocks }).map((def) => (
           <ChallengeOption key={def.id} def={def} canStart={canStart} />
         ))}
       </div>

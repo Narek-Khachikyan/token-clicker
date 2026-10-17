@@ -84,6 +84,7 @@ export const PRESTIGE_KEEPS: readonly PrestigeEffect[] = [
   { label: 'Достижения и Датасет', fields: ['achievements'] },
   { label: 'Compute-кристаллы и ускорители', fields: ['crystals', 'crystalPlantedAt', 'crystalUpgrades'] },
   { label: 'Исследования в слотах: срок и часы закладки', fields: ['research'] },
+  { label: 'Постоянные открытия Исследований: Курсы и Испытания, открытые навсегда', fields: ['researchUnlocks'] },
   { label: 'Заготовки Файнтюна в запасе', fields: ['finetuneStock'] },
   { label: 'Вехи', fields: ['milestones'] },
   { label: 'Переписка', fields: ['quipsSeen'] },

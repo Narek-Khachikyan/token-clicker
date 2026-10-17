@@ -10,11 +10,13 @@ import type { GameState } from './state';
  * синонимы Ранга рядом с ним не появляются.
  */
 export interface ChallengeDef {
-  id: 'no-synergy' | 'no-click' | 'no-dataset' | 'cold' | 'no-perks';
+  id: 'no-synergy' | 'no-click' | 'no-dataset' | 'cold' | 'no-events' | 'no-perks';
   name: string;
   desc: string;
   /** Тяжесть: целое, чем больше, тем дороже Испытание в Классе риска. Подбирается замером `tools/sim.ts`. */
   weight: number;
+  /** Открывается постоянным открытием Исследования (ТЗ #118): без него не берётся и в пул не входит. */
+  gated?: true;
 }
 
 /**
@@ -50,6 +52,13 @@ export const CHALLENGES: readonly ChallengeDef[] = [
     weight: 2,
   },
   {
+    id: 'no-events',
+    name: 'Забег без Событий',
+    desc: 'Событий не бывает весь Забег: ни Золотых Токенов, ни красных Событий Восстания моделей. Глюки и Доход живут как обычно.',
+    weight: 2,
+    gated: true,
+  },
+  {
     id: 'no-perks',
     name: 'Забег без Перков',
     desc: 'Купленные Перки не действуют весь Забег, а новые купить нельзя. Сброс дерева и Оффлайн-доход остаются.',
@@ -62,6 +71,17 @@ const CHALLENGE_BY_ID: Record<string, ChallengeDef> = Object.fromEntries(CHALLEN
 /** Известно ли такое Испытание таблице (проверка для разбора сохранения и стора). */
 export const isChallengeId = (id: unknown): id is ChallengeDef['id'] =>
   typeof id === 'string' && Object.prototype.hasOwnProperty.call(CHALLENGE_BY_ID, id);
+
+/**
+ * Открыто ли Испытание: обычные открыты всегда, а `gated` — только если его id лежит в постоянных открытиях
+ * Исследований (ТЗ #118). Открытие переживает Престиж, поэтому раз открытое Испытание остаётся в пуле навсегда.
+ */
+export const challengeOpen = (def: ChallengeDef, unlocks: readonly string[]): boolean =>
+  !def.gated || unlocks.includes(def.id);
+
+/** Испытания, которые игрок может взять: обычные и открытые Исследованием. Порядок таблицы. */
+export const challengePool = (state: Pick<GameState, 'researchUnlocks'>): ChallengeDef[] =>
+  CHALLENGES.filter((def) => challengeOpen(def, state.researchUnlocks));
 
 /** Взято ли Испытание на текущий Забег. */
 export const hasChallenge = (state: Pick<GameState, 'activeChallenges'>, id: ChallengeDef['id']): boolean =>
@@ -122,6 +142,8 @@ export function canStartChallenge(state: GameState): boolean {
  */
 export function toggleChallenge(state: GameState, id: ChallengeDef['id']): GameState {
   if (!isChallengeId(id) || !canStartChallenge(state)) return state;
+  // Закрытое Исследованием Испытание не берётся, даже если его id известен таблице (ТЗ #118).
+  if (!challengeOpen(CHALLENGE_BY_ID[id], state.researchUnlocks)) return state;
   const taken = state.activeChallenges.includes(id);
   const activeChallenges = CHALLENGES.map((c) => c.id).filter((x) =>
     x === id ? !taken : state.activeChallenges.includes(x),

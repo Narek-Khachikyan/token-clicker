@@ -10,6 +10,8 @@ export type PerkEffect =
   | { kind: 'autoclick'; perSecond: number }
   /** Звук при появлении События: сам по себе он ничего не множит и читается в UI. */
   | { kind: 'eventAlert' }
+  /** Третий слот Исследований (ТЗ #118): открывается, пока Перк держится в Забеге. */
+  | { kind: 'researchSlot' }
   /** «Наследие поколений»: Доход всех Моделей текущего Забега растёт на `pctPerGeneration` за каждое
    *  пройденное Поколение (`maxGeneration`). Одинаков для всех Рангов, поэтому лестницу не переворачивает. */
   | { kind: 'legacyBoost'; pctPerGeneration: number }
@@ -74,6 +76,8 @@ export const PERKS: Perk[] = [
   // Дороже автокликера и всех Партнёрств: сигнал покупают после Престижа, когда события уже идут
   // минутами и мимо экрана проходят.
   { id: 'event_alert', name: 'Сигналка на события', desc: 'звук, когда появляется Событие', cost: 30, effect: { kind: 'eventAlert' }, branch: 'trunk', requires: [], top: false },
+  // Третий слот Исследований: сам Доход не множит, а даёт ещё одну работу, которая созревает по стенным часам (ТЗ #118).
+  { id: 'research_slot', name: 'Третий слот Исследований', desc: 'третий слот Исследований: заложить можно три сразу', cost: 25, effect: { kind: 'researchSlot' }, branch: 'trunk', requires: [], top: false },
   ...LAB_IDS.map<Perk>((lab) => ({
     id: `lab_${lab}`,
     name: `Партнёрство с ${LABS[lab].name}`,

@@ -39,15 +39,19 @@ function prestigeOpen(state: Pick<GameState, 'generation' | 'agents'>): boolean 
  * Правило Поколения, куда ведёт Престиж, в пул не входит: оно и так начнёт действовать, и Курс
  * с ним удвоил бы не выбор, а повтор.
  *
+ * Курс постоянного открытия Исследования (ТЗ #118) входит в пул только открытым: иначе первый Престиж
+ * предложил бы Курс, которого игрок ещё не заслужил. Открытие переживает Престиж, поэтому пул растёт навсегда.
+ *
  * Пул читает только `generation`, а не `maxGeneration`: после Престижа с Финала контента
  * `maxGeneration` последнее, и если бы пул брал его, в Поколения впереди попали бы Правила, Курсы
  * которых ломают полосу окупаемости (ADR-0013, слой 5; `courseLadder.test.ts`). Поле оставлено в
  * типе, чтобы вызовы остались прежними.
  */
-export function coursePool(state: Pick<GameState, 'generation' | 'maxGeneration'>): Course[] {
+export function coursePool(state: Pick<GameState, 'generation' | 'maxGeneration' | 'researchUnlocks'>): Course[] {
   const target = Math.min(state.generation + 1, LAST_GENERATION);
   const ownRule = generationRule(target)?.id;
   return COURSES.filter((c) => {
+    if (c.gated) return state.researchUnlocks.includes(c.id);
     if (c.effect.kind !== 'rule') return true;
     const ruleId = c.effect.rule;
     const rule = GENERATION_RULES.find((r) => r.id === ruleId);
@@ -74,7 +78,9 @@ export function courseSeed(state: Pick<GameState, 'startedAt' | 'prestiges' | 'g
 }
 
 /** Три разных Курса из пула по зерну Престижа: частичная перетасовка Фишера — Йейтса. */
-export function drawCourseOffer(state: Pick<GameState, 'startedAt' | 'prestiges' | 'generation' | 'maxGeneration'>): string[] {
+export function drawCourseOffer(
+  state: Pick<GameState, 'startedAt' | 'prestiges' | 'generation' | 'maxGeneration' | 'researchUnlocks'>,
+): string[] {
   const pool = coursePool(state).map((c) => c.id);
   const rnd = seededRandom(courseSeed(state));
   const take = Math.min(COURSE_OFFER_SIZE, pool.length);
@@ -146,6 +152,12 @@ export function courseClickMult(state: Pick<GameState, 'course'>): number {
 export function courseThermalMods(state: Pick<GameState, 'course'>): { heat: number; hallu: number } {
   const e = courseEffect(state);
   return e?.kind === 'cool' ? { heat: e.heat, hallu: e.hallu } : { heat: 1, hallu: 1 };
+}
+
+/** Во сколько раз Курс меняет оффлайн-доход под потолком простоя; единица без Курса «Ночная смена». */
+export function courseOfflineMult(state: Pick<GameState, 'course'>): number {
+  const e = courseEffect(state);
+  return e?.kind === 'offline' ? e.mult : 1;
 }
 
 /** Во сколько раз Курс сокращает паузу между Событиями; единица без Курса «Охота за сигналом». */

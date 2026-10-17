@@ -14,7 +14,7 @@ import {
   shortfall,
   totalIncome,
 } from '../economy/engine';
-import { canStartChallenge, challengeComputeMult, hasChallenge, INHERITED_REWARD_PCT, riskClass, RISK_MULT_MAX, type ChallengeDef } from '../economy/challenges';
+import { canStartChallenge, CHALLENGES, challengeComputeMult, hasChallenge, INHERITED_REWARD_PCT, riskClass, RISK_MULT_MAX, type ChallengeDef } from '../economy/challenges';
 import { crystalCycleMs, crystalIncomeMult, CRYSTAL_PER_STOCK_BONUS, type CrystalUpgrade } from '../economy/crystal';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import {
@@ -34,12 +34,14 @@ import { arenaOutlook, buyStreakNow, ruleEffect, thoughtOutlook } from '../econo
 import type { FinetuneArchetype, GameState, Glitch, ResearchKind, ResearchTermId } from '../economy/state';
 import {
   isResearchReady,
+  nextOpening,
   RESEARCH_BOOST_MULT,
   RESEARCH_DURATION_MS,
   RESEARCH_FINETUNE_YIELD,
   researchBoostActive,
   researchHasteMs,
 } from '../economy/research';
+import { courseById } from '../data/courses';
 import { FINETUNE_SPEC } from '../economy/finetune';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
 import {
@@ -648,8 +650,30 @@ export function crystalGrowthView(s: GameState): CrystalGrowthView {
 /** Срок Исследования словами: подпись слота. */
 export const RESEARCH_TERM_TEXT: Record<ResearchTermId, string> = { '30m': '30 минут', '2h': '2 часа', '8h': '8 часов' };
 
-/** Вид результата словами: кнопка выбора при закладке и подпись слота (ТЗ #116). */
-export const RESEARCH_KIND_TEXT: Record<ResearchKind, string> = { boost: 'Временное усиление', finetune: 'Заготовка Файнтюна' };
+/** Вид результата словами: кнопка выбора при закладке и подпись слота (ТЗ #116, #118). */
+export const RESEARCH_KIND_TEXT: Record<ResearchKind, string> = {
+  boost: 'Временное усиление',
+  finetune: 'Заготовка Файнтюна',
+  unlock: 'Постоянное открытие',
+};
+
+/**
+ * Постоянное открытие словами: «Курс «Ночная смена»» или «Испытание «Забег без Событий»». Название берётся из
+ * таблиц, а не хранится в состоянии, поэтому переименование не расходится с сохранением. Пусто для `null` и
+ * неизвестного id.
+ */
+export function researchOpeningText(id: string | null): string {
+  if (id === null) return '';
+  const course = courseById(id);
+  if (course) return `Курс «${course.name}»`;
+  const challenge = CHALLENGES.find((c) => c.id === id);
+  return challenge ? `Испытание «${challenge.name}»` : '';
+}
+
+/** Следующее открытие, которое закладка возьмёт: словами для выбора вида; пусто, если открыто всё. */
+export function nextOpeningText(s: GameState): string {
+  return researchOpeningText(nextOpening(s));
+}
 
 /** Сколько Заготовок даёт срок, словами с числом: «одна Заготовка», «две Заготовки», «четыре Заготовки». */
 export function finetuneYieldText(term: ResearchTermId, notation: GameState['settings']['notation'] = 'short'): string {
@@ -710,7 +734,7 @@ export function researchSlotView(s: GameState, index: number): ResearchSlotView 
   return {
     busy: true,
     ready,
-    resultText: RESEARCH_KIND_TEXT[job.kind],
+    resultText: job.kind === 'unlock' ? `${RESEARCH_KIND_TEXT.unlock}: ${researchOpeningText(job.unlock)}` : RESEARCH_KIND_TEXT[job.kind],
     termText: RESEARCH_TERM_TEXT[job.term],
     leftText: ready ? 'готово' : formatDuration(Math.ceil((duration - elapsed) / 1000)),
     progress: ready ? 100 : Math.floor((elapsed / duration) * 100),

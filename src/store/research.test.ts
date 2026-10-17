@@ -91,6 +91,16 @@ describe('Исследование в сторе', () => {
     expect(vi.mocked(playAchievementSound)).not.toHaveBeenCalled();
   });
 
+  it('постоянное открытие ложится в открытые при сборе, а закладка берёт первое закрытое по таблице', () => {
+    store().plantResearch('30m', 'unlock');
+    expect(state().research[0]).toMatchObject({ kind: 'unlock', unlock: 'night' });
+    const planted = state().lastTick;
+    useGameStore.setState({ state: { ...state(), lastTick: planted + RESEARCH_DURATION_MS['30m'] } });
+    store().collectResearch(0);
+    expect(state().research).toEqual([]);
+    expect(state().researchUnlocks).toEqual(['night']);
+  });
+
   it('готовое ждёт сбора: тики сорок минут не забирают его, а слот занят', () => {
     store().plantResearch('30m');
     // Тики по 9 с — ниже порога простоя, то есть живой ход игры, как у App.tsx.

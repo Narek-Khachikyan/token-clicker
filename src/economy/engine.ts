@@ -2,7 +2,7 @@ import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, ty
 import { challengeComputeMult, challengeIncomeMult, hasChallenge, runPerks } from './challenges';
 import { characterIncomeMult, characterMods, ecosystemBoost } from './character';
 import type { LabId } from '../data/labs';
-import { courseClickMult, courseEventWindowMult, courseIncomeMult, coursePriceMult, courseMissing, offerCourse, takeCourse } from './course';
+import { courseClickMult, courseEventWindowMult, courseIncomeMult, courseMissing, courseOfflineMult, coursePriceMult, offerCourse, takeCourse } from './course';
 import { collectCrystals, crystalIncomeMult } from './crystal';
 import { researchBoostMult } from './research';
 import { finetuneIncomeMult } from './finetune';
@@ -1008,7 +1008,8 @@ export function applyOffline(state: GameState, now: number): { state: GameState;
   // а игрок проводит в простое часы — оплачивать ему их задним числом нельзя. Глюки при этом
   // просто спят (как в Cookie Clicker спят во время отсутствия) и не воруют оффлайн-доход,
   // потому что оффлайн идёт по базовой скорости, а не по их.
-  const earned = offlineIncome(state) * seconds * offlineRateMult(state);
+  // Курс «Ночная смена» множит только простой: потолок `seconds` и живой Доход остаются прежними (ТЗ #118).
+  const earned = offlineIncome(state) * seconds * offlineRateMult(state) * courseOfflineMult(state);
   // Зревший за время отсутствия кристалл собирается здесь, а не на первом тике после загрузки:
   // путь загрузки вызывает именно эту функцию, и игрок возвращается к уже готовому отчёту.
   const s = collectCrystals(earnTokens(state, earned), now).state;
@@ -1026,6 +1027,8 @@ export function applyOffline(state: GameState, now: number): { state: GameState;
  * этом не видно и не платит — `isEventActive` отсекает его по времени.
  */
 function advanceEvents(state: GameState, now: number, rnd: () => number): GameState {
+  // «Забег без Событий» (ТЗ #118): расписания нет совсем, ни обычных Событий, ни красных Восстания.
+  if (hasChallenge(state, 'no-events')) return state;
   // У нового сохранения окна нет, поэтому первое назначается здесь же коротким — иначе первого
   // события не было бы никогда, а ждать его пришлось бы минуты.
   if (state.nextEventAt === 0) return { ...state, nextEventAt: now + pickFirstEventWindow(rnd), combo: 0 };

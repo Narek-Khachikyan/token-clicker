@@ -25,6 +25,8 @@ export type CourseEffect =
   | { kind: 'cool'; heat: number; hallu: number }
   /** Пауза между Событиями × `windowMult`: Золотой Токен приходит чаще, а платит по-прежнему поймавшему. */
   | { kind: 'signal'; windowMult: number }
+  /** Оффлайн-доход × `mult` под потолком простоя: платит за время без игрока, живой Доход не меняет (ТЗ #118). */
+  | { kind: 'offline'; mult: number }
   /** Правило пройденного Поколения: действует так же, как в своём Поколении. */
   | { kind: 'rule'; rule: GenerationRule['id'] };
 
@@ -39,6 +41,8 @@ export interface Course {
   lab: LabId;
   /** Голос Маскота при предложении: реплика ничего не даёт и в «Переписку» не пишется. */
   quip: string;
+  /** Открывается постоянным открытием Исследования (ТЗ #118): пока не открыт, в пул не входит. */
+  gated?: true;
 }
 
 /** Собственные Курсы: по одному на ось экономики (цена, Доход, Клик, Температура, События). */
@@ -95,7 +99,24 @@ export const RULE_COURSES: readonly Course[] = GENERATION_RULES.map((r) => ({
   quip: r.quip.text,
 }));
 
-export const COURSES: readonly Course[] = [...OWN_COURSES, ...RULE_COURSES];
+/**
+ * Курсы постоянных открытий Исследований (ТЗ #118): в пул попадают только открытые. Эффект — оффлайн-доход,
+ * единственная ось, которой у собственных Курсов нет; живой Доход и потолок простоя остаются прежними.
+ * Число 1,5 — черновик, его утверждает замер симулятора.
+ */
+export const RESEARCH_COURSES: readonly Course[] = [
+  {
+    id: 'night',
+    name: 'Ночная смена',
+    summary: 'Оффлайн-доход в полтора раза больше, в пределах того же потолка простоя.',
+    effect: { kind: 'offline', mult: 1.5 },
+    lab: 'alibaba',
+    quip: 'Пока ты спишь, конвейер крутится. Ночная смена без премии, зато без перерыва.',
+    gated: true,
+  },
+];
+
+export const COURSES: readonly Course[] = [...OWN_COURSES, ...RULE_COURSES, ...RESEARCH_COURSES];
 
 export const COURSE_BY_ID: Readonly<Record<string, Course>> = Object.fromEntries(COURSES.map((c) => [c.id, c]));
 

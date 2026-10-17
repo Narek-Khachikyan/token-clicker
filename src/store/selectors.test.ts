@@ -54,6 +54,7 @@ import {
   queueView,
   finetuneChoiceViews,
   finetuneYieldText,
+  nextOpeningText,
   researchBoostView,
   researchHasteView,
   researchSlotView,
@@ -908,6 +909,16 @@ describe('research slot views', () => {
     expect(researchSlotView(planted(T0), 0).resultText).toBe('Временное усиление');
     const finetune = { ...RUN, research: [{ kind: 'finetune' as const, term: '2h' as const, startedAt: T0 }] };
     expect(researchSlotView(finetune, 0)).toMatchObject({ resultText: 'Заготовка Файнтюна', termText: '2 часа' });
+  });
+
+  it('names a permanent opening in the slot by the Course or Challenge it opens, and the next one to take', () => {
+    const night = { ...RUN, research: [{ kind: 'unlock' as const, term: '2h' as const, startedAt: T0, unlock: 'night' }] };
+    expect(researchSlotView(night, 0)).toMatchObject({ resultText: 'Постоянное открытие: Курс «Ночная смена»', termText: '2 часа' });
+    const events = { ...RUN, research: [{ kind: 'unlock' as const, term: '2h' as const, startedAt: T0, unlock: 'no-events' }] };
+    expect(researchSlotView(events, 0).resultText).toBe('Постоянное открытие: Испытание «Забег без Событий»');
+    expect(nextOpeningText(RUN)).toBe('Курс «Ночная смена»');
+    expect(nextOpeningText({ ...RUN, researchUnlocks: ['night'] })).toBe('Испытание «Забег без Событий»');
+    expect(nextOpeningText({ ...RUN, researchUnlocks: ['night', 'no-events'] })).toBe('');
   });
 
   it('writes the Заготовка yield with the Russian plural of its term', () => {

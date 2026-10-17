@@ -1,12 +1,12 @@
 import { CATALOG, MODEL_BY_ID } from './catalog';
-import { CHALLENGES } from './challenges';
+import { CHALLENGES, challengeOpen } from './challenges';
 import { COURSE_OFFER_SIZE, offerCourse } from './course';
 import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
 import { MILESTONE_BY_ID } from './milestones';
 import { PERK_BY_ID } from './perks';
 import { DEFAULT_CHANNEL_VOLUME, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type FinetuneArchetype, type GameState, type Glitch, type ResearchJob, type ResearchKind, type ResearchTermId } from './state';
-import { RESEARCH_KINDS, RESEARCH_SLOTS, RESEARCH_TERM_IDS } from './research';
+import { RESEARCH_KINDS, RESEARCH_MAX_SLOTS, RESEARCH_OPENING_IDS, RESEARCH_TERM_IDS } from './research';
 import { FINETUNE_ARCHETYPES } from './finetune';
 import { QUIPS_SEEN_CAP } from './quips';
 import { buyStreakLimit, ruleEffect } from './rules';
@@ -218,6 +218,13 @@ export const MIGRATIONS: Record<number, Migration> = {
     finetuneStock: raw.finetuneStock ?? 0,
     finetunes: raw.finetunes ?? {},
   }),
+  // Постоянные открытия Исследований пришли в v17 (ТЗ #118). У живого сохранения их нет, а пустой список —
+  // ровно то, как игра выглядела до открытий. Чистое добавление: разбор ниже отсеет id, которых нет в таблицах.
+  16: (raw) => ({
+    ...raw,
+    version: 17,
+    researchUnlocks: raw.researchUnlocks ?? [],
+  }),
 };
 
 /** Особых Перков Поколения в прошлых версиях: по числу Поколений тогдашнего каталога. */
@@ -333,9 +340,11 @@ const courseOfferOf = (v: unknown): string[] => {
 };
 
 /**
- * Исследования из сохранения: только известные вид и срок, с отметкой закладки и не длиннее слотов.
- * Закладка из будущего притягивается к `now` (как у кристалла и событий), иначе срок тикал бы с
- * отрицательного старта. Запись без отметки отбрасывается: без неё нельзя ни созреть, ни показать срок.
+ * Исследования из сохранения: только известные вид и срок, с отметкой закладки и не длиннее предела слотов
+ * (с Перком их три, и закладка в третьем слоте переживает снятие Перка). Закладка из будущего притягивается
+ * к `now` (как у кристалла и событий), иначе срок тикал бы с отрицательного старта. Запись без отметки
+ * отбрасывается: без неё нельзя ни созреть, ни показать срок. Постоянное открытие без известного id тоже
+ * отбрасывается: такую закладку нельзя ни собрать, ни объяснить.
  */
 const researchOf = (v: unknown, clampFuture: (v: number) => number): ResearchJob[] => {
   if (!Array.isArray(v)) return [];
@@ -346,9 +355,15 @@ const researchOf = (v: unknown, clampFuture: (v: number) => number): ResearchJob
     const term = (RESEARCH_TERM_IDS as readonly unknown[]).includes(item.term) ? (item.term as ResearchTermId) : null;
     const startedAt = clampFuture(stamp(item.startedAt));
     if (kind === null || term === null || startedAt <= 0) continue;
+    if (kind === 'unlock') {
+      const unlock = typeof item.unlock === 'string' && RESEARCH_OPENING_IDS.includes(item.unlock) ? item.unlock : null;
+      if (unlock === null) continue;
+      jobs.push({ kind, term, startedAt, unlock });
+      continue;
+    }
     jobs.push({ kind, term, startedAt });
   }
-  return jobs.slice(0, RESEARCH_SLOTS);
+  return jobs.slice(0, RESEARCH_MAX_SLOTS);
 };
 
 /**
@@ -466,6 +481,8 @@ export function migrate(raw: unknown, now: number): GameState {
   const rules = { generation, course };
   const courseOffer = courseOfferOf(data.courseOffer);
   const coldRun = strList(data.activeChallenges).includes('cold');
+  // Постоянные открытия — только id из таблиц: открытие из будущей версии или мусор не даёт ни Курса, ни Испытания.
+  const researchUnlocks = [...new Set(strList(data.researchUnlocks))].filter((id) => RESEARCH_OPENING_IDS.includes(id));
 
   return offerCourse({
     version: SAVE_VERSION,
@@ -503,6 +520,7 @@ export function migrate(raw: unknown, now: number): GameState {
     research: researchOf(data.research, clampFuture),
     // Окно усиления — мс часов игры: из будущего притягивается к `now`, как и остальные окна.
     researchBoostUntil: clampFuture(stamp(data.researchBoostUntil)),
+    researchUnlocks,
     // Заготовки — счётчик, как кристаллы: целые и неотрицательные.
     finetuneStock: count(data.finetuneStock),
     finetunes: finetunesOf(data.finetunes, generation),
@@ -527,7 +545,8 @@ export function migrate(raw: unknown, now: number): GameState {
     // Взятые Испытания, в отличие от закрытых, сверяются с таблицей: неизвестный id (из будущей версии
     // или мусора) не должен включать ограничение, которого игрок не выбирал, и не имеет веса в Классе
     // риска. Порядок — порядок таблицы, как у `toggleChallenge`, дубли схлопываются.
-    activeChallenges: CHALLENGES.map((c) => c.id).filter((id) => strList(data.activeChallenges).includes(id)),
+    // Испытание, которое игрок ещё не открыл, в списке взятых не держится: такого выбора он сделать не мог.
+    activeChallenges: CHALLENGES.filter((c) => strList(data.activeChallenges).includes(c.id) && challengeOpen(c, researchUnlocks)).map((c) => c.id),
     // Закрытые и унаследованные — как Достижения, а не как Перки: id проверяются только на тип, а не на
     // известность таблице, поэтому запись переживает правку таблицы Испытаний.
     challengesDone: [...new Set(strList(data.challengesDone))],
