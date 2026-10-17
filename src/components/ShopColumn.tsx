@@ -34,7 +34,7 @@ import { BRANCHES, perkDepth, perkLock, PERK_BY_ID, PERKS, type Perk, type PerkB
 import { PLEDGE_GROWTH, PLEDGE_MAX } from '../economy/glitches';
 import { CRYSTAL_STOCK_CAP, CRYSTAL_UPGRADES, type CrystalUpgrade } from '../economy/crystal';
 import { formatDuration, formatNumber } from '../economy/format';
-import { generationRule } from '../economy/rules';
+import { ruleOfKind } from '../economy/rules';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
 import { Hint } from './Hint';
@@ -43,7 +43,7 @@ import { ModelHintCard } from './ModelHintCard';
 import { Icon } from './Icon';
 import { CoachArrow } from './CoachArrow';
 import { onTabRowKeyDown } from './tabRow';
-import { ChallengeCard, PrestigeForecastCard, PrestigeSectionNav } from './PrestigeTab';
+import { ChallengeCard, CourseCard, PrestigeForecastCard, PrestigeSectionNav } from './PrestigeTab';
 import { playDenySound } from '../audio/sound';
 import { buyAmountFor } from '../hotkeys';
 
@@ -748,7 +748,10 @@ const PurchaseQueueCard: React.FC = () => {
 /** «Дефицит GPU»: на сколько подорожали Модели ради ряда покупок и через сколько цена остынет. */
 const ScarcityCard: React.FC = () => {
   const { active, extra, seconds } = useStateSlice(scarcityView);
+  // Правило может быть и своим для Поколения, и взятым Курсом: описание берётся у того, чьё оно.
   const generation = useGameStore((s) => s.state.generation);
+  const course = useGameStore((s) => s.state.course);
+  const rule = ruleOfKind({ generation, course }, 'buyStreak');
   if (!active) return null;
   return (
     <section
@@ -772,7 +775,7 @@ const ScarcityCard: React.FC = () => {
         )}
       </div>
       <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
-        {generationRule(generation)?.summary}
+        {rule?.summary}
       </div>
     </section>
   );
@@ -1442,6 +1445,7 @@ const PrestigeShopTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToMod
       >
         {section === 'prestige' && (
           <>
+            <CourseCard />
             <PrestigeForecastCard onBackToModels={onBackToModels} />
             <ChallengeCard />
           </>

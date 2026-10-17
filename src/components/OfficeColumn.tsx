@@ -6,6 +6,7 @@ import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale } from '../economy/engine';
 import { labAgents } from '../economy/upgrades';
 import { generationRule } from '../economy/rules';
+import { courseById } from '../data/courses';
 import { formatCount, formatNumber } from '../economy/format';
 import { Hint } from './Hint';
 import { Icon } from './Icon';
@@ -458,6 +459,8 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const rule = generationRule(generation);
   // Живая строка Правила (лидер Арены, места в очереди): пустая — и HUD показывает описание Правила.
   const ruleStatus = useStateSlice(ruleStatusText);
+  // Курс виден весь Забег: игрок выбрал его один раз и менять не может, а забыть — значит играть вслепую.
+  const course = courseById(useGameStore((s) => s.state.course));
   const flagship = gen.flagship;
   const flagshipOwned = (agents[flagship.id] ?? 0) >= 1;
 
@@ -851,6 +854,43 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                   }}
                 >
                   {ruleStatus || rule.summary}
+                </div>
+              </Hint>
+            )}
+            {course && (
+              <Hint
+                key={course.id}
+                content={<><b>Курс «{course.name}».</b> {course.summary}</>}
+                className="scene__course"
+                style={{ minWidth: 0, animation: 'toast-fade 0.15s ease-out' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', minWidth: 0 }}>
+                  <span className="pixel-22" style={{ color: 'var(--accent-color)', flexShrink: 0 }}>
+                    КУРС
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '1rem',
+                      color: 'var(--text-main)',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {course.name}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: 'var(--text-sm)',
+                    color: 'var(--text-muted)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {course.summary}
                 </div>
               </Hint>
             )}

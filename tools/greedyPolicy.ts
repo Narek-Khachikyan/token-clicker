@@ -20,14 +20,18 @@ import {
   buyUpgrade,
   canPrestige,
   click,
+  earnTokens,
+  totalIncome,
   isContentFinale,
   prestige,
   prestigeGain,
 } from '../src/economy/engine';
+import { grantAmount, isEventActive, isEventCaught } from '../src/economy/events';
 import { availableUpgrades } from '../src/economy/upgrades';
 import { PERKS, perkLock } from '../src/economy/perks';
 import { clampTemp, safeTemp, TEMP_MAX } from '../src/economy/thermal';
 import { migrate } from '../src/economy/save';
+import { chooseCourse, coursePool, offerCourse } from '../src/economy/course';
 
 export const T0 = 1_700_000_000_000;
 /** Шаг симуляции, секунд: двадцать тиков в секунду, как у игры. */
@@ -55,6 +59,19 @@ export interface PolicyOptions {
   farmSec: number;
   /** Зерно розыгрыша Событий: то же зерно — тот же прогон. */
   seed: number;
+  /**
+   * Какой Курс политика берёт на Престиже (ADR-0013). `none` — никакой: так меряется база и так играет
+   * `pace.test.ts`. `first` — первый из трёх предложенных (предложение определено зерном Престижа, так
+   * что это случайный Курс игры без выбора). Любой другой id — этот Курс, когда пул Престижа его
+   * содержит; когда не содержит (Правило, которое ещё не пройдено), Забег идёт без Курса.
+   */
+  course: string;
+  /**
+   * Ловит ли политика каждое обычное (не красное) Событие, едва оно появилось. По умолчанию нет: так
+   * меряется нижняя граница, и так играет `pace.test.ts`. Включённая — верхняя граница внимательного
+   * игрока (Золотой Токен ловится всегда), нужна, чтобы замерить Курс «Охота за сигналом».
+   */
+  catchEvents: boolean;
 }
 
 /**
@@ -70,6 +87,8 @@ export const DEFAULT_POLICY: PolicyOptions = {
   minGain: PRESTIGE_WORTH_COMPUTE,
   farmSec: 0,
   seed: 1,
+  course: 'none',
+  catchEvents: false,
 };
 
 /** Mulberry32: одно зерно — один и тот же розыгрыш Событий, чтобы прогоны сравнивались. */
@@ -172,6 +191,17 @@ function thermalTarget(s: GameState, policy: ThermalPolicy): number | null {
   return null;
 }
 
+/**
+ * Ловит живое обычное Событие так, как это делает стор (`catchEvent`): отмечает окно пойманным, а «Грант»
+ * платит через `earnTokens`. Красные не ловятся — Восстание моделей игрок обходит.
+ */
+function catchEvent(s: GameState): GameState {
+  const event = s.event;
+  if (!event || event.red || isEventCaught(s) || !isEventActive(event, s.lastTick)) return s;
+  const marked = { ...s, eventCaughtAt: event.startedAt };
+  return event.kind === 'grant' ? earnTokens(marked, grantAmount(s.tokens, totalIncome(s))) : marked;
+}
+
 /** Один тик: клики, время движка, покупки. */
 export function tick(w: Session): void {
   const target = thermalTarget(w.s, w.opts.thermal);
@@ -179,6 +209,7 @@ export function tick(w: Session): void {
   w.clickCarry += w.opts.cps * DT;
   while (w.clickCarry >= 1) { w.clickCarry -= 1; w.s = click(w.s); }
   w.s = advanceTime(w.s, DT, w.rnd);
+  if (w.opts.catchEvents) w.s = catchEvent(w.s);
   w.s = spend(w.s, w.opts.reserve);
   if (canPrestige(w.s) && w.flagshipAt === null) w.flagshipAt = w.t;
   w.t += DT;
@@ -192,9 +223,19 @@ export function prestigeDue(w: Session): boolean {
   return prestigeGain(s) >= opts.minGain;
 }
 
+/** Выбор Курса перед Престижем по правилу `PolicyOptions.course`. */
+function pickCourse(s: GameState, rule: string): GameState {
+  if (rule === 'none') return s;
+  const offered = offerCourse(s);
+  if (rule === 'first') return offered.courseOffer.length > 0 ? chooseCourse(offered, offered.courseOffer[0]) : offered;
+  // Принудительный Курс подставляется в `courseNext` минуя предложение: измеряется Курс, а не удача выпадения.
+  return coursePool(s).some((c) => c.id === rule) ? { ...offered, courseNext: rule } : offered;
+}
+
 /** Нажимает Престиж; возвращает, сколько минут заняло ушедшее Поколение. */
 export function doPrestige(w: Session): { generation: number; minutes: number } {
   const generation = w.s.generation;
+  w.s = pickCourse(w.s, w.opts.course);
   w.s = prestige(w.s, T0 + w.t * 1000);
   const minutes = (w.t - w.genStart) / 60;
   w.genStart = w.t;

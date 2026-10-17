@@ -2,6 +2,7 @@ import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, ty
 import { challengeIncomeMult } from './challenges';
 import { characterIncomeMult, characterMods, ecosystemBoost } from './character';
 import type { LabId } from '../data/labs';
+import { courseClickMult, courseEventWindowMult, courseIncomeMult, coursePriceMult, courseMissing, offerCourse, takeCourse } from './course';
 import { collectCrystals, crystalIncomeMult } from './crystal';
 import {
   applyOverheat,
@@ -17,7 +18,7 @@ import {
 import { perkEffects, perkLock, PERK_BY_ID, START_TOKENS_UNITS, type PerkEffect } from './perks';
 import type { GameState } from './state';
 import { queueCapacity } from './purchaseQueue';
-import { activeRule, noteHire, ruleIncomeMult, ruleLiveIncomeMult, rulePriceMult, thoughtMult } from './rules';
+import { noteHire, ruleEffect, ruleIncomeMult, ruleLiveIncomeMult, rulePriceMult, thoughtMult } from './rules';
 import { nonShadowCount } from './achievements';
 import {
   catchUpClick,
@@ -131,7 +132,8 @@ export function discountMult(state: GameState): number {
   // срезает её треть, не трогая лестницу Рангов (множитель общий для всех Моделей) и ±30%
   // (модификаторы каталога не меняются).
   // Правило Поколения («Ценовая война») — третий сомножитель той же скидки: цену читают все, кто зовёт эту функцию.
-  return perk * (totalAgents(state) < 2 ? START_PRICE_MULT : 1) * rulePriceMult(state);
+  // Курс «Бережливость» — четвёртый: он тоже общий для всех Моделей и лестницу Ранга цен не трогает.
+  return perk * (totalAgents(state) < 2 ? START_PRICE_MULT : 1) * rulePriceMult(state) * coursePriceMult(state);
 }
 
 /** Цена следующих `n` Агентов при `owned` уже купленных. */
@@ -241,10 +243,10 @@ export function computeBonusDrop(state: GameState): { before: number; after: num
 }
 
 /**
- * Постоянный множитель Дохода: Compute, запас кристаллов, налог за «Лицензию» и награда за
- * закрытые Испытания Забега.
+ * Постоянный множитель Дохода: Compute, запас кристаллов, налог за «Лицензию», награда за
+ * закрытые Испытания Забега и Курс «Масштабирование».
  *
- * Все четыре живут в состоянии и длятся дольше забега, поэтому они достаются и оффлайн-доходу —
+ * Все пять живут в состоянии и длятся дольше забега, поэтому они достаются и оффлайн-доходу —
  * в отличие от событий и Глюков, которые живут минуты и в него не попадают вовсе.
  *
  * Температура сюда НЕ входит, хотя она тоже переживает забег: её множитель читает `now`, потому
@@ -253,7 +255,13 @@ export function computeBonusDrop(state: GameState): { before: number; after: num
  * то есть платит активному тику и не платит оффлайн-доходу.
  */
 export function globalMult(state: GameState): number {
-  return (1 + computeBonus(freeCompute(state))) * crystalIncomeMult(state) * covenantIncomeMult(state) * challengeIncomeMult(state);
+  return (
+    (1 + computeBonus(freeCompute(state))) *
+    crystalIncomeMult(state) *
+    covenantIncomeMult(state) *
+    challengeIncomeMult(state) *
+    courseIncomeMult(state)
+  );
 }
 
 /**
@@ -320,6 +328,7 @@ export type IncomeFactorKind =
   | 'crystals'
   | 'covenant'
   | 'challenge'
+  | 'course'
   | 'surge';
 
 /** Один шаг умножения Дохода Модели: вид множителя и его значение. */
@@ -420,6 +429,7 @@ export function globalFactors(state: GameState): IncomeFactor[] {
     { kind: 'crystals', mult: crystalIncomeMult(state) },
     { kind: 'covenant', mult: covenantIncomeMult(state) },
     { kind: 'challenge', mult: challengeIncomeMult(state) },
+    { kind: 'course', mult: courseIncomeMult(state) },
   ];
 }
 
@@ -631,7 +641,7 @@ export function clickValue(state: GameState, income?: number, now: number = stat
   // за глушение окна, а не заработок.
   return (
     clickMultiplierFor(state, now) *
-    ((flat * globalMult(state) + rate * pct) * characterMods(state).click + clickCatchUp(state, now))
+    ((flat * globalMult(state) + rate * pct) * characterMods(state).click * courseClickMult(state) + clickCatchUp(state, now))
   );
 }
 
@@ -712,8 +722,11 @@ export function buyAgents(state: GameState, modelId: string, n: number | 'max'):
   const { count, cost } = purchaseQuote(state, model, n);
   if (count <= 0) return state;
   if (cost > state.tokens) return state;
-  // Найм продлевает ряд «Дефицита GPU»; вне Правила `noteHire` возвращает тот же объект.
-  return noteHire({ ...state, tokens: state.tokens - cost, agents: { ...state.agents, [modelId]: owned + count } }, count);
+  // Найм продлевает ряд «Дефицита GPU»; вне Правила `noteHire` возвращает тот же объект. Найм Флагмана
+  // открывает Престиж, а с ним и предложение Курса: оно кладётся в состояние сразу, а не при показе.
+  return offerCourse(
+    noteHire({ ...state, tokens: state.tokens - cost, agents: { ...state.agents, [modelId]: owned + count } }, count),
+  );
 }
 
 /**
@@ -753,8 +766,8 @@ export function runPurchaseQueue(state: GameState): GameState {
  * больше предела копилки — оно уже заработано, а простой его не растит.
  */
 export function settleThought(state: GameState, now: number): GameState {
-  const effect = activeRule(state)?.effect;
-  if (effect?.kind !== 'heldThought' || !thoughtDue(state, now)) return state;
+  const effect = ruleEffect(state, 'heldThought');
+  if (!effect || !thoughtDue(state, now)) return state;
   const steps = state.thought * effect.clicksPerSec;
   const cleared = { ...state, thought: 0, thoughtAt: 0 };
   if (steps <= 0) return cleared;
@@ -765,8 +778,8 @@ export function settleThought(state: GameState, now: number): GameState {
 
 /** Пора ли выплачивать размышление: удержание оборвалось или копилка на пределе. */
 function thoughtDue(state: GameState, now: number): boolean {
-  const effect = activeRule(state)?.effect;
-  if (effect?.kind !== 'heldThought' || state.thoughtAt === 0) return false;
+  const effect = ruleEffect(state, 'heldThought');
+  if (!effect || state.thoughtAt === 0) return false;
   return now - state.thoughtAt > effect.releaseSec * 1000 || state.thought >= effect.maxSec;
 }
 
@@ -775,8 +788,8 @@ function thoughtDue(state: GameState, now: number): boolean {
  * Отдельная функция, чтобы всплывающее число в сторе называло ту же сумму, что платит тик.
  */
 export function thoughtPayout(state: GameState, now: number): number {
-  const effect = activeRule(state)?.effect;
-  if (effect?.kind !== 'heldThought' || !thoughtDue(state, now)) return 0;
+  const effect = ruleEffect(state, 'heldThought');
+  if (!effect || !thoughtDue(state, now)) return 0;
   return state.thought * effect.clicksPerSec * clickValue(state, undefined, now) * thoughtMult(effect, state.thought);
 }
 
@@ -1010,7 +1023,8 @@ function advanceEvents(state: GameState, now: number, rnd: () => number): GameSt
   return {
     ...state,
     // Окно переносится на новое, а не остаётся в прошлом: иначе события сыпались бы каждый тик.
-    nextEventAt: now + (encore ? pickEncoreWindow(rnd) : pickEventWindow(rnd)),
+    // Курс «Охота за сигналом» сжимает обычную паузу; догоняющее окно и первое событие и так короткие.
+    nextEventAt: now + (encore ? pickEncoreWindow(rnd) : Math.floor(pickEventWindow(rnd) * courseEventWindowMult(state))),
     eventsSeen: state.eventsSeen + 1,
     combo,
     // Котёл возврата за Клик принадлежит окну, а не забегу: без обнуления следующее «Ночной кодинг»
@@ -1108,6 +1122,8 @@ export interface PrestigePreview {
   generation: number;
   /** Престиж сейчас невозможен: нет Флагмана или это финал контента. */
   blocked: boolean;
+  /** Курс нового Забега ещё не выбран: Престиж откажет, пока игрок не выберет один из трёх. */
+  needsCourse: boolean;
 }
 
 /**
@@ -1126,6 +1142,7 @@ export function prestigePreview(state: GameState): PrestigePreview {
     tokensLost: state.tokens,
     generation: Math.min(state.generation + 1, LAST_GENERATION),
     blocked: !canPrestige(state) || isContentFinale(state),
+    needsCourse: courseMissing(state),
   };
 }
 
@@ -1153,6 +1170,8 @@ export function prestige(state: GameState, now: number = state.lastTick): GameSt
     compute: state.compute + prestigeGain(state),
     prestiges: state.prestiges + 1,
     perkResetUsed: false,
+    // Выбранный Курс становится действующим на весь новый Забег; предложение и выбор очищаются.
+    ...takeCourse(state),
     tokens: startingTokens(state, next),
     runTokens: 0,
     runClicks: 0,

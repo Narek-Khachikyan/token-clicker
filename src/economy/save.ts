@@ -1,11 +1,13 @@
 import { CATALOG, MODEL_BY_ID } from './catalog';
+import { COURSE_OFFER_SIZE, offerCourse } from './course';
 import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
 import { MILESTONE_BY_ID } from './milestones';
 import { PERK_BY_ID } from './perks';
 import { DEFAULT_CHANNEL_VOLUME, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch } from './state';
 import { QUIPS_SEEN_CAP } from './quips';
-import { buyStreakLimit, generationRule } from './rules';
+import { buyStreakLimit, ruleEffect } from './rules';
+import { COURSE_BY_ID } from '../data/courses';
 import { clampTemp, TEMP_START } from './thermal';
 import { UPGRADE_BY_ID } from './upgrades';
 
@@ -167,6 +169,19 @@ export const MIGRATIONS: Record<number, Migration> = {
     thought: raw.thought ?? 0,
     thoughtAt: raw.thoughtAt ?? 0,
   }),
+  // Курс (ADR-0013, слой 4) пришёл в v13: действующий Курс, предложение на ближайший Престиж и
+  // выбор, ещё не подтверждённый. У живого сохранения их нет, а «без Курса, без предложения, без
+  // выбора» — ровно то, как игра выглядела до него. Чистое добавление, присутствующее поле остаётся:
+  // разбор ниже сам отсеет неизвестный Курс. Если Флагман уже нанят, предложение кладёт в состояние
+  // сам разбор (оно определено зерном Престижа), поэтому игрок, закрывший вкладку перед Престижем,
+  // возвращается к выбору, а не к кнопке, которая отказывает.
+  12: (raw) => ({
+    ...raw,
+    version: 13,
+    course: raw.course ?? null,
+    courseOffer: raw.courseOffer ?? [],
+    courseNext: raw.courseNext ?? null,
+  }),
 };
 
 /** Особых Перков Поколения в прошлых версиях: по числу Поколений тогдашнего каталога. */
@@ -236,9 +251,9 @@ const flag = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean'
  * и только пока Правило её даёт. Чужой id, нестрока и очередь вне «Агентов сами» — мусор: он
  * запер бы голову очереди навсегда или вернул бы Агента из Поколения, которого игрок не видит.
  */
-const queueOf = (v: unknown, generation: number): string[] => {
-  const effect = generationRule(generation)?.effect;
-  if (effect?.kind !== 'purchaseQueue') return [];
+const queueOf = (v: unknown, generation: number, course: string | null): string[] => {
+  const effect = ruleEffect({ generation, course }, 'purchaseQueue');
+  if (!effect) return [];
   return strList(v)
     .filter((id) => hasOwn(MODEL_BY_ID, id) && MODEL_BY_ID[id].generation === generation)
     .slice(0, effect.capacity);
@@ -248,10 +263,10 @@ const queueOf = (v: unknown, generation: number): string[] => {
  * Ряд покупок «Дефицита GPU» из сохранения: целая, не длиннее предела Правила и только пока Поколение
  * под этим Правилом, с отметкой времени не из будущего. Без отметки ряда нет: он держится на паре.
  */
-const streakOf = (data: Record<string, unknown>, generation: number, clampFuture: (v: number) => number) => {
-  const effect = generationRule(generation)?.effect;
+const streakOf = (data: Record<string, unknown>, rules: { generation: number; course: string | null }, clampFuture: (v: number) => number) => {
+  const effect = ruleEffect(rules, 'buyStreak');
   const lastBuyAt = clampFuture(stamp(data.lastBuyAt));
-  if (effect?.kind !== 'buyStreak' || lastBuyAt <= 0) return { buyStreak: 0, lastBuyAt: 0 };
+  if (!effect || lastBuyAt <= 0) return { buyStreak: 0, lastBuyAt: 0 };
   const buyStreak = Math.min(buyStreakLimit(effect), count(data.buyStreak));
   return buyStreak > 0 ? { buyStreak, lastBuyAt } : { buyStreak: 0, lastBuyAt: 0 };
 };
@@ -261,11 +276,24 @@ const streakOf = (data: Record<string, unknown>, generation: number, clampFuture
  * Без отметки удержания копить нечего, а мусорное число читается как пустая копилка: выплата из него
  * создала бы Токены, которых игрок не копил.
  */
-const thoughtOf = (data: Record<string, unknown>, generation: number, clampFuture: (v: number) => number) => {
-  const effect = generationRule(generation)?.effect;
+const thoughtOf = (data: Record<string, unknown>, rules: { generation: number; course: string | null }, clampFuture: (v: number) => number) => {
+  const effect = ruleEffect(rules, 'heldThought');
   const thoughtAt = clampFuture(stamp(data.thoughtAt));
-  if (effect?.kind !== 'heldThought' || thoughtAt <= 0) return { thought: 0, thoughtAt: 0 };
+  if (!effect || thoughtAt <= 0) return { thought: 0, thoughtAt: 0 };
   return { thought: Math.min(effect.maxSec, Math.max(0, num(data.thought, 0))), thoughtAt };
+};
+
+/** Id Курса из таблицы или `null`: неизвестный Курс из будущей версии или мусора — Забег без Курса, а не выдуманный эффект. */
+const courseId = (v: unknown): string | null => (typeof v === 'string' && hasOwn(COURSE_BY_ID, v) ? v : null);
+
+/**
+ * Предложение Курса из сохранения: ровно три разных известных Курса или ничего. Обрывок (Курс ушёл из
+ * таблицы, битый список) целиком не годится: недобранное предложение предложило бы меньше выбора, чем
+ * обещано, а пустое пересчитывается из зерна Престижа и тех же трёх даёт без потерь.
+ */
+const courseOfferOf = (v: unknown): string[] => {
+  const ids = [...new Set(strList(v))].filter((id) => hasOwn(COURSE_BY_ID, id));
+  return ids.length === COURSE_OFFER_SIZE ? ids : [];
 };
 
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -362,8 +390,12 @@ export function migrate(raw: unknown, now: number): GameState {
   const eventCaughtAt = clampFuture(rawCaught);
 
   const generation = Math.min(CATALOG.length - 1, count(data.generation));
+  // Курс разбирается раньше полей Правил: Правило, взятое Курсом, решает, каким полям Забега вообще есть место.
+  const course = courseId(data.course);
+  const rules = { generation, course };
+  const courseOffer = courseOfferOf(data.courseOffer);
 
-  return {
+  return offerCourse({
     version: SAVE_VERSION,
     generation,
     maxGeneration: Math.min(CATALOG.length - 1, Math.max(count(data.generation), count(data.maxGeneration))),
@@ -379,10 +411,14 @@ export function migrate(raw: unknown, now: number): GameState {
     // за Перки при сбросе дерева создавал бы Compute из воздуха.
     computeSpent: Math.min(Math.max(0, num(data.compute, 0)), Math.max(0, num(data.computeSpent, 0))),
     perks: idList(data.perks, PERK_BY_ID),
-    purchaseQueue: queueOf(data.purchaseQueue, generation),
-    ...streakOf(data, generation, clampFuture),
-    ...thoughtOf(data, generation, clampFuture),
+    purchaseQueue: queueOf(data.purchaseQueue, generation, course),
+    ...streakOf(data, rules, clampFuture),
+    ...thoughtOf(data, rules, clampFuture),
     perkResetUsed: !!data.perkResetUsed,
+    course,
+    courseOffer,
+    // Выбор держится только пока лежит предложение, из которого он сделан.
+    courseNext: typeof data.courseNext === 'string' && courseOffer.includes(data.courseNext) ? data.courseNext : null,
     prestiges: num(data.prestiges, 0),
     achievements: [...new Set(strList(data.achievements))],
     // Кристаллы целые и неотрицательные: запас — это счётчик, а не Доли, дробный остаток в нём
@@ -439,7 +475,7 @@ export function migrate(raw: unknown, now: number): GameState {
       musicVolume: level(settings.musicVolume, DEFAULT_CHANNEL_VOLUME),
       sfxVolume: level(settings.sfxVolume, DEFAULT_CHANNEL_VOLUME),
     },
-  };
+  });
 }
 
 export const serialize = (s: GameState) => JSON.stringify(s);

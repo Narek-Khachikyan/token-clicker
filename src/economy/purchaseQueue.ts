@@ -1,5 +1,5 @@
 import { MODEL_BY_ID } from './catalog';
-import { activeRule } from './rules';
+import { ruleEffect } from './rules';
 import type { GameState } from './state';
 
 /**
@@ -14,8 +14,7 @@ import type { GameState } from './state';
 
 /** Сколько мест в очереди у действующего Правила; ноль вне «Агентов сами». */
 export function queueCapacity(state: GameState): number {
-  const effect = activeRule(state)?.effect;
-  return effect?.kind === 'purchaseQueue' ? effect.capacity : 0;
+  return ruleEffect(state, 'purchaseQueue')?.capacity ?? 0;
 }
 
 /**
