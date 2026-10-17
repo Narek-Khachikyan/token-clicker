@@ -453,6 +453,101 @@ describe('migration of the generation-rule state of GPT-4 and Reasoning', () => 
   });
 });
 
+describe('migration of the Course', () => {
+  /** Сохранение v12 в форме, какой его писала игра: ни Курса, ни предложения, ни выбора в нём ещё нет. */
+  const v12Save = (over: Record<string, unknown>) => {
+    const { course: _a, courseOffer: _b, courseNext: _c, ...base } = newGame(T0);
+    return { ...base, version: 12, ...over };
+  };
+
+  it('gives a save of the previous version no Course and keeps everything the player had', () => {
+    const raw = v12Save({
+      generation: 5,
+      maxGeneration: 5,
+      tokens: 4e20,
+      agents: { [CATALOG[5].models[0].id]: 7 },
+      purchaseQueue: [CATALOG[5].models[1].id],
+      buyStreak: 0,
+      compute: 90,
+      computeSpent: 30,
+      perks: ['start_tokens'],
+      crystals: 3,
+      achievements: ['click_1'],
+      prestiges: 5,
+    });
+    const s = migrate(raw, T0);
+    expect(s.version).toBe(SAVE_VERSION);
+    expect([s.course, s.courseOffer, s.courseNext]).toEqual([null, [], null]);
+    expect(s.generation).toBe(5);
+    expect(s.tokens).toBe(4e20);
+    expect(s.agents).toEqual({ [CATALOG[5].models[0].id]: 7 });
+    expect(s.purchaseQueue).toEqual([CATALOG[5].models[1].id]);
+    expect(s.compute).toBe(90);
+    expect(s.computeSpent).toBe(30);
+    expect(s.perks).toEqual(['start_tokens']);
+    expect(s.crystals).toBe(3);
+    expect(s.achievements).toEqual(['click_1']);
+    expect(s.prestiges).toBe(5);
+  });
+
+  it('loads an export code of the previous version without loss', () => {
+    const raw = v12Save({ generation: 4, maxGeneration: 6, tokens: 12345, crystals: 2, prestiges: 4 });
+    const s = importSave(encodeRaw(raw), T0)!;
+    expect(s).not.toBeNull();
+    expect(s.version).toBe(SAVE_VERSION);
+    expect([s.course, s.courseOffer, s.courseNext]).toEqual([null, [], null]);
+    expect(s.generation).toBe(4);
+    expect(s.maxGeneration).toBe(6);
+    expect(s.tokens).toBe(12345);
+    expect(s.crystals).toBe(2);
+    expect(s.prestiges).toBe(4);
+  });
+
+  it('hands a previous-version save that already owns the Flagship the same offer the game would have made', () => {
+    const flagship = CATALOG[3].flagship.id;
+    const raw = v12Save({ generation: 3, maxGeneration: 3, prestiges: 3, agents: { [flagship]: 1 } });
+    const s = migrate(raw, T0);
+    expect(s.courseOffer).toHaveLength(3);
+    expect(migrate(raw, T0).courseOffer).toEqual(s.courseOffer);
+    expect(importSave(encodeRaw(raw), T0)!.courseOffer).toEqual(s.courseOffer);
+  });
+
+  it('keeps the Course, the offer and the choice through a save, an export and an import', () => {
+    const s = { ...newGame(T0), generation: 3, maxGeneration: 3, course: 'cool', courseOffer: ['frugal', 'rule:variety', 'signal'], courseNext: 'signal' };
+    const kept = { course: 'cool', courseOffer: ['frugal', 'rule:variety', 'signal'], courseNext: 'signal' };
+    const pick = (x: { course: unknown; courseOffer: unknown; courseNext: unknown }) => ({ course: x.course, courseOffer: x.courseOffer, courseNext: x.courseNext });
+    expect(pick(migrate(JSON.parse(JSON.stringify(s)), T0))).toEqual(kept);
+    expect(pick(importSave(exportSave(s), T0)!)).toEqual(kept);
+  });
+
+  it('reads an unknown Course as no Course and drops an offer that no longer adds up to three known ones', () => {
+    const gone = migrate({ ...newGame(T0), course: 'ушёл-из-таблицы', courseOffer: ['frugal', 'ушёл-из-таблицы', 'signal'], courseNext: 'frugal' }, T0);
+    expect(gone.course).toBeNull();
+    expect(gone.courseOffer).toEqual([]);
+    expect(gone.courseNext).toBeNull();
+    const junk = migrate({ ...newGame(T0), course: 7, courseOffer: 'oops', courseNext: { id: 1 } }, T0);
+    expect([junk.course, junk.courseOffer, junk.courseNext]).toEqual([null, [], null]);
+    const twice = migrate({ ...newGame(T0), courseOffer: ['frugal', 'frugal', 'frugal'] }, T0);
+    expect(twice.courseOffer).toEqual([]);
+  });
+
+  it('drops a choice that is not in the offer', () => {
+    const s = migrate({ ...newGame(T0), courseOffer: ['frugal', 'cool', 'signal'], courseNext: 'scale' }, T0);
+    expect(s.courseOffer).toEqual(['frugal', 'cool', 'signal']);
+    expect(s.courseNext).toBeNull();
+  });
+
+  it('keeps the state of the rule a Course carries and drops it without the Course', () => {
+    const under = migrate({ ...newGame(T0), generation: 2, course: 'rule:scarcity', buyStreak: 7, lastBuyAt: T0 }, T0);
+    expect([under.buyStreak, under.lastBuyAt]).toEqual([7, T0]);
+    const queue = [CATALOG[2].models[0].id];
+    expect(migrate({ ...newGame(T0), generation: 2, course: 'rule:agents', purchaseQueue: queue }, T0).purchaseQueue).toEqual(queue);
+    expect(migrate({ ...newGame(T0), generation: 2, course: 'rule:think', thought: 2, thoughtAt: T0 }, T0).thought).toBe(2);
+    const bare = migrate({ ...newGame(T0), generation: 2, course: 'scale', buyStreak: 7, lastBuyAt: T0, purchaseQueue: queue }, T0);
+    expect([bare.buyStreak, bare.purchaseQueue]).toEqual([0, []]);
+  });
+});
+
 describe('import rejects non-saves', () => {
   it('rejects an empty object, an empty array and arbitrary JSON without progress fields', () => {
     expect(importSave(encodeRaw({}), T0)).toBeNull();

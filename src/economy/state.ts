@@ -1,6 +1,6 @@
 import { TEMP_START } from './thermal';
 
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 
 /**
  * Громкость по умолчанию: 0.6, а не 1.
@@ -83,6 +83,20 @@ export interface GameState {
   thoughtAt: number;
   /** Бесплатный сброс дерева Перков уже использован в этом Забеге (ADR-0012). Престиж снимает отметку. */
   perkResetUsed: boolean;
+  /**
+   * Курс текущего Забега (ADR-0013): id из `data/courses.ts`; `null` — Забег без Курса (первый
+   * Забег игры и сохранения, прожитые до Курса). Пишет его только Престиж, из `courseNext`:
+   * внутри Забега сменить Курс нечем.
+   */
+  course: string | null;
+  /**
+   * Три Курса, предложенных на ближайший Престиж; пуст, пока Флагман не нанят, и после Престижа.
+   * Хранится в состоянии, а не считается заново при показе: перезагрузка и закрытая вкладка не
+   * перебрасывают варианты. Набор определён зерном Престижа (`course.ts`), поэтому он и воспроизводим.
+   */
+  courseOffer: string[];
+  /** Курс, выбранный из `courseOffer` и ещё не подтверждённый Престижем; его можно менять до подтверждения. */
+  courseNext: string | null;
   prestiges: number;
   achievements: string[];
   /** Целые Compute-кристаллы в запасе: копятся, а не тратятся автоматически. */
@@ -189,6 +203,9 @@ export function newGame(now: number): GameState {
     thought: 0,
     thoughtAt: 0,
     perkResetUsed: false,
+    course: null,
+    courseOffer: [],
+    courseNext: null,
     prestiges: 0,
     achievements: [],
     crystals: 0,

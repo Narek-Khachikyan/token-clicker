@@ -1,4 +1,5 @@
 import { characterMods } from './character';
+import { courseThermalMods } from './course';
 import { perkEffects } from './perks';
 import type { GameState } from './state';
 
@@ -157,14 +158,16 @@ export function thermalMods(perks: string[]): ThermalMods {
  * Температуры остаётся не меньше единицы.
  * Тот же результат читают тик, шкала, магазин и справка, поэтому у них одна правда.
  */
-export function thermalModsFor(state: Pick<GameState, 'perks' | 'generation' | 'agents'>): ThermalMods {
+export function thermalModsFor(state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course'>): ThermalMods {
   const perks = thermalMods(state.perks);
   const office = characterMods(state);
-  if (office.heat === 1 && office.yield === 0 && office.hallu === 1) return perks;
+  const course = courseThermalMods(state);
+  if (office.heat === 1 && office.yield === 0 && office.hallu === 1 && course.heat === 1 && course.hallu === 1) return perks;
   return {
     ...perks,
-    heat: perks.heat * office.heat,
-    hallu: perks.hallu * office.hallu,
+    // Курс «Холодная голова» стоит поверх Перков и Характеров: все три копятся, как Осторожность с охлаждением.
+    heat: perks.heat * office.heat * course.heat,
+    hallu: perks.hallu * office.hallu * course.hallu,
     yield: Math.max(-1, perks.yield + office.yield),
   };
 }
@@ -176,7 +179,7 @@ export function thermalModsFor(state: Pick<GameState, 'perks' | 'generation' | '
  */
 const safeTempOf = (mods: ThermalMods): number => Math.min(TEMP_MAX, HEAT_COOL_RATE / (HEAT_RATE * mods.heat));
 
-export const safeTemp = (state: Pick<GameState, 'perks' | 'generation' | 'agents'>): number =>
+export const safeTemp = (state: Pick<GameState, 'perks' | 'generation' | 'agents' | 'course'>): number =>
   safeTempOf(thermalModsFor(state));
 
 export const heatRate = (temp: number, mods: ThermalMods = NO_THERMAL_MODS): number => HEAT_RATE * temp * mods.heat;

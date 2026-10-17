@@ -3,6 +3,9 @@ import { useGameStore, useStateSlice, type PrestigeSection } from '../store/useG
 import { challengeCardView, challengeView, prestigeCardView } from '../store/selectors';
 import { CATALOG, LAST_GENERATION } from '../economy/catalog';
 import { CHALLENGES, CHALLENGE_REWARD_PCT, type ChallengeDef } from '../economy/challenges';
+import { COURSE_BY_ID, courseById, type Course } from '../data/courses';
+import { LABS } from '../data/labs';
+import { courseMissing } from '../economy/course';
 import { COMPUTE_BONUS } from '../economy/engine';
 import { PRESTIGE_KEEPS, PRESTIGE_RESETS, type PrestigeEffect } from '../economy/prestigeForecast';
 import { Hint } from './Hint';
@@ -81,6 +84,8 @@ const EffectList: React.FC<{ title: string; items: readonly PrestigeEffect[]; ma
 export const PrestigeForecastCard: React.FC<{ onBackToModels: () => void }> = ({ onBackToModels }) => {
   const requestPrestige = useGameStore((s) => s.requestPrestige);
   const generation = useGameStore((s) => s.state.generation);
+  // Предложение лежит, а Курс не выбран: кнопка честно говорит, чего не хватает, а окно подтверждения объяснит.
+  const needsCourse = useGameStore((s) => courseMissing(s.state));
   const view = useStateSlice(prestigeCardView);
   const { finale, ready } = view;
   const next = CATALOG[Math.min(generation + 1, LAST_GENERATION)];
@@ -144,7 +149,7 @@ export const PrestigeForecastCard: React.FC<{ onBackToModels: () => void }> = ({
           причине, а окно подтверждения её объясняет и отказывает тем же переходом,
           который проверяет стор. */}
       <button onClick={requestPrestige} className="pixel-btn pixel-btn-gold" style={{ width: '100%' }}>
-        {finale ? 'Финал контента' : ready ? 'Сделать Престиж!' : 'Нужен 1 Агент Флагмана'}
+        {finale ? 'Финал контента' : ready ? (needsCourse ? 'Сначала выбери Курс' : 'Сделать Престиж!') : 'Нужен 1 Агент Флагмана'}
       </button>
 
       {/* Финал контента: кнопка Престижа выше ничего не выполнит, поэтому плашка без
@@ -263,6 +268,98 @@ export const ChallengeCard: React.FC = () => {
         {CHALLENGES.map((def) => (
           <ChallengeOption key={def.id} def={def} canStart={canStart} />
         ))}
+      </div>
+    </div>
+  );
+};
+
+/** Один вариант Курса: название, что он делает и голос Маскота, который его предлагает. */
+const CourseOption: React.FC<{ course: Course; chosen: boolean; onPick: () => void }> = ({ course, chosen, onPick }) => {
+  const lab = LABS[course.lab];
+  return (
+    <button
+      type="button"
+      aria-pressed={chosen}
+      onClick={onPick}
+      className="pixel-card course-option"
+      style={{
+        textAlign: 'left',
+        backgroundColor: 'var(--bg-card)',
+        border: chosen ? 'var(--frame-w) solid var(--accent-color)' : 'var(--frame-w) solid var(--border)',
+        padding: 'var(--space-2)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-1)',
+        width: '100%',
+        minHeight: 'var(--tap-min)',
+        cursor: 'pointer',
+        font: 'inherit',
+        color: 'inherit',
+      }}
+    >
+      <span style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 'var(--space-2)' }}>
+        <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>{course.name}</span>
+        <span style={{ fontSize: 'var(--text-xs)', color: chosen ? 'var(--accent-color)' : 'var(--text-muted)', flexShrink: 0 }}>
+          {chosen ? 'Выбрано' : course.effect.kind === 'rule' ? 'Правило Поколения' : 'Собственный Курс'}
+        </span>
+      </span>
+      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>{course.summary}</span>
+      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+        <span style={{ color: lab.color }}>{lab.mascot}</span>: {course.quip}
+      </span>
+    </button>
+  );
+};
+
+/**
+ * Выбор Курса нового Забега (ADR-0013): три варианта, предложенные при найме Флагмана, лежат в
+ * состоянии и не меняются от перезагрузки. Выбор свободный до подтверждения Престижа; после него
+ * Курс держится весь Забег, и карточка говорит об этом словами. Решение «можно ли» — за ядром
+ * (`chooseCourse` в сторе): здесь только показ.
+ */
+export const CourseCard: React.FC = () => {
+  const chooseCourse = useGameStore((s) => s.chooseCourse);
+  // Подписка на примитивы и стабильные ссылки: `courseOffer` меняется предложением, а не тиком.
+  const offer = useGameStore((s) => s.state.courseOffer);
+  const next = useGameStore((s) => s.state.courseNext);
+  const current = courseById(useGameStore((s) => s.state.course));
+  const options = offer.map((id) => COURSE_BY_ID[id]).filter((c): c is Course => !!c);
+
+  return (
+    <div
+      className="pixel-card"
+      style={{ padding: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}
+    >
+      <div className="pixel-22" style={{ color: 'var(--text-main)' }}>
+        Курс нового Забега
+      </div>
+      {options.length === 0 ? (
+        <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+          Когда наймёшь Флагмана, Маскоты предложат три Курса. Выбранный действует весь следующий Забег, и
+          сменить его до следующего Престижа нельзя.
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: '0.875rem', color: next ? 'var(--text-muted)' : 'var(--text-main)' }}>
+            {next
+              ? 'Курс можно сменить, пока не подтвердил Престиж: после него он действует весь Забег.'
+              : 'Выбери один из трёх Курсов: без выбора Престиж не начнётся. Курс действует весь следующий Забег.'}
+          </div>
+          <div role="group" aria-label="Курсы на выбор" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+            {options.map((c) => (
+              <CourseOption key={c.id} course={c} chosen={next === c.id} onPick={() => chooseCourse(c.id)} />
+            ))}
+          </div>
+        </>
+      )}
+      <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+        {current ? (
+          <>
+            Сейчас действует Курс «{current.name}»: {current.summary}
+          </>
+        ) : (
+          'Сейчас Забег идёт без Курса.'
+        )}
       </div>
     </div>
   );

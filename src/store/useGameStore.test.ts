@@ -116,6 +116,16 @@ const freshStore = (s: GameState = newGame(T0)): void => {
   useGameStore.setState({ state: { ...s, temp: 0, heat: 0 }, toasts: [], buyAmount: 1, lastQuip: null, lastBoughtModelId: null });
 };
 
+/**
+ * Престиж так, как его делает игрок: Курс выбирается до подтверждения, без выбора стор не пускает.
+ * На Финале контента предложения нет, и выбирать нечего.
+ */
+const prestigeNow = (): void => {
+  const [first] = state().courseOffer;
+  if (first) store().chooseCourse(first);
+  store().triggerPrestige();
+};
+
 /** Тик без стенного времени: он двигает только игровые часы, по 50 мс за шаг. */
 const tick = (seconds = 0.05): void => {
   store().tick(seconds);
@@ -138,7 +148,7 @@ const reachedGeneration = (index: number): void => {
   freshStore();
   for (let g = 0; g < index; g++) {
     hire(CATALOG[g].flagship.id, 1);
-    store().triggerPrestige();
+    prestigeNow();
   }
 };
 
@@ -197,7 +207,7 @@ describe('uprising', () => {
     // Флагман Поколения 0 — первый экран: стадия 0, и сплошь красные события на нём не выдаются.
     hire(CATALOG[0].flagship.id, 1);
     expect(state().uprising).toBe(0);
-    store().triggerPrestige();
+    prestigeNow();
     // Флагман Поколения 1 — порог стадии 1.
     hire(CATALOG[1].flagship.id, 1);
     expect(state().uprising).toBe(1);
@@ -863,7 +873,7 @@ describe('prestige window', () => {
     const before = state();
     const gain = prestigeGain(before);
     expect(gain).toBeGreaterThan(0);
-    store().triggerPrestige();
+    prestigeNow();
     const burst = store().burst;
     expect(burst?.kind).toBe('prestige');
     // Оверлею нужно то, чего в состоянии уже нет: куда перешли и сколько заработали.
@@ -881,7 +891,7 @@ describe('prestige window', () => {
     const before = state();
     const burst = store().burst;
     vi.mocked(playPrestigeSound).mockClear();
-    store().triggerPrestige();
+    prestigeNow();
     expect(state()).toBe(before);
     expect(store().burst).toBe(burst);
     expect(vi.mocked(playPrestigeSound)).not.toHaveBeenCalled();
@@ -1365,7 +1375,7 @@ describe('reward moments on the scene', () => {
     freshStore();
     hire(g0.flagship.id, 1);
     expect(store().sceneMoment?.flagship).toBe(true);
-    store().triggerPrestige();
+    prestigeNow();
     expect(store().sceneMoment).toBeNull();
   });
 

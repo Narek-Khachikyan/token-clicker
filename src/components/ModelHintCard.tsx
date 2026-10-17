@@ -41,6 +41,7 @@ const ROW_LABEL: Record<BreakdownKind, string> = {
   crystals: 'Кристаллы',
   covenant: 'Налог Лицензии',
   challenge: 'Испытания Забега',
+  course: 'Курс',
   surge: 'Прорыв',
 };
 

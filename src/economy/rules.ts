@@ -1,5 +1,6 @@
 import { CATALOG, type Model } from './catalog';
 import type { GameState } from './state';
+import { courseById } from '../data/courses';
 import { GENERATION_RULES, type GenerationRule, type RuleEffect } from '../data/generationRules';
 import type { LabId } from '../data/labs';
 
@@ -8,9 +9,44 @@ export function generationRule(generation: number): GenerationRule | null {
   return GENERATION_RULES.find((r) => r.generation === generation) ?? null;
 }
 
-/** Правило, действующее в Забеге сейчас: только своего Поколения (ADR-0013), других источников пока нет. */
-export function activeRule(state: GameState): GenerationRule | null {
+/** Правило своего Поколения: оно действует в каждом Забеге Поколения, что бы ни выбрал Курс. */
+export function activeRule(state: Pick<GameState, 'generation'>): GenerationRule | null {
   return generationRule(state.generation);
+}
+
+/** Правило пройденного Поколения, которое игрок взял Курсом; `null`, если Курс другой или его нет. */
+export function courseRule(state: Pick<GameState, 'course'>): GenerationRule | null {
+  const effect = courseById(state.course)?.effect;
+  return effect?.kind === 'rule' ? (GENERATION_RULES.find((r) => r.id === effect.rule) ?? null) : null;
+}
+
+/**
+ * Правила, действующие в Забеге: своё Правило Поколения и Правило, взятое Курсом (ADR-0013).
+ * Курс берёт Правило пройденного Поколения, а не текущего, поэтому виды эффектов у двух не
+ * совпадают: каждый вид читается из единственного места (`ruleEffect`), и надбавки не удваиваются.
+ */
+export function activeRules(state: Pick<GameState, 'generation' | 'course'>): GenerationRule[] {
+  const own = activeRule(state);
+  const taken = courseRule(state);
+  return own && taken ? [own, taken] : own ? [own] : taken ? [taken] : [];
+}
+
+/**
+ * Эффект Правила вида `kind`, если он сейчас действует в Забеге: своего Поколения или взятого Курсом.
+ * Единственная точка, через которую экономика, сохранение и интерфейс спрашивают про Правила, —
+ * поэтому Курс с Правилом включает его везде, где оно читается, а не в одном месте.
+ */
+export function ruleEffect<K extends RuleEffect['kind']>(
+  state: Pick<GameState, 'generation' | 'course'>,
+  kind: K,
+): Extract<RuleEffect, { kind: K }> | null {
+  for (const rule of activeRules(state)) if (rule.effect.kind === kind) return rule.effect as Extract<RuleEffect, { kind: K }>;
+  return null;
+}
+
+/** Правило, чей эффект вида `kind` действует: нужно подписям, которые называют Правило по имени. */
+export function ruleOfKind(state: Pick<GameState, 'generation' | 'course'>, kind: RuleEffect['kind']): GenerationRule | null {
+  return activeRules(state).find((r) => r.effect.kind === kind) ?? null;
 }
 
 /**
@@ -21,8 +57,8 @@ export function activeRule(state: GameState): GenerationRule | null {
  * время простоя (часы `lastTick` уходят вперёд при возвращении) читаются одним и тем же сравнением.
  */
 export function buyStreakNow(state: GameState, now: number = state.lastTick): number {
-  const effect = activeRule(state)?.effect;
-  if (effect?.kind !== 'buyStreak' || state.buyStreak <= 0 || state.lastBuyAt <= 0) return 0;
+  const effect = ruleEffect(state, 'buyStreak');
+  if (!effect || state.buyStreak <= 0 || state.lastBuyAt <= 0) return 0;
   return now - state.lastBuyAt > effect.resetSec * 1000 ? 0 : state.buyStreak;
 }
 
@@ -31,8 +67,8 @@ export function buyStreakNow(state: GameState, now: number = state.lastTick): nu
  * отметку времени; вне Правила — тот же объект.
  */
 export function noteHire(state: GameState, count: number): GameState {
-  const effect = activeRule(state)?.effect;
-  if (effect?.kind !== 'buyStreak' || count <= 0) return state;
+  const effect = ruleEffect(state, 'buyStreak');
+  if (!effect || count <= 0) return state;
   return { ...state, buyStreak: Math.min(buyStreakLimit(effect), buyStreakNow(state) + count), lastBuyAt: state.lastTick };
 }
 
@@ -55,13 +91,16 @@ export function buyStreakLimit(effect: Extract<RuleEffect, { kind: 'buyStreak' }
  * из десяти стоит как десять подряд с одной и той же надбавкой, а дорожает уже следующая.
  */
 export function rulePriceMult(state: GameState): number {
-  const effect = activeRule(state)?.effect;
-  if (effect?.kind === 'buyStreak') {
-    return 1 + Math.min(effect.maxExtra, effect.perAgent * buyStreakNow(state));
+  // Две надбавки цены независимы: Курс с «Дефицитом GPU» в Поколении «Ценовой войны» множит обе.
+  let mult = 1;
+  const streak = ruleEffect(state, 'buyStreak');
+  if (streak) mult *= 1 + Math.min(streak.maxExtra, streak.perAgent * buyStreakNow(state));
+  const decay = ruleEffect(state, 'priceDecay');
+  if (decay) {
+    const minutes = Math.floor(Math.max(0, state.lastTick - state.runStartedAt) / 60_000);
+    mult *= decay.floor + (1 - decay.floor) * Math.pow(0.5, minutes / decay.halfLifeMin);
   }
-  if (effect?.kind !== 'priceDecay') return 1;
-  const minutes = Math.floor(Math.max(0, state.lastTick - state.runStartedAt) / 60_000);
-  return effect.floor + (1 - effect.floor) * Math.pow(0.5, minutes / effect.halfLifeMin);
+  return mult;
 }
 
 /** Сколько разных Лабораторий нанято: ключ кэша — ссылка на `agents`, которая меняется покупкой, а не тиком. */
@@ -84,12 +123,12 @@ function labsInOffice(state: GameState): number {
  * без неё он молчит, а «Разнообразие» общее для всех Моделей.
  */
 export function ruleIncomeMult(state: GameState, model?: Model): number {
-  const effect = activeRule(state)?.effect;
-  if (effect?.kind === 'labVariety') return 1 + effect.perLab * Math.max(0, labsInOffice(state) - 1);
-  if (effect?.kind === 'topRouter' && model) {
-    return model.rank >= CATALOG[state.generation].models.length - effect.top ? 1 : effect.rest;
-  }
-  return 1;
+  let mult = 1;
+  const variety = ruleEffect(state, 'labVariety');
+  if (variety) mult *= 1 + variety.perLab * Math.max(0, labsInOffice(state) - 1);
+  const router = ruleEffect(state, 'topRouter');
+  if (router && model && model.rank < CATALOG[state.generation].models.length - router.top) mult *= router.rest;
+  return mult;
 }
 
 /** Лаборатории Поколения в порядке первого появления в каталоге: порядок один и тот же при каждой загрузке. */
@@ -98,7 +137,7 @@ function labsOfGeneration(generation: number): LabId[] {
 }
 
 /** Mulberry32 от 32-битного зерна: тот же вход — тот же перебор, без `Math.random`. */
-function seededRandom(seed: number): () => number {
+export function seededRandom(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -155,8 +194,8 @@ export interface ArenaOutlook {
  * надбавка лидера не входит.
  */
 export function arenaOutlook(state: GameState, now: number = state.lastTick): ArenaOutlook | null {
-  const effect = activeRule(state)?.effect;
-  if (effect?.kind !== 'arenaLeader') return null;
+  const effect = ruleEffect(state, 'arenaLeader');
+  if (!effect) return null;
   const labs = labsOfGeneration(state.generation);
   const periodMs = effect.periodMin * 60_000;
   const elapsed = Math.max(0, now - state.runStartedAt);
@@ -178,8 +217,8 @@ export function arenaOutlook(state: GameState, now: number = state.lastTick): Ar
  * тик и подпись в магазине читали один и тот же момент.
  */
 export function ruleLiveIncomeMult(state: GameState, model: Model, now: number = state.lastTick): number {
-  const effect = activeRule(state)?.effect;
-  if (effect?.kind !== 'arenaLeader') return 1;
+  const effect = ruleEffect(state, 'arenaLeader');
+  if (!effect) return 1;
   return arenaOutlook(state, now)?.leader === model.lab ? effect.bonus : 1;
 }
 
@@ -195,8 +234,8 @@ export function ruleLiveIncomeMult(state: GameState, model: Model, now: number =
  * Кликов» — тот же объект.
  */
 export function holdThought(state: GameState): GameState {
-  const effect = activeRule(state)?.effect;
-  if (effect?.kind !== 'heldThought' || state.activeChallenge === 'no-click') return state;
+  const effect = ruleEffect(state, 'heldThought');
+  if (!effect || state.activeChallenge === 'no-click') return state;
   const now = state.lastTick;
   if (state.thoughtAt === 0) return { ...state, thoughtAt: now };
   const gap = (now - state.thoughtAt) / 1000;
@@ -220,8 +259,8 @@ export interface ThoughtOutlook {
 
 /** Размышление для HUD и подсказки; `null` вне «Подумай ещё». */
 export function thoughtOutlook(state: GameState, now: number = state.lastTick): ThoughtOutlook | null {
-  const effect = activeRule(state)?.effect;
-  if (effect?.kind !== 'heldThought') return null;
+  const effect = ruleEffect(state, 'heldThought');
+  if (!effect) return null;
   return {
     seconds: state.thought,
     mult: thoughtMult(effect, state.thought),

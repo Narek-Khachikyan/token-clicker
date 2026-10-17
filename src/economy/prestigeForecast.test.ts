@@ -114,6 +114,9 @@ function loadedRun(): GameState {
     temp: 1.3,
     heat: 0.4,
     overheatedAt: T0 - 7000,
+    course: 'scale',
+    courseOffer: ['frugal', 'cool', 'signal'],
+    courseNext: 'cool',
   };
 }
 
