@@ -269,7 +269,7 @@ export const LAST_GENERATION = CATALOG.length - 1;
  * верны только для неё; замер — в докблоке `paceCurve.ts`. Меняя Правила, Характеры, Перки или Глюки, прогоните
  * симулятор заново и подвиньте числа: они не выводятся, а подгоняются.
  */
-export const PRESTIGE_PACE: readonly number[] = [1.7, 0.22, 1.5, 0.7, 0.4, 1.4, 11, 1];
+export const PRESTIGE_PACE: readonly number[] = [1.7, 0.22, 1.7, 0.7, 0.4, 1.4, 10.3, 1];
 
 /** Делитель прироста Compute, приведённый к масштабу Поколения. */
 export const prestigeDivisor = (generation: number): number =>
