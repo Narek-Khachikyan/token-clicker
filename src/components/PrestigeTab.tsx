@@ -6,7 +6,8 @@ import { CHALLENGES, INHERITED_REWARD_PCT, type ChallengeDef } from '../economy/
 import { COURSE_BY_ID, courseById, type Course } from '../data/courses';
 import { LABS } from '../data/labs';
 import { courseMissing } from '../economy/course';
-import { COMPUTE_BONUS } from '../economy/engine';
+import { COMPUTE_BONUS, isContentFinale, passedGenerations } from '../economy/engine';
+import { generationRule } from '../economy/rules';
 import { PRESTIGE_KEEPS, PRESTIGE_RESETS, type PrestigeEffect } from '../economy/prestigeForecast';
 import { Num } from './Num';
 import { onTabRowKeyDown } from './tabRow';
@@ -85,9 +86,12 @@ export const PrestigeForecastCard: React.FC<{ onBackToModels: () => void }> = ({
   const generation = useGameStore((s) => s.state.generation);
   // Предложение лежит, а Курс не выбран: кнопка честно говорит, чего не хватает, а окно подтверждения объяснит.
   const needsCourse = useGameStore((s) => courseMissing(s.state));
+  // На Финале переход ведёт в выбранное пройденное Поколение: без выбора назвать его нельзя.
+  const finaleTarget = useGameStore((s) => s.finaleTarget);
   const view = useStateSlice(prestigeCardView);
   const { finale, ready } = view;
   const next = CATALOG[Math.min(generation + 1, LAST_GENERATION)];
+  const destination = finale ? (finaleTarget === null ? null : CATALOG[finaleTarget]) : next;
 
   return (
     <div
@@ -104,56 +108,65 @@ export const PrestigeForecastCard: React.FC<{ onBackToModels: () => void }> = ({
         Престиж в следующее поколение
       </div>
 
-      {!finale && (
-        <>
-          <div
-            style={{
-              backgroundColor: 'var(--tint-strong)',
-              padding: 'var(--space-2)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--space-1)',
-            }}
-          >
-            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Compute, если сделать Престиж сейчас</div>
-            {/* Через formatNumber (в срезе), иначе в поздней игре это число с пятнадцатью
-                значащими цифрами. То же число показывает окно подтверждения. */}
-            <div className="pixel-33" style={{ color: 'var(--gold)' }}>
-              +<Num>{view.gain}</Num>
-            </div>
-            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-              Свободная единица даёт +<Num>{Math.round(COMPUTE_BONUS * 100)}</Num>% к Доходу, а потраченная
-              на Перк уже ничего не прибавляет.
-            </div>
-          </div>
+      {/* Числа доступны и на Финале: Престиж там тоже платит Compute, а вернуться можно в пройденное Поколение. */}
+      <div
+        style={{
+          backgroundColor: 'var(--tint-strong)',
+          padding: 'var(--space-2)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 'var(--space-1)',
+        }}
+      >
+        <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Compute, если сделать Престиж сейчас</div>
+        {/* Через formatNumber (в срезе), иначе в поздней игре это число с пятнадцатью
+            значащими цифрами. То же число показывает окно подтверждения. */}
+        <div className="pixel-33" style={{ color: 'var(--gold)' }}>
+          +<Num>{view.gain}</Num>
+        </div>
+        <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+          Свободная единица даёт +<Num>{Math.round(COMPUTE_BONUS * 100)}</Num>% к Доходу, а потраченная
+          на Перк уже ничего не прибавляет.
+        </div>
+      </div>
 
-          <div style={{ fontSize: '0.875rem', color: 'var(--text-main)' }}>
-            {view.boostIsHalf ? 'До прибавки +50% Compute' : 'До следующей единицы Compute'}: ещё{' '}
-            <Num>{view.boostShortfall}</Num> {view.boostShortfallWord} в этом Забеге, и Престиж даст{' '}
-            <Num>{view.boostGain}</Num>.
-          </div>
+      <div style={{ fontSize: '0.875rem', color: 'var(--text-main)' }}>
+        {view.boostIsHalf ? 'До прибавки +50% Compute' : 'До следующей единицы Compute'}: ещё{' '}
+        <Num>{view.boostShortfall}</Num> {view.boostShortfallWord} в этом Забеге, и Престиж даст{' '}
+        <Num>{view.boostGain}</Num>.
+      </div>
 
-          <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-            Престиж завершит Забег и перенесёт тебя в Поколение {next.id}: {next.name}.
-          </div>
+      <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+        {destination ? (
+          <>
+            Престиж завершит Забег и {finale ? 'вернёт' : 'перенесёт'} тебя в Поколение {destination.id}: {destination.name}.
+          </>
+        ) : (
+          'Выбери пройденное Поколение выше: туда и вернёт Престиж.'
+        )}
+      </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
-            <EffectList title="Сбросится" items={PRESTIGE_RESETS} marker="−" tone="var(--red-text)" />
-            <EffectList title="Останется" items={PRESTIGE_KEEPS} marker="+" tone="var(--green-text)" />
-          </div>
-        </>
-      )}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+        <EffectList title="Сбросится" items={PRESTIGE_RESETS} marker="−" tone="var(--red-text)" />
+        <EffectList title="Останется" items={PRESTIGE_KEEPS} marker="+" tone="var(--green-text)" />
+      </div>
 
       {/* Кнопка не гаснет, даже когда Престиж невозможен: погашенная кнопка молчит о
           причине, а окно подтверждения её объясняет и отказывает тем же переходом,
           который проверяет стор. */}
       <button onClick={requestPrestige} className="pixel-btn pixel-btn-gold" style={{ width: '100%' }}>
-        {finale ? 'Финал контента' : ready ? (needsCourse ? 'Сначала выбери Курс' : 'Сделать Престиж!') : 'Нужен 1 Агент Флагмана'}
+        {!ready
+          ? 'Нужен 1 Агент Флагмана'
+          : needsCourse
+            ? 'Сначала выбери Курс'
+            : finale && finaleTarget === null
+              ? 'Сначала выбери Поколение'
+              : 'Сделать Престиж!'}
       </button>
 
-      {/* Финал контента: кнопка Престижа выше ничего не выполнит, поэтому плашка без
-          действия — тупик. CTA ведёт на вкладку «Модели» тем же локальным setTab,
-          без новой навигации; текст не противоречит плашке Сцены в OfficeColumn. */}
+      {/* Финал контента: Престиж здесь возвращает в пройденное Поколение (список выше), поэтому плашка
+          больше не тупик. CTA ведёт на вкладку «Модели» тем же локальным setTab, без новой навигации;
+          текст не противоречит плашке Сцены в OfficeColumn. */}
       {finale && (
         <div
           style={{
@@ -168,14 +181,90 @@ export const PrestigeForecastCard: React.FC<{ onBackToModels: () => void }> = ({
           }}
         >
           <div>
-            Ты дошёл до последнего Поколения — продолжение выйдет с новыми моделями. А
-            пока закрой все Достижения и развей офис до максимума
+            Ты дошёл до последнего Поколения — продолжение выйдет с новыми моделями. Престиж вернёт тебя
+            в любое пройденное Поколение, выбери его выше. А пока закрой все Достижения и развей офис до максимума
           </div>
           <button onClick={onBackToModels} className="pixel-btn pixel-btn-accent" style={{ width: '100%' }}>
             К Моделям
           </button>
         </div>
       )}
+    </div>
+  );
+};
+
+/** Одно пройденное Поколение в списке возврата: номер, название и Правило, которое в нём действует. */
+const GenerationOption: React.FC<{ index: number; chosen: boolean; onPick: () => void }> = ({ index, chosen, onPick }) => {
+  const gen = CATALOG[index];
+  const rule = generationRule(index);
+  return (
+    <button
+      type="button"
+      aria-pressed={chosen}
+      onClick={onPick}
+      className="pixel-card course-option"
+      style={{
+        textAlign: 'left',
+        backgroundColor: 'var(--bg-card)',
+        border: chosen ? 'var(--frame-w) solid var(--accent-color)' : 'var(--frame-w) solid var(--border)',
+        padding: 'var(--space-2)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-1)',
+        width: '100%',
+        minHeight: 'var(--tap-min)',
+        cursor: 'pointer',
+        font: 'inherit',
+        color: 'inherit',
+      }}
+    >
+      <span style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 'var(--space-2)' }}>
+        <span style={{ fontSize: '1rem', color: 'var(--text-main)' }}>
+          Поколение <Num>{gen.id}</Num>: {gen.name}
+        </span>
+        <span style={{ fontSize: 'var(--text-xs)', color: chosen ? 'var(--accent-color)' : 'var(--text-muted)', flexShrink: 0 }}>
+          {chosen ? 'Выбрано' : 'Пройдено'}
+        </span>
+      </span>
+      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+        {rule ? `Правило Поколения: ${rule.name}` : 'Без Правила Поколения'}
+      </span>
+    </button>
+  );
+};
+
+/**
+ * Возврат с Финала контента (ADR-0013, слой 5): список всех пройденных Поколений, из которых игрок
+ * выбирает, куда вернуться. Виден только на Финале; вне Финала карточки нет. Решение «можно ли» — за
+ * ядром (`prestigeDestination`) и стором (`chooseFinaleTarget`): здесь только показ и выбор.
+ */
+export const ReturnGenerationCard: React.FC = () => {
+  const finale = useStateSlice(isContentFinale);
+  // Примитивы, а не состояние: список меняется только с Престижем, а не с тиком.
+  const maxGeneration = useGameStore((s) => s.state.maxGeneration);
+  const chosen = useGameStore((s) => s.finaleTarget);
+  const chooseFinaleTarget = useGameStore((s) => s.chooseFinaleTarget);
+  if (!finale) return null;
+  const options = passedGenerations(maxGeneration);
+
+  return (
+    <div
+      className="pixel-card"
+      style={{ padding: 'var(--space-3)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}
+    >
+      <div className="pixel-22" style={{ color: 'var(--gold)' }}>
+        Вернуться в пройденное Поколение
+      </div>
+      <div style={{ fontSize: '0.875rem', color: chosen === null ? 'var(--text-main)' : 'var(--text-muted)' }}>
+        {chosen === null
+          ? 'Выбери одно: Престиж вернёт тебя туда и начнёт Забег заново. Сменить выбор можно, пока не подтвердил Престиж.'
+          : 'Выбор можно сменить, пока не подтвердил Престиж.'}
+      </div>
+      <div role="group" aria-label="Пройденные Поколения" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+        {options.map((index) => (
+          <GenerationOption key={index} index={index} chosen={chosen === index} onPick={() => chooseFinaleTarget(index)} />
+        ))}
+      </div>
     </div>
   );
 };

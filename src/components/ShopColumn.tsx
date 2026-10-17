@@ -43,7 +43,7 @@ import { ModelHintCard } from './ModelHintCard';
 import { Icon } from './Icon';
 import { CoachArrow } from './CoachArrow';
 import { onTabRowKeyDown } from './tabRow';
-import { ChallengeCard, CourseCard, PrestigeForecastCard, PrestigeSectionNav } from './PrestigeTab';
+import { ChallengeCard, CourseCard, PrestigeForecastCard, PrestigeSectionNav, ReturnGenerationCard } from './PrestigeTab';
 import { playDenySound } from '../audio/sound';
 import { buyAmountFor } from '../hotkeys';
 
@@ -1446,6 +1446,7 @@ const PrestigeShopTab: React.FC<{ onBackToModels: () => void }> = ({ onBackToMod
         {section === 'prestige' && (
           <>
             <CourseCard />
+            <ReturnGenerationCard />
             <PrestigeForecastCard onBackToModels={onBackToModels} />
             <ChallengeCard />
           </>
@@ -1501,8 +1502,8 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
 
   // Вкладка «Престиж» появляется вместе с Флагманом в списке Моделей, но пока Флагман не нанят,
   // она приглушена: игрок видит цель, а подсказка на ней говорит, чего не хватает. На финале
-  // контента Престиж недоступен навсегда, поэтому приглушение там не снимается.
-  const prestigeLocked = finale || !prestigeReady;
+  // контента Престиж открыт: он возвращает в пройденное Поколение, поэтому приглушения там нет.
+  const prestigeLocked = !prestigeReady;
 
   // Престиж открывает окно подтверждения, а не выполняется здесь: сброс Забега необратим,
   // и игрок должен увидеть, сколько Compute начислит, что сгорит и в какое Поколение он
@@ -1614,7 +1615,7 @@ const ShopColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
             className={`pixel-btn pixel-22 ${shownTab === 'prestige' ? 'pixel-btn-accent' : ''}`}
             title={
               finale
-                ? 'Ты дошёл до последнего поколения — дальше престиж недоступен'
+                ? 'Ты дошёл до последнего поколения — Престиж вернёт в пройденное Поколение'
                 : prestigeReady
                   ? undefined
                   : 'Найми 1 агента флагмана, чтобы разблокировать престиж'
