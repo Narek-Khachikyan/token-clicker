@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CATALOG } from './catalog';
 import { advanceTime } from './engine';
 import { newGame, type GameState } from './state';
-import { HEAT_COOL_RATE, HEAT_RATE, heatRate, safeTemp, thermalModsFor, thermalRead } from './thermal';
+import { HEAT_COOL_RATE, HEAT_RATE, TEMP_MAX, heatRate, safeTemp, thermalModsFor, thermalRead } from './thermal';
 import { characterStrength } from './character';
 import type { LabId } from '../data/labs';
 
@@ -96,7 +96,10 @@ describe('Характер Лаборатории: сила зависит от 
     const cooled = office({ anthropic: 30 }, ['oc_cooling']);
     // Жидкостное охлаждение (×0,85) стоит поверх Осторожности, а не вместо неё.
     expect(safeTemp(cooled)).toBeCloseTo(safeTemp(plain) / 0.85, 9);
-    expect(secondsToOverheat(cooled, 1)).toBeGreaterThan(secondsToOverheat(plain, 1));
+    // На предельной шкале, где перегрев копится заведомо: на единице осторожный офис с охлаждением
+    // не перегревается вовсе.
+    expect(secondsToOverheat(plain, TEMP_MAX)).toBeLessThan(Infinity);
+    expect(secondsToOverheat(cooled, TEMP_MAX)).toBeGreaterThan(secondsToOverheat(plain, TEMP_MAX));
     const tuned = office({ xai: 30 }, ['oc_tuning']);
     expect(thermalRead({ ...tuned, temp: 1 }).mult).toBeGreaterThan(thermalRead({ ...office({ xai: 30 }), temp: 1 }).mult);
     expect(thermalRead({ ...tuned, temp: 1 }).mult).toBeGreaterThan(

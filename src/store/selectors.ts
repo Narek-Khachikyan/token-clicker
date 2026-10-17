@@ -250,7 +250,7 @@ export function thermalView(s: GameState): ThermalView {
     status,
     heatBar: Math.round(heatPct * 2) / 2,
     heatNow: Math.round(heatPct),
-    safe: `безопасно до ${formatNumber(read.safeTemp, s.settings.notation)}`,
+    safe: `безопасно до ${read.safeTemp.toFixed(2)}`,
     heatHigh: read.heat > 0.75,
     mult: formatNumber(read.mult, s.settings.notation),
     valueText: `${read.temp.toFixed(2)} из ${TEMP_MAX}, Доход ×${read.mult.toFixed(2)}, ${status}`,

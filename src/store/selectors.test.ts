@@ -231,7 +231,7 @@ describe('temperature slices', () => {
     };
     const calm = thermalView(officeOf('anthropic'));
     const hot = thermalView(officeOf('xai'));
-    expect(calm.safe).toBe(`безопасно до ${formatNumber(thermalRead(officeOf('anthropic')).safeTemp)}`);
+    expect(calm.safe).toBe(`безопасно до ${thermalRead(officeOf('anthropic')).safeTemp.toFixed(2)}`);
     expect(calm.safe).not.toBe(hot.safe);
     expect(thermalRead(officeOf('anthropic')).safeTemp).toBeGreaterThan(thermalRead(officeOf('xai')).safeTemp);
     // Ровная шкала не перерисовывается: безопасная Температура стоит, пока не сменился состав офиса.

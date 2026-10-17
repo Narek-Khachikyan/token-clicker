@@ -45,7 +45,7 @@ export const CHARACTERS: Partial<Record<LabId, Character>> = {
   },
   mistral: {
     name: 'Компактность',
-    summary: 'каждый Агент греет меньше: перегрев копится медленнее',
+    summary: 'каждый Агент греет меньше, поэтому перегрев копится медленнее',
     effects: [{ kind: 'heat', perStrength: -0.45 }],
   },
 };

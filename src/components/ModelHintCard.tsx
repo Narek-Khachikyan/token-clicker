@@ -140,7 +140,7 @@ export const ModelHintCard: React.FC<{ model: Model }> = ({ model }) => {
             <span style={{ fontWeight: 700 }}>{character.name}</span>: {character.summary}
           </div>
           <Line label="Сила в вашем офисе" value={`${Math.round(characterStrength(state, model.lab) * 100)}%`} muted />
-          <Line label="Безопасная Температура офиса" value={formatNumber(safeTemp(state), notation)} muted />
+          <Line label="Безопасная Температура офиса" value={safeTemp(state).toFixed(2)} muted />
         </Section>
       )}
 
