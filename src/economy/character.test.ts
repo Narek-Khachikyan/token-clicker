@@ -261,9 +261,10 @@ describe('Конвейер Alibaba: растёт от числа разных М
     const solo = modelIncome(office({ alibaba: 30 }), alibaba);
     const three = modelIncome(office({ alibaba: 30, anthropic: 30, xai: 30 }), alibaba);
     const five = modelIncome(office({ alibaba: 30, anthropic: 30, xai: 30, mistral: 30, google: 30 }), alibaba);
-    // Каждая другая Модель даёт Alibaba +0,05 к множителю.
-    expect(three / solo).toBeCloseTo(1.1, 9);
-    expect(five / solo).toBeCloseTo(1.2, 9);
+    // Каждая другая Модель даёт Alibaba +0,02 к множителю: сильнее нельзя, иначе вместе с кривой
+    // порогов Апгрейдов Модели лестница Ранга и полоса 3× не держатся (tierCurve.test.ts).
+    expect(three / solo).toBeCloseTo(1.04, 9);
+    expect(five / solo).toBeCloseTo(1.08, 9);
   });
 
   it('считает разные Модели, а не Агентов: тридцать Агентов одной Модели прибавляют столько же, сколько триста', () => {

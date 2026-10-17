@@ -12,6 +12,7 @@ import {
 import type { GameState } from './state';
 import { surgeMultFor } from './events';
 import { thermalRead } from './thermal';
+import { MODEL_TIERS, modelTierThreshold, modelUpgradeId } from './upgrades';
 
 /**
  * Сводка Модели для карточки в магазине: из чего складывается её Доход, за сколько секунд
@@ -58,6 +59,14 @@ export interface BulkQuote {
   affordable: boolean;
 }
 
+/** Ближайшая некупленная ступень Апгрейдов Модели: сколько Агентов её открывает (кривая порогов по Рангу). */
+export interface NextUpgrade {
+  name: string;
+  threshold: number;
+  /** Порог взят, ступень уже в магазине: осталось купить. */
+  ready: boolean;
+}
+
 export interface ModelCardSummary {
   /** Разбивка Дохода Модели; произведение значений равно `income`. Множители, равные единице, опущены. */
   rows: BreakdownRow[];
@@ -70,6 +79,8 @@ export interface ModelCardSummary {
   /** Секунд до возврата цены следующего Агента; null, пока он Дохода не прибавляет. */
   paybackSec: number | null;
   availability: Availability;
+  /** Следующий Апгрейд Модели; null, когда куплены все ступени. */
+  nextUpgrade: NextUpgrade | null;
   bulk: BulkQuote[];
 }
 
@@ -90,6 +101,13 @@ export function availabilityOf(state: GameState, cost: number, income: number): 
   if (!(income > 0)) return { kind: 'long' };
   const seconds = (cost - state.tokens) / income;
   return seconds > AVAILABLE_CAP_SEC ? { kind: 'long' } : { kind: 'wait', seconds };
+}
+
+function nextUpgradeOf(state: GameState, model: Model, owned: number): NextUpgrade | null {
+  const tier = MODEL_TIERS.findIndex((_, t) => !state.upgrades.includes(modelUpgradeId(model.id, t)));
+  if (tier < 0) return null;
+  const threshold = modelTierThreshold(model, tier);
+  return { name: MODEL_TIERS[tier].name, threshold, ready: owned >= threshold };
 }
 
 export function modelCardSummary(state: GameState, model: Model, now: number = state.lastTick): ModelCardSummary {
@@ -123,6 +141,7 @@ export function modelCardSummary(state: GameState, model: Model, now: number = s
     thermalMult: thermalRead(state, now).mult,
     paybackSec: gain > 0 ? nextCost / gain : null,
     availability: availabilityOf(state, nextCost, totalIncome(state, now)),
+    nextUpgrade: nextUpgradeOf(state, model, owned),
     bulk: BULK_AMOUNTS.map((amount) => {
       const { count, cost } = purchaseQuote(state, model, amount);
       return { amount, count, cost, affordable: count > 0 && cost <= state.tokens };

@@ -67,7 +67,10 @@ export const CHARACTERS: Partial<Record<LabId, Character>> = {
   alibaba: {
     name: 'Конвейер',
     summary: 'Доход Alibaba растёт с каждой другой Моделью в офисе',
-    effects: [{ kind: 'pipeline', perModel: 0.05 }],
+    // 0,02 на каждую другую Модель — потолок, при котором Характер ещё помещается в лестницу Ранга
+    // вместе с кривой порогов Апгрейдов Модели (замер в `tierCurve.test.ts`): 0,022 даёт худший
+    // разброс окупаемости 2,97, 0,025 — 3,09. Полный офис из 19 Моделей даёт ×1,36, из 8 — ×1,14.
+    effects: [{ kind: 'pipeline', perModel: 0.02 }],
   },
   openai: {
     name: 'Хайп',
