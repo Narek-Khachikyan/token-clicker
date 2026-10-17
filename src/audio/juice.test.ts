@@ -304,11 +304,12 @@ describe('огибающая', () => {
     }
   });
 
-  it('varies the waveform instead of living on one timbre', () => {
+  it('varies the waveform instead of living on one timbre, and never reaches for a harsh one', () => {
     const waveforms = new Set(SOUNDS.flatMap(([, play]) => run(play).oscillators.map((osc) => osc.type)));
-    // Квадрат слышно как «чип», треугольник как «мягкий», синус как «стекло», пила как «жар».
-    // Один тип на все сигналы означал бы, что различает их только высота.
-    expect(waveforms.size).toBeGreaterThanOrEqual(3);
+    // Треугольник слышно как «дерево», синус как «стекло». Один тип на все сигналы означал бы,
+    // что различает их только высота; квадрат и пила звенели бы поверх спокойной музыки.
+    expect(waveforms.size).toBeGreaterThanOrEqual(2);
+    expect([...waveforms].filter((type) => type === 'square' || type === 'sawtooth')).toEqual([]);
   });
 
   it('detunes a layered pair, or the chime is one bare oscillator', () => {
@@ -383,6 +384,19 @@ describe('различимость', () => {
 });
 
 describe('разброс высоты', () => {
+  it('keeps the spread under a sixth of a semitone, so a repeat stays in the music\'s key', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const neutral = SOUNDS.map(([, play]) => pitches(run(play)));
+    vi.spyOn(Math, 'random').mockReturnValue(1);
+    const high = SOUNDS.map(([, play]) => pitches(run(play)));
+    for (let s = 0; s < SOUNDS.length; s++) {
+      for (let v = 0; v < neutral[s].length; v++) {
+        // 17 центов: дальше нота слышна как фальшь поверх аккорда лупа.
+        expect(1200 * Math.log2(high[s][v] / neutral[s][v]), `${SOUNDS[s][0]} #${v}`).toBeLessThan(17);
+      }
+    }
+  });
+
   it('moves the pitch on every call, or the hundredth repeat sounds like one machine', () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const mid = SOUNDS.map(([, play]) => pitches(run(play)).sort((a, b) => a - b));
