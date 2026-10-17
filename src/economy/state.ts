@@ -1,6 +1,6 @@
 import { TEMP_START } from './thermal';
 
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 
 /**
  * Громкость по умолчанию: 0.6, а не 1.
@@ -61,6 +61,11 @@ export interface GameState {
   compute: number;
   computeSpent: number;
   perks: string[];
+  /**
+   * Очередь закупок Правила «Агенты сами» (Агентная): id Моделей текущего Поколения в порядке найма.
+   * Пуста вне этого Правила и после Престижа. Исполняется только в живом тике, в оффлайн не попадает.
+   */
+  purchaseQueue: string[];
   /** Бесплатный сброс дерева Перков уже использован в этом Забеге (ADR-0012). Престиж снимает отметку. */
   perkResetUsed: boolean;
   prestiges: number;
@@ -163,6 +168,7 @@ export function newGame(now: number): GameState {
     compute: 0,
     computeSpent: 0,
     perks: [],
+    purchaseQueue: [],
     perkResetUsed: false,
     prestiges: 0,
     achievements: [],

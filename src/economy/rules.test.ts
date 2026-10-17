@@ -3,7 +3,9 @@ import { CATALOG } from './catalog';
 import { applyOffline, bulkCost, buyAgents, canPrestige, discountMult, modelIncome, offlineIncome } from './engine';
 import { DT, newSession, tick } from '../../tools/greedyPolicy';
 import { newGame, type GameState } from './state';
-import { generationRule, ruleIncomeMult, rulePriceMult } from './rules';
+import { arenaOutlook, generationRule, ruleIncomeMult, rulePriceMult } from './rules';
+import { exportSave, importSave } from './save';
+import { newsPool } from './news';
 import { GENERATION_RULES } from '../data/generationRules';
 import { LABS } from '../data/labs';
 
@@ -174,6 +176,155 @@ describe('Правило «Разнообразие» (Мультимодаль�
 
   it('не трогает цены', () => {
     expect(rulePriceMult(fullRoster(runAt(multimodal, 30)))).toBe(1);
+  });
+});
+
+describe('Правило «Роутер» (GPT-5)', () => {
+  const gpt5 = 6;
+  const models = CATALOG[gpt5].models;
+
+  /** Во сколько раз Доход одного Агента Модели в пустом офисе отличается от базового из каталога. */
+  const shareOfBase = (m: (typeof models)[number]) => modelIncome(loneAgent(runAt(gpt5), m.id), m) / m.baseIncome;
+
+  it('платит полный Доход трём умнейшим Моделям Поколения и 60% остальным', () => {
+    for (const m of models) {
+      const topThree = m.rank >= models.length - 3;
+      expect(shareOfBase(m), m.name).toBeCloseTo(topThree ? 1 : 0.6, 10);
+    }
+  });
+
+  it('держит троих умнейших вне зависимости от состава офиса: Рейтинг по Рангу, а не по тому, кого нанял игрок', () => {
+    const lowest = models[0];
+    const crowded = fullRoster(runAt(gpt5));
+    expect(modelIncome(crowded, lowest) / lowest.baseIncome / 1).toBeCloseTo(0.6, 10);
+    const flagship = models[models.length - 1];
+    expect(modelIncome(crowded, flagship) / flagship.baseIncome).toBeCloseTo(1, 10);
+  });
+
+  it('входит в Оффлайн-доход: расклад по Рангу не зависит от времени', () => {
+    const full = fullRoster(runAt(gpt5));
+    const rawIncome = models.reduce((sum, m) => sum + m.baseIncome, 0);
+    const paid = offlineIncome(full);
+    expect(paid).toBeLessThan(rawIncome);
+    expect(paid).toBeGreaterThan(rawIncome * 0.6);
+  });
+
+  it('не трогает цены', () => {
+    expect(rulePriceMult(fullRoster(runAt(gpt5, 30)))).toBe(1);
+  });
+});
+
+describe('Правило «Лидер Арены» (Фронтир)', () => {
+  const frontier = 7;
+  const models = CATALOG[frontier].models;
+  const labs = [...new Set(models.map((m) => m.lab))];
+  const PERIOD_MIN = 5;
+  const leaderAt = (minutes: number, over: Partial<GameState> = {}) =>
+    arenaOutlook({ ...runAt(frontier, minutes), ...over })!.leader;
+
+  it('ставит лидером Лабораторию Поколения и держит её весь период', () => {
+    for (let period = 0; period < 20; period++) {
+      const first = leaderAt(period * PERIOD_MIN);
+      expect(labs).toContain(first);
+      expect(leaderAt(period * PERIOD_MIN + 2.5)).toBe(first);
+      expect(leaderAt(period * PERIOD_MIN + PERIOD_MIN - 0.01)).toBe(first);
+    }
+  });
+
+  it('меняет лидера на каждой границе периода и ни разу не оставляет прежнего', () => {
+    for (let period = 1; period < 60; period++) {
+      expect(leaderAt(period * PERIOD_MIN), `период ${period}`).not.toBe(leaderAt(period * PERIOD_MIN - 0.01));
+    }
+  });
+
+  it('за круг побеждает каждая Лаборатория Поколения по разу', () => {
+    for (let block = 0; block < 4; block++) {
+      const circle = Array.from({ length: labs.length }, (_, i) => leaderAt((block * labs.length + i) * PERIOD_MIN));
+      expect(new Set(circle).size).toBe(labs.length);
+    }
+  });
+
+  it('считается от времени Забега и не зависит от случая: два вызова, один ответ', () => {
+    const a = Array.from({ length: 30 }, (_, i) => leaderAt(i * PERIOD_MIN));
+    const b = Array.from({ length: 30 }, (_, i) => leaderAt(i * PERIOD_MIN));
+    expect(b).toEqual(a);
+  });
+
+  it('у разных Забегов порядок лидеров разный', () => {
+    const seq = (runStartedAt: number) =>
+      Array.from({ length: 14 }, (_, i) => arenaOutlook({ ...runAt(frontier, 0), runStartedAt, lastTick: runStartedAt + i * PERIOD_MIN * MIN })!.leader);
+    const orders = new Set([T0, T0 + 86_400_000, T0 + 2 * 86_400_000, T0 + 3 * 86_400_000].map((t) => seq(t).join()));
+    expect(orders.size).toBeGreaterThan(1);
+  });
+
+  it('переживает перезагрузку: сохранённый и загруженный Забег называют одного лидера в тот же момент', () => {
+    const s = { ...fullRoster(runAt(frontier, 37)), runStartedAt: T0 + 123_457 };
+    const reloaded = importSave(exportSave(s), s.lastTick)!;
+    expect(reloaded.runStartedAt).toBe(s.runStartedAt);
+    for (const minutes of [0, 1, 4.9, 5, 17.3, 61, 240]) {
+      const at = (st: GameState) => arenaOutlook({ ...st, lastTick: st.runStartedAt + minutes * MIN })!;
+      expect(at(reloaded)).toEqual(at(s));
+    }
+  });
+
+  it('множит Доход Моделей лидера в полтора раза и не трогает остальных', () => {
+    const state = runAt(frontier, 12);
+    const leader = arenaOutlook(state)!.leader;
+    for (const m of models) {
+      expect(modelIncome(loneAgent(state, m.id), m) / m.baseIncome, m.name).toBeCloseTo(m.lab === leader ? 1.5 : 1, 10);
+    }
+  });
+
+  it('предупреждает о смене только за минуту до неё и называет следующего лидера', () => {
+    const calm = arenaOutlook(runAt(frontier, 2))!;
+    expect(calm.warning).toBe(false);
+    const nearEnd = arenaOutlook(runAt(frontier, PERIOD_MIN - 0.5))!;
+    expect(nearEnd.warning).toBe(true);
+    expect(nearEnd.next).toBe(leaderAt(PERIOD_MIN));
+    expect(nearEnd.next).not.toBe(nearEnd.leader);
+    expect(nearEnd.secondsLeft).toBe(30);
+    expect(arenaOutlook(runAt(frontier, PERIOD_MIN - 1.01))!.warning).toBe(false);
+    expect(arenaOutlook(runAt(frontier, PERIOD_MIN - 1))!.warning).toBe(true);
+  });
+
+  it('называет следующего лидера в ленте только в окне предупреждения', () => {
+    const warn = runAt(frontier, PERIOD_MIN - 0.5);
+    const next = LABS[arenaOutlook(warn)!.next].name;
+    const warned = newsPool(warn).filter((line) => line.includes(next) && line.includes('Арена'));
+    expect(warned).toHaveLength(1);
+    expect(newsPool(runAt(frontier, 1)).some((line) => line.startsWith('Арена'))).toBe(false);
+    expect(newsPool(runAt(2, PERIOD_MIN - 0.5)).some((line) => line.startsWith('Арена'))).toBe(false);
+  });
+
+  it('не входит в Оффлайн-доход: минутный эффект платит только живой тик', () => {
+    const full = fullRoster(runAt(frontier, 12));
+    const raw = models.reduce((sum, m) => sum + m.baseIncome, 0);
+    expect(offlineIncome(full)).toBeCloseTo(raw, -2);
+    const away = applyOffline({ ...full, lastTick: full.lastTick }, full.lastTick + 3600_000);
+    expect(away.earned).toBeCloseTo(raw * 3600, -2);
+  });
+
+  it('молчит вне Фронтира', () => {
+    expect(arenaOutlook(runAt(2, 12))).toBeNull();
+    expect(arenaOutlook(runAt(0, 12))).toBeNull();
+  });
+
+  it('держит лестницу Ранга и полосу 3× при каждом лидере', () => {
+    for (let period = 0; period < labs.length * 2; period++) {
+      for (const roster of ['alone', 'full'] as const) {
+        const base = runAt(frontier, period * PERIOD_MIN + 1);
+        const ladder = models.map((m) => {
+          const office = roster === 'full' ? fullRoster(base) : loneAgent(base, m.id);
+          return { cost: bulkCost(m, 0, 1, discountMult(office)), income: modelIncome(office, m) };
+        });
+        for (let i = 1; i < ladder.length; i++) {
+          expect(ladder[i].cost).toBeGreaterThan(ladder[i - 1].cost);
+          expect(ladder[i].income, `лидер ${leaderAt(period * PERIOD_MIN + 1)}, Ранг ${i}, ${roster}`).toBeGreaterThan(ladder[i - 1].income);
+        }
+        const payback = ladder.map((r) => r.cost / r.income);
+        expect(Math.max(...payback) / Math.min(...payback)).toBeLessThanOrEqual(3);
+      }
+    }
   });
 });
 

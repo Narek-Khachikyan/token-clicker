@@ -2,9 +2,12 @@ import { CATALOG } from './catalog';
 import type { LabId } from '../data/labs';
 import type { GameState } from './state';
 import { GENERATION_RULES } from '../data/generationRules';
+import { LABS } from '../data/labs';
+import { arenaOutlook } from './rules';
 
 interface NewsItem {
-  text: string;
+  /** Строка или её сборка из состояния: так лента называет следующего лидера Арены. */
+  text: string | ((s: GameState) => string);
   when?: (s: GameState) => boolean;
 }
 
@@ -45,6 +48,12 @@ const NEWS: NewsItem[] = [
   { text: '«Лицензия» глушит красные События. Глюки в трауре.', when: (s) => s.covenant },
   // Строка Правила Поколения живёт в ленте весь Забег своего Поколения: игрок, пропустивший её на входе, прочтёт позже.
   ...GENERATION_RULES.map((r): NewsItem => ({ text: r.news, when: (s) => s.generation === r.generation })),
+  // Предупреждение «Лидера Арены»: в последнюю минуту периода лента называет следующего лидера. Это
+  // строка ленты, а не Слух: Слух в CONTEXT.md — разовая выплата, а здесь платить нечем.
+  {
+    text: (s) => `Арена: меньше чем через минуту лидерство перейдёт к ${LABS[arenaOutlook(s)!.next].name}.`,
+    when: (s) => arenaOutlook(s)?.warning === true,
+  },
 ];
 
 export function pickNews(s: GameState, rnd = Math.random): string {
@@ -62,7 +71,7 @@ export function pickNews(s: GameState, rnd = Math.random): string {
  * Порядок пула детерминирован (порядок объявления), поэтому строка не «прыгает» при пересборке.
  */
 export function newsPool(s: GameState): string[] {
-  return NEWS.filter((n) => !n.when || n.when(s)).map((n) => n.text);
+  return NEWS.filter((n) => !n.when || n.when(s)).map((n) => (typeof n.text === 'string' ? n.text : n.text(s)));
 }
 
 /**
