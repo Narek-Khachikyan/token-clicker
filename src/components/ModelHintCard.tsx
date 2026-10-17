@@ -133,6 +133,19 @@ export const ModelHintCard: React.FC<{ model: Model }> = ({ model }) => {
         {/* Температура — не сомножитель Модели, а множитель всего Дохода сейчас, поэтому
             отдельной строкой «сейчас» под итогом, а не в произведении. */}
         <Line label="Температура сейчас" value={formatMultiplier(card.thermalMult, notation)} muted color={thermalColor} />
+        {/* Порог своя у каждого Ранга (кривая порогов), поэтому карточка называет его, а не
+            отсылает к общей таблице: младшие Модели раскрываются на меньших числах Агентов. */}
+        {card.nextUpgrade && (
+          <Line
+            label={`Следующий Апгрейд: ${card.nextUpgrade.name}`}
+            value={
+              card.nextUpgrade.ready
+                ? 'в магазине'
+                : `с ${formatNumber(card.nextUpgrade.threshold, notation)} ${formatCount(card.nextUpgrade.threshold, 'Агента', 'Агентов', 'Агентов', notation)}`
+            }
+            muted
+          />
+        )}
       </Section>
 
       {character && (
