@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOG } from './catalog';
+import { coursePool } from './course';
+import { challengePool } from './challenges';
 import { newGame } from './state';
-import { advanceTime, applyOffline, buyAgents, prestige, totalIncome } from './engine';
+import { advanceTime, applyOffline, buyAgents, buyPerk, prestige, resetPerkTree, totalIncome } from './engine';
 import { crystalIncomeMult } from './crystal';
 import {
   collectResearch,
@@ -12,6 +14,8 @@ import {
   RESEARCH_BOOST_WINDOW_MS,
   RESEARCH_DURATION_MS,
   RESEARCH_FINETUNE_YIELD,
+  RESEARCH_OPENING_IDS,
+  researchSlots,
 } from './research';
 
 const T0 = 1_700_000_000_000;
@@ -243,5 +247,92 @@ describe('ускорение созревающего Исследования C
     const s = hasteResearch(plantResearch(withCrystals(3), 'boost', '2h', T0), 0, now);
     expect(isResearchReady(s.research[0], now - 1)).toBe(false);
     expect(isResearchReady(s.research[0], now)).toBe(true);
+  });
+});
+
+describe('постоянное открытие Исследования (ТЗ #118)', () => {
+  // Открытия в таблице по порядку: сначала Курсы, потом Испытания. Курс «Ночная смена» идёт первым.
+  it('закладывается с видом «открытие» и берёт первое закрытое открытие таблицы', () => {
+    const s = plantResearch(newGame(T0), 'unlock', '30m', T0);
+    expect(s.research).toEqual([{ kind: 'unlock', term: '30m', startedAt: T0, unlock: 'night' }]);
+  });
+
+  it('при сборе ложится в постоянные открытия и освобождает слот, до срока не выдаётся', () => {
+    const planted = plantResearch(newGame(T0), 'unlock', '30m', T0);
+    expect(collectResearch(planted, 0, T0 + 30 * MIN - 1)).toBe(planted);
+    const s = collectResearch(planted, 0, T0 + 30 * MIN);
+    expect(s.research).toEqual([]);
+    expect(s.researchUnlocks).toEqual(['night']);
+  });
+
+  it('второе открытие в другом слоте берёт следующее по порядку, а не то же самое', () => {
+    let s = plantResearch(newGame(T0), 'unlock', '30m', T0);
+    s = plantResearch(s, 'unlock', '2h', T0 + MIN);
+    expect(s.research.map((j) => (j.kind === 'unlock' ? j.unlock : null))).toEqual(['night', 'no-events']);
+  });
+
+  it('когда открыто всё, закладка открытия не меняет состояние', () => {
+    const allOpen = { ...newGame(T0), researchUnlocks: [...RESEARCH_OPENING_IDS] };
+    expect(plantResearch(allOpen, 'unlock', '30m', T0)).toBe(allOpen);
+  });
+
+  it('открытие переживает Престиж и появляется в пуле Курсов; до открытия его там нет', () => {
+    const flagship = buyAgents({ ...newGame(T0), tokens: 1e12 }, CATALOG[0].flagship.id, 1);
+    const opened = collectResearch(plantResearch(flagship, 'unlock', '30m', T0), 0, T0 + 30 * MIN);
+    const after = prestige(opened, T0 + 60 * MIN);
+    expect(after.researchUnlocks).toEqual(['night']);
+    expect(coursePool(after).map((c) => c.id)).toContain('night');
+    expect(coursePool(newGame(T0)).map((c) => c.id)).not.toContain('night');
+  });
+
+  it('открытое Испытание переживает Престиж и появляется в пуле Испытаний', () => {
+    const flagship = buyAgents({ ...newGame(T0), tokens: 1e12 }, CATALOG[0].flagship.id, 1);
+    const opened = { ...flagship, researchUnlocks: ['night', 'no-events'] };
+    const after = prestige(opened, T0 + 60 * MIN);
+    expect(after.researchUnlocks).toEqual(['night', 'no-events']);
+    expect(challengePool(after).map((c) => c.id)).toContain('no-events');
+    expect(challengePool(newGame(T0)).map((c) => c.id)).not.toContain('no-events');
+  });
+});
+
+describe('третий слот Исследований открывается Перком (ТЗ #118)', () => {
+  const withCompute = (s: ReturnType<typeof newGame>) => ({ ...s, compute: 100 });
+
+  it('без Перка два слота, с Перком три', () => {
+    expect(researchSlots(newGame(T0))).toBe(2);
+    expect(researchSlots({ ...newGame(T0), perks: ['research_slot'] })).toBe(3);
+  });
+
+  it('третья закладка проходит только с Перком', () => {
+    let s = plantResearch(newGame(T0), 'boost', '30m', T0);
+    s = plantResearch(s, 'boost', '2h', T0);
+    expect(plantResearch(s, 'boost', '8h', T0)).toBe(s);
+    const owned = buyPerk(withCompute(s), 'research_slot');
+    expect(plantResearch(owned, 'boost', '8h', T0).research).toHaveLength(3);
+  });
+
+  it('сброс дерева закрывает слот, а заложенное в нём Исследование остаётся и собирается', () => {
+    let s = buyPerk(withCompute(newGame(T0)), 'research_slot');
+    s = plantResearch(s, 'boost', '30m', T0);
+    s = plantResearch(s, 'boost', '2h', T0);
+    s = plantResearch(s, 'unlock', '8h', T0);
+    expect(s.research).toHaveLength(3);
+
+    const reset = resetPerkTree(s);
+    expect(reset.perks).toEqual([]);
+    expect(reset.research).toEqual(s.research);
+    expect(researchSlots(reset)).toBe(2);
+    // Три заняты, а слотов два: новая закладка не проходит.
+    expect(plantResearch(reset, 'boost', '30m', T0)).toBe(reset);
+
+    const collected = collectResearch(reset, 2, T0 + 480 * MIN);
+    expect(collected.research).toHaveLength(2);
+    expect(collected.researchUnlocks).toEqual(['night']);
+  });
+
+  it('Забег без Перков тоже закрывает третий слот: Перк в нём не действует', () => {
+    const owned = { ...newGame(T0), perks: ['research_slot'] };
+    expect(researchSlots(owned)).toBe(3);
+    expect(researchSlots({ ...owned, activeChallenges: ['no-perks'] })).toBe(2);
   });
 });

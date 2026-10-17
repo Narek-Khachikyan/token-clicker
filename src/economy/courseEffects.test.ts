@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOG } from './catalog';
-import { advanceTime, applyOffline, bulkCost, buyAgents, clickValue, discountMult, modelIncome, offlineIncome, prestige } from './engine';
+import { advanceTime, applyOffline, bulkCost, buyAgents, clickValue, discountMult, modelIncome, offlineIncome, prestige, totalIncome } from './engine';
 import {
   chooseCourse,
   courseClickMult,
   courseEventWindowMult,
   courseIncomeMult,
+  courseOfflineMult,
   coursePriceMult,
   courseThermalMods,
 } from './course';
@@ -203,11 +204,32 @@ describe('Оффлайн-доход под любым Курсом', () => {
       const base = office({ ...under(3, course.id, 30), purchaseQueue: [flagshipId], thought: 2, thoughtAt: T0 + 30 * 60_000 });
       const away = applyOffline(base, base.lastTick + 1000 * 3600_000);
       expect(away.seconds).toBe(8 * 3600);
-      expect(away.earned / (offlineIncome(base) * 8 * 3600)).toBeCloseTo(1, 9);
+      // Курс «Ночная смена» множит простой (ТЗ #118); остальные оставляют его как есть — единица.
+      expect(away.earned / (offlineIncome(base) * 8 * 3600)).toBeCloseTo(courseOfflineMult(base), 9);
       expect(away.state.tokens - base.tokens).toBe(away.earned);
       expect(away.state.purchaseQueue).toEqual(base.purchaseQueue);
       expect(away.state.thought).toBe(base.thought);
       expect(away.state.agents).toEqual(base.agents);
     });
   }
+});
+
+describe('Курс «Ночная смена» (ТЗ #118): оффлайн-доход ×1,5 под тем же потолком', () => {
+  const plain = office(under(3, null, 30), 5);
+  const night = office(under(3, 'night', 30), 5);
+  const away = (s: GameState) => applyOffline(s, s.lastTick + 1000 * 3600_000);
+
+  it('поднимает оффлайн-доход в полтора раза и не сдвигает потолок простоя', () => {
+    expect(away(night).seconds).toBe(8 * 3600);
+    expect(away(night).seconds).toBe(away(plain).seconds);
+    expect(away(night).earned / away(plain).earned).toBeCloseTo(1.5, 9);
+  });
+
+  it('живой Доход, цена и Доход каждой Модели не меняются', () => {
+    expect(totalIncome(night)).toBe(totalIncome(plain));
+    for (const m of CATALOG[3].models) {
+      expect(modelIncome(night, m)).toBe(modelIncome(plain, m));
+      expect(bulkCost(m, 0, 1, discountMult(night))).toBe(bulkCost(m, 0, 1, discountMult(plain)));
+    }
+  });
 });

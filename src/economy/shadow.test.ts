@@ -21,6 +21,7 @@ import {
   totalIncome,
 } from './engine';
 import { CHALLENGES, riskClass, toggleChallenge, type ChallengeDef } from './challenges';
+import { RESEARCH_OPENING_IDS } from './research';
 import { PERKS } from './perks';
 import { migrate } from './save';
 import { newGame, SAVE_VERSION, type GameState } from './state';
@@ -93,8 +94,9 @@ const firstGenerationCleared = (): GameState => {
 };
 
 /** Забег Поколения 1 под данными Испытаниями, закрытый настолько, что Престиж доступен: Флагман нанят. */
+// Испытание «Забег без Событий» открывается Исследованием (ТЗ #118): тени Класса риска считаются от открытого Забега.
 const closedUnder = (...ids: ChallengeDef['id'][]): GameState =>
-  buyAgents(rich(ids.reduce((s, id) => toggleChallenge(s, id), newGame(T0)), 1e30), g0.flagship.id, 1);
+  buyAgents(rich(ids.reduce((s, id) => toggleChallenge(s, id), { ...newGame(T0), researchUnlocks: [...RESEARCH_OPENING_IDS] }), 1e30), g0.flagship.id, 1);
 
 /** Состояние, в котором выполнено условие каждой тени. Шутка недостижима by design. */
 const REACH: Record<string, () => GameState> = {

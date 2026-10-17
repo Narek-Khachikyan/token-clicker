@@ -1,6 +1,6 @@
 import { TEMP_START } from './thermal';
 
-export const SAVE_VERSION = 16;
+export const SAVE_VERSION = 17;
 
 /**
  * Громкость по умолчанию: 0.6, а не 1.
@@ -47,8 +47,11 @@ export interface Glitch {
   clicks: number;
 }
 
-/** Вид результата Исследования: временное усиление (ТЗ #115) или Заготовка Файнтюна (ТЗ #116). */
-export type ResearchKind = 'boost' | 'finetune';
+/**
+ * Вид результата Исследования: временное усиление (ТЗ #115), Заготовка Файнтюна (ТЗ #116) или постоянное
+ * открытие — Курс или Испытание, которые с этого момента входят в пул и переживают Престиж (ТЗ #118).
+ */
+export type ResearchKind = 'boost' | 'finetune' | 'unlock';
 
 /** Архетип Файнтюна (ТЗ #116): «Thinking» — больше Дохода и жара, «Turbo» — меньше Дохода и охлаждение. */
 export type FinetuneArchetype = 'thinking' | 'turbo';
@@ -58,16 +61,20 @@ export type ResearchTermId = '30m' | '2h' | '8h';
 
 /**
  * Исследование в слоте: закладка, которая созревает по стенным часам и ждёт сбора (план
- * `docs/plans/deepening.md`, слой 6). Поля — вид результата, срок и мс закладки; будущие виды
- * (тикеты #116, #118) добавляют свои поля рядом, а эти не меняют.
+ * `docs/plans/deepening.md`, слой 6). Поля — вид результата, срок и мс закладки. Постоянное открытие
+ * (ТЗ #118) несёт id Курса или Испытания, назначенный при закладке: результат известен заранее, а сбор
+ * только записывает его в `researchUnlocks`.
  */
-export interface ResearchJob {
-  kind: ResearchKind;
+interface ResearchJobBase {
   term: ResearchTermId;
   /** Мс часов игры (тот же `lastTick`, что у Compute-кристалла) в момент закладки. Ускорение кристаллом
    *  сдвигает эту отметку назад (`hasteResearch`), и срок считается уже от неё: поле одно и то же. */
   startedAt: number;
 }
+
+export type ResearchJob =
+  | (ResearchJobBase & { kind: 'boost' | 'finetune' })
+  | (ResearchJobBase & { kind: 'unlock'; unlock: string });
 
 export interface GameState {
   version: number;
@@ -132,6 +139,11 @@ export interface GameState {
   /** Мс часов игры, до которых действует временное усиление Исследования; 0 = не действует.
    *  Сбрасывается Престижем: усиление, как Событие, принадлежит Забегу. */
   researchBoostUntil: number;
+  /**
+   * Постоянные открытия Исследований (ТЗ #118): id Курсов и Испытаний из таблиц, открытые навсегда. Переживают
+   * Престиж, как Достижения: без открытия Курс или Испытание в пул не попадает.
+   */
+  researchUnlocks: string[];
   /** Заготовки Файнтюна в запасе (ТЗ #116): результат Исследования. Переживает Престиж, тратится на один Файнтюн. */
   finetuneStock: number;
   /** Применённые Файнтюны текущего Забега: id Модели → архетип. Престиж их сбрасывает, как Агентов. */
@@ -251,6 +263,7 @@ export function newGame(now: number): GameState {
     crystalUpgrades: [],
     research: [],
     researchBoostUntil: 0,
+    researchUnlocks: [],
     finetuneStock: 0,
     finetunes: {},
     milestones: [],

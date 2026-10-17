@@ -1,15 +1,50 @@
+import { COURSES } from '../data/courses';
+import { CHALLENGES, runPerks } from './challenges';
+import { perkEffects } from './perks';
 import type { GameState, ResearchJob, ResearchKind, ResearchTermId } from './state';
 
 const MIN_MS = 60_000;
 
 /**
- * Слотов Исследований два. Третий даёт Перк (тикет #118), поэтому число живёт здесь, а не в интерфейсе:
- * интерфейс и сохранение читают одну константу.
+ * Слотов Исследований два; третий открывает Перк «Третий слот Исследований» (ТЗ #118). Число живёт здесь, а не
+ * в интерфейсе: интерфейс и сохранение читают одни и те же константы.
  */
 export const RESEARCH_SLOTS = 2;
+/** Предел слотов с Перком: по нему сохранение обрезает закладки. Перк снят, а закладка в третьем слоте осталась. */
+export const RESEARCH_MAX_SLOTS = 3;
 
-export const RESEARCH_KINDS: readonly ResearchKind[] = ['boost', 'finetune'];
+/**
+ * Слотов в этом Забеге. Третий открывает Перк, пока он держится в Забеге: сброс дерева и «Забег без Перков»
+ * закрывают его, а заложенное в третьем слоте остаётся в `research` до сбора (ТЗ #118).
+ */
+export function researchSlots(state: Pick<GameState, 'perks' | 'activeChallenges'>): number {
+  return perkEffects(runPerks(state)).some((e) => e.kind === 'researchSlot') ? RESEARCH_MAX_SLOTS : RESEARCH_SLOTS;
+}
+
+export const RESEARCH_KINDS: readonly ResearchKind[] = ['boost', 'finetune', 'unlock'];
 export const RESEARCH_TERM_IDS: readonly ResearchTermId[] = ['30m', '2h', '8h'];
+
+/**
+ * Постоянные открытия Исследований (ТЗ #118): Курсы и Испытания с `gated`, сначала Курсы, потом Испытания,
+ * в порядке таблиц. Игрок не выбирает между ними: закладка берёт следующее по порядку (решение при реализации,
+ * ADR-0013). Список короче таблиц, если открытие удалят, — тогда сохранение его тоже отбросит.
+ */
+export const RESEARCH_OPENING_IDS: readonly string[] = [
+  ...COURSES.filter((c) => c.gated).map((c) => c.id),
+  ...CHALLENGES.filter((c) => c.gated).map((c) => c.id),
+];
+
+/**
+ * Следующее открытие для закладки: первое по таблице, которого нет среди открытых и которое не лежит в слоте.
+ * `null`, когда открыто всё или всё лежит в слотах.
+ */
+export function nextOpening(state: Pick<GameState, 'researchUnlocks' | 'research'>): string | null {
+  const taken = new Set<string>([
+    ...state.researchUnlocks,
+    ...state.research.flatMap((j) => (j.kind === 'unlock' ? [j.unlock] : [])),
+  ]);
+  return RESEARCH_OPENING_IDS.find((id) => !taken.has(id)) ?? null;
+}
 
 /**
  * Сколько Заготовок Файнтюна выдаёт один сбор Исследования по сроку (ТЗ #116). Длиннее — больше, но не
@@ -94,8 +129,14 @@ export function hasteResearch(state: GameState, index: number, now: number): Gam
  * объект: переход не изменил ничего, и стор не должен трогать сейв.
  */
 export function plantResearch(state: GameState, kind: ResearchKind, term: ResearchTermId, now: number): GameState {
-  if (state.research.length >= RESEARCH_SLOTS) return state;
+  if (state.research.length >= researchSlots(state)) return state;
   if (!RESEARCH_KINDS.includes(kind) || !RESEARCH_TERM_IDS.includes(term)) return state;
+  if (kind === 'unlock') {
+    // Открытие назначается при закладке: результат известен заранее. Открытий не осталось — ничего не меняем.
+    const unlock = nextOpening(state);
+    if (unlock === null) return state;
+    return { ...state, research: [...state.research, { kind, term, startedAt: now, unlock }] };
+  }
   return { ...state, research: [...state.research, { kind, term, startedAt: now }] };
 }
 
@@ -113,7 +154,7 @@ export function collectResearch(state: GameState, index: number, now: number): G
   return payOut({ ...state, research }, job, now);
 }
 
-/** Выплата результата по виду. Переключатель по виду — место, куда встанет #118 (постоянное открытие). */
+/** Выплата результата по виду: усиление продлевает окно, Заготовка копится, открытие пишется навсегда. */
 function payOut(state: GameState, job: ResearchJob, now: number): GameState {
   switch (job.kind) {
     case 'boost':
@@ -123,6 +164,10 @@ function payOut(state: GameState, job: ResearchJob, now: number): GameState {
       };
     case 'finetune':
       return { ...state, finetuneStock: state.finetuneStock + RESEARCH_FINETUNE_YIELD[job.term] };
+    case 'unlock':
+      // Открытие, которое уже открыто, ничего не добавляет: второй сбор не удваивает пул.
+      if (state.researchUnlocks.includes(job.unlock)) return state;
+      return { ...state, researchUnlocks: [...state.researchUnlocks, job.unlock] };
   }
 }
 

@@ -6,6 +6,7 @@ import {
   canStartChallenge,
   challengeComputeMult,
   challengeIncomeMult,
+  challengePool,
   CHALLENGES,
   RISK_MULT_MAX,
   riskClass,
@@ -15,6 +16,7 @@ import {
 } from './challenges';
 import {
   advance,
+  advanceTime,
   buyAgents,
   buyUpgrade,
   buyPerk,
@@ -30,6 +32,7 @@ import {
   totalIncome,
 } from './engine';
 import { migrate } from './save';
+import { RESEARCH_OPENING_IDS } from './research';
 import { newGame, SAVE_VERSION, type GameState } from './state';
 import {
   SYNERGY_MIN_AGENTS,
@@ -46,8 +49,9 @@ const g0 = CATALOG[0];
 const first = g0.models[0];
 const rich = (s: GameState, tokens = 1e50): GameState => ({ ...s, tokens, runTokens: tokens });
 /** Свежий забег с выбранным Испытанием: стартовать можно только до первой покупки и клика. */
+// Открытые Исследованием Испытания берутся только после открытия, поэтому базовый Забег открыт весь.
 const challenged = (...ids: ChallengeDef['id'][]): GameState =>
-  ids.reduce((s, id) => toggleChallenge(s, id), newGame(T0));
+  ids.reduce((s, id) => toggleChallenge(s, id), { ...newGame(T0), researchUnlocks: [...RESEARCH_OPENING_IDS] });
 
 describe('canStartChallenge', () => {
   it('allows a challenge only on a fresh run: no agents, no upgrades, no clicks', () => {
@@ -367,5 +371,32 @@ describe('challenges save contract', () => {
     // Порядок списка — порядок таблицы, а не порядок в сохранении.
     expect(s.activeChallenges).toEqual(['no-click', 'no-synergy']);
     expect(migrate({ version: 14, activeChallenges: 42 }, T0).activeChallenges).toEqual([]);
+  });
+});
+
+describe('Забег без Событий (ТЗ #118)', () => {
+  const opened = { ...newGame(T0), researchUnlocks: ['no-events'] };
+  /** Три часа игры тиками по 9 с; `rnd` = 0 выпадает на каждом окне, если Событиям дать ходу. */
+  const threeHours = (s: GameState): GameState => {
+    let t = s;
+    for (let i = 0; i < (3 * 3600) / 9; i++) t = advanceTime(t, 9, () => 0);
+    return t;
+  };
+
+  it('берётся только после открытия Исследованием', () => {
+    expect(toggleChallenge(newGame(T0), 'no-events').activeChallenges).toEqual([]);
+    expect(toggleChallenge(opened, 'no-events').activeChallenges).toEqual(['no-events']);
+  });
+
+  it('входит в пул Испытаний только открытым', () => {
+    expect(challengePool(newGame(T0)).map((c) => c.id)).not.toContain('no-events');
+    expect(challengePool(opened).map((c) => c.id)).toContain('no-events');
+  });
+
+  it('не заводит ни одного События, пока взят; без него те же часы дают События', () => {
+    const taken = threeHours(toggleChallenge(opened, 'no-events'));
+    expect(taken.eventsSeen).toBe(0);
+    expect(taken.event).toBeNull();
+    expect(threeHours(newGame(T0)).eventsSeen).toBeGreaterThan(0);
   });
 });

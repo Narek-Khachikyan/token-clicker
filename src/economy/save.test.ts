@@ -679,7 +679,7 @@ describe('migration of the research slots', () => {
     expect(importSave(exportSave(s), T0)!.research).toEqual(s.research);
   });
 
-  it('drops a job of an unknown kind or term or without a start, and keeps at most the slots', () => {
+  it('drops a job of an unknown kind or term or without a start, and keeps at most three slots, the most a Perk opens', () => {
     const s = migrate(
       v14Save({
         research: [
@@ -689,6 +689,7 @@ describe('migration of the research slots', () => {
           { kind: 'boost', term: '30m' },
           { kind: 'boost', term: '8h', startedAt: T0 - 2 * MIN },
           { kind: 'boost', term: '30m', startedAt: T0 - 3 * MIN },
+          { kind: 'boost', term: '2h', startedAt: T0 - 4 * MIN },
         ],
       }),
       T0,
@@ -696,6 +697,7 @@ describe('migration of the research slots', () => {
     expect(s.research).toEqual([
       { kind: 'boost', term: '2h', startedAt: T0 - MIN },
       { kind: 'boost', term: '8h', startedAt: T0 - 2 * MIN },
+      { kind: 'boost', term: '30m', startedAt: T0 - 3 * MIN },
     ]);
   });
 
@@ -782,6 +784,76 @@ describe('migration of the Файнтюн stock and the Файнтюны (ТЗ #
     expect(migrate(v15Save({ finetunes: ['thinking'] }), T0).finetunes).toEqual({});
     const polluted = JSON.parse('{"__proto__": "thinking"}');
     expect(migrate(v15Save({ finetunes: polluted }), T0).finetunes).toEqual({});
+  });
+});
+
+describe('migration of the постоянные открытия Исследований (ТЗ #118)', () => {
+  /** Сохранение v16 в форме, какой его писала игра: постоянных открытий в нём ещё нет. */
+  const v16Save = (over: Record<string, unknown>) => {
+    const { researchUnlocks: _u, ...base } = newGame(T0);
+    return { ...base, version: 16, ...over };
+  };
+
+  it('gives a save of the previous version no openings and keeps everything the player had', () => {
+    const s = migrate(
+      v16Save({ generation: 3, tokens: 4e9, crystals: 2, course: 'frugal', finetuneStock: 2, research: [{ kind: 'boost', term: '2h', startedAt: T0 - MIN }] }),
+      T0,
+    );
+    expect(s.version).toBe(SAVE_VERSION);
+    expect(s.researchUnlocks).toEqual([]);
+    expect([s.generation, s.tokens, s.crystals, s.course, s.finetuneStock]).toEqual([3, 4e9, 2, 'frugal', 2]);
+    expect(s.research).toEqual([{ kind: 'boost', term: '2h', startedAt: T0 - MIN }]);
+  });
+
+  it('loads an export code of the previous version without loss', () => {
+    const s = importSave(encodeRaw(v16Save({ generation: 4, maxGeneration: 6, tokens: 12345, prestiges: 4, crystals: 2 })), T0)!;
+    expect(s).not.toBeNull();
+    expect(s.version).toBe(SAVE_VERSION);
+    expect([s.generation, s.maxGeneration, s.tokens, s.prestiges, s.crystals]).toEqual([4, 6, 12345, 4, 2]);
+    expect(s.researchUnlocks).toEqual([]);
+  });
+
+  it('migrates a save from every earlier version to no openings', () => {
+    for (let version = 6; version <= 16; version++) {
+      const s = migrate({ version, tokens: 77, crystals: 1 }, T0);
+      expect(s.version, `v${version}`).toBe(SAVE_VERSION);
+      expect(s.researchUnlocks, `v${version}`).toEqual([]);
+      expect(s.tokens, `v${version}`).toBe(77);
+    }
+  });
+
+  it('keeps the openings and the opening job through a save, an export and an import', () => {
+    const s = {
+      ...newGame(T0),
+      researchUnlocks: ['night', 'no-events'],
+      research: [{ kind: 'unlock' as const, term: '8h' as const, startedAt: T0 - MIN, unlock: 'no-events' }],
+    };
+    expect(migrate(JSON.parse(JSON.stringify(s)), T0)).toMatchObject({ researchUnlocks: ['night', 'no-events'], research: s.research });
+    expect(importSave(exportSave(s), T0)).toMatchObject({ researchUnlocks: ['night', 'no-events'], research: s.research });
+  });
+
+  it('drops an opening id that is not in the tables, keeps each id once, and reads a non-list as none', () => {
+    expect(migrate(v16Save({ researchUnlocks: ['night', 'night', 'ghost', 'no-events', 7] }), T0).researchUnlocks).toEqual(['night', 'no-events']);
+    expect(migrate(v16Save({ researchUnlocks: 'night' }), T0).researchUnlocks).toEqual([]);
+  });
+
+  it('drops an opening job whose opening is unknown, and one with no opening at all', () => {
+    const s = migrate(
+      v16Save({
+        research: [
+          { kind: 'unlock', term: '30m', startedAt: T0 - MIN, unlock: 'ghost' },
+          { kind: 'unlock', term: '30m', startedAt: T0 - MIN, unlock: 'night' },
+          { kind: 'unlock', term: '30m', startedAt: T0 - MIN },
+        ],
+      }),
+      T0,
+    );
+    expect(s.research).toEqual([{ kind: 'unlock', term: '30m', startedAt: T0 - MIN, unlock: 'night' }]);
+  });
+
+  it('drops a taken challenge that the player has not opened yet, and keeps one that is opened', () => {
+    expect(migrate(v16Save({ activeChallenges: ['no-events', 'no-click'] }), T0).activeChallenges).toEqual(['no-click']);
+    expect(migrate(v16Save({ researchUnlocks: ['no-events'], activeChallenges: ['no-events'] }), T0).activeChallenges).toEqual(['no-events']);
   });
 });
 

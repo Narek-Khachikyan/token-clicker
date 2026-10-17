@@ -34,7 +34,7 @@ import { migrate } from '../src/economy/save';
 import { chooseCourse, coursePool, offerCourse } from '../src/economy/course';
 import { CHALLENGES, toggleChallenge } from '../src/economy/challenges';
 import { popGlitch, uprisingStage } from '../src/economy/glitches';
-import { collectResearch, plantResearch, RESEARCH_SLOTS } from '../src/economy/research';
+import { collectResearch, plantResearch, researchSlots } from '../src/economy/research';
 import type { ResearchTermId } from '../src/economy/state';
 
 export const T0 = 1_700_000_000_000;
@@ -267,7 +267,7 @@ function handleResearch(s: GameState, mode: PolicyOptions['research']): GameStat
   if (mode === 'none') return s;
   let next = s;
   for (let i = next.research.length - 1; i >= 0; i--) next = collectResearch(next, i, next.lastTick);
-  while (next.research.length < RESEARCH_SLOTS) {
+  while (next.research.length < researchSlots(next)) {
     const planted = plantResearch(next, 'boost', mode, next.lastTick);
     if (planted === next) break;
     next = planted;

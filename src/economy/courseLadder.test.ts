@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CATALOG, LAST_GENERATION } from './catalog';
 import { bulkCost, canPrestige, discountMult, modelIncome } from './engine';
 import { coursePool } from './course';
+import { RESEARCH_OPENING_IDS } from './research';
 import { newGame, type GameState } from './state';
 import { DT, newSession, tick } from '../../tools/greedyPolicy';
 
@@ -13,10 +14,13 @@ const MIN = 60_000;
  * Престиж из Поколения `g` ведёт в `g + 1`, а пул зависит от пройденных Правил, поэтому пары берутся
  * из `coursePool`, а не из всего списка: Курс, которого пул не отдаст, проверять не на чем. Правило
  * Фронтира в пул не попадает и после Престижа с Финала: его Курс ломает полосу окупаемости (ADR-0013, слой 5).
+ * Постоянные открытия Исследований (ТЗ #118) открыты все: Курс, который пул отдаёт только открытым, тоже
+ * проверяется, иначе его лестница осталась бы без теста.
  */
+const ALL_OPENED = [...RESEARCH_OPENING_IDS];
 const REACHABLE: { course: string; name: string; generation: number }[] = [];
 for (let from = 0; from < LAST_GENERATION; from++) {
-  for (const c of coursePool({ generation: from, maxGeneration: from })) {
+  for (const c of coursePool({ generation: from, maxGeneration: from, researchUnlocks: ALL_OPENED })) {
     REACHABLE.push({ course: c.id, name: c.name, generation: from + 1 });
   }
 }
@@ -84,7 +88,7 @@ describe('Курс держит лестницу Ранга по всему ка
 
   it('проверяет каждый Курс таблицы, который пул способен отдать', () => {
     const covered = new Set(REACHABLE.map((r) => r.course));
-    const expected = coursePool({ generation: LAST_GENERATION - 1, maxGeneration: LAST_GENERATION - 1 }).map((c) => c.id);
+    const expected = coursePool({ generation: LAST_GENERATION - 1, maxGeneration: LAST_GENERATION - 1, researchUnlocks: ALL_OPENED }).map((c) => c.id);
     for (const id of expected) expect(covered.has(id), id).toBe(true);
   });
 });

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useGameStore, useStateSlice } from '../store/useGameStore';
-import { finetuneYieldText, researchBoostView, researchHasteView, researchSlotView, RESEARCH_KIND_TEXT, RESEARCH_TERM_TEXT } from '../store/selectors';
-import { RESEARCH_BOOST_WINDOW_MS, RESEARCH_KINDS, RESEARCH_SLOTS, RESEARCH_TERM_IDS } from '../economy/research';
+import { finetuneYieldText, nextOpeningText, researchBoostView, researchHasteView, researchSlotView, RESEARCH_KIND_TEXT, RESEARCH_TERM_TEXT } from '../store/selectors';
+import { RESEARCH_BOOST_WINDOW_MS, RESEARCH_KINDS, RESEARCH_TERM_IDS, researchSlots } from '../economy/research';
+import { PERK_BY_ID } from '../economy/perks';
 import type { ResearchKind, ResearchTermId } from '../economy/state';
 import { Num } from './Num';
 import { useMotionAllowed } from './EventSprites';
@@ -9,10 +10,13 @@ import { useMotionAllowed } from './EventSprites';
 /**
  * Слоты Исследований (ТЗ #115). Одно место для двух раскладок: на десктопе блок стоит в колонке Офиса,
  * на телефоне — отдельной вкладкой. Слоты созревают по стенным часам, готовое ждёт сбора, а сбор
- * выплачивает временное усиление. Всё, что здесь показано, читается через срезы селекторов.
+ * выплачивает временное усиление, Заготовку или постоянное открытие. Всё, что здесь показано, читается через срезы селекторов.
  */
 export const ResearchBlock: React.FC = () => {
-  const hasFree = useStateSlice((s) => s.research.length < RESEARCH_SLOTS);
+  // Слотов два, третий открывает Перк (ТЗ #118). Заложенное в третьем слоте видно и после сброса дерева, пока не собрано.
+  const slots = useStateSlice((s) => Math.max(researchSlots(s), s.research.length));
+  const hasFree = useStateSlice((s) => s.research.length < researchSlots(s));
+  const thirdSlotLocked = useStateSlice((s) => !s.perks.includes('research_slot'));
   const boost = useStateSlice(researchBoostView);
   const stock = useStateSlice((s) => s.finetuneStock);
 
@@ -24,12 +28,18 @@ export const ResearchBlock: React.FC = () => {
       <div style={{ fontSize: '1rem', color: 'var(--text-main)' }}>Исследования</div>
 
       <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-        Два слота созревают по стенным часам и переживают Престиж. Готовое ждёт сбора и до него ничего не платит.
+        Слоты созревают по стенным часам и переживают Престиж. Готовое ждёт сбора и до него ничего не платит.
       </div>
 
-      {Array.from({ length: RESEARCH_SLOTS }, (_, index) => (
+      {Array.from({ length: slots }, (_, index) => (
         <ResearchSlot key={index} index={index} />
       ))}
+
+      {thirdSlotLocked && (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+          Третий слот открывает Перк «{PERK_BY_ID.research_slot.name}» в дереве Перков.
+        </div>
+      )}
 
       {hasFree && <TermChoice />}
 
@@ -181,7 +191,10 @@ const TermChoice: React.FC = () => {
   const plantResearch = useGameStore((s) => s.plantResearch);
   const multText = useStateSlice((s) => researchBoostView(s).multText);
   const notation = useStateSlice((s) => s.settings.notation);
+  // Название следующего открытия; пусто, когда открыто всё: тогда вид «открытие» закрыт.
+  const opening = useStateSlice(nextOpeningText);
   const [kind, setKind] = useState<ResearchKind>('boost');
+  const closed = kind === 'unlock' && opening === '';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
@@ -191,6 +204,7 @@ const TermChoice: React.FC = () => {
           <button
             key={k}
             aria-pressed={kind === k}
+            disabled={k === 'unlock' && opening === ''}
             onClick={() => setKind(k)}
             className="pixel-btn"
             style={{
@@ -203,11 +217,17 @@ const TermChoice: React.FC = () => {
           </button>
         ))}
       </div>
+      {kind === 'unlock' && (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+          {opening ? <>Откроется: {opening}. Переживает Престиж и входит в свой пул.</> : 'Все открытия уже открыты.'}
+        </div>
+      )}
       <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Заложить в свободный слот:</div>
       {/* Столбиком, а не рядом: на 320 px три кнопки в ряд переносили бы срок и отдачу по строкам. */}
       {RESEARCH_TERM_IDS.map((term: ResearchTermId) => (
         <button
           key={term}
+          disabled={closed}
           onClick={() => plantResearch(term, kind)}
           className="pixel-btn"
           style={{
@@ -227,6 +247,8 @@ const TermChoice: React.FC = () => {
               <>
                 ×<Num>{multText}</Num> на <Num>{RESEARCH_BOOST_WINDOW_MS[term] / 60_000}</Num> мин
               </>
+            ) : kind === 'unlock' ? (
+              'навсегда'
             ) : (
               <>+{finetuneYieldText(term, notation)}</>
             )}
