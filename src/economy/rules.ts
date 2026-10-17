@@ -24,10 +24,15 @@ export function courseRule(state: Pick<GameState, 'course'>): GenerationRule | n
  * Правила, действующие в Забеге: своё Правило Поколения и Правило, взятое Курсом (ADR-0013).
  * Курс берёт Правило пройденного Поколения, а не текущего, поэтому виды эффектов у двух не
  * совпадают: каждый вид читается из единственного места (`ruleEffect`), и надбавки не удваиваются.
+ *
+ * Обратный Престиж (слой 5, ADR-0013) вернёт игрока и в Поколение, чьё Правило он взял Курсом:
+ * тогда оба источника дают одно и то же Правило. Одинакоое Правило не действует дважды — в ряду
+ * оно одно, а `ruleEffect` по виду берёт первое и единственное Правило.
  */
 export function activeRules(state: Pick<GameState, 'generation' | 'course'>): GenerationRule[] {
   const own = activeRule(state);
   const taken = courseRule(state);
+  if (own && taken && own.id === taken.id) return [own];
   return own && taken ? [own, taken] : own ? [own] : taken ? [taken] : [];
 }
 
