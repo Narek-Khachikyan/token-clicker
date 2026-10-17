@@ -1218,7 +1218,6 @@ describe('quips', () => {
 
 describe('lab character lines', () => {
   const anthropic = CATALOG[0].models.find((m) => m.lab === 'anthropic')!;
-  const meta = CATALOG[0].models.find((m) => m.lab === 'meta')!;
 
   it('has the mascot of a lab with a character name it on the first hire, without a click', () => {
     hire(anthropic.id, 1);
@@ -1238,9 +1237,7 @@ describe('lab character lines', () => {
     expect(state().quipsSeen).not.toContain(spoken.id);
   });
 
-  it('stays quiet for a lab without a character and for a second agent of the same lab', () => {
-    hire(meta.id, 1);
-    expect(store().lastQuip).toBeNull();
+  it('stays quiet for a second agent of the same lab', () => {
     hire(anthropic.id, 1);
     const nonce = store().lastQuip?.nonce;
     expect(nonce).toBeDefined();

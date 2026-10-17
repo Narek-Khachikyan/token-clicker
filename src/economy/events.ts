@@ -271,9 +271,13 @@ export function grantAmount(tokens: number, incomePerSec: number): number {
  * Штраф за повтор, а не запрет: запрет сделал бы последний оставшийся вид вынужденным, и шанс
  * перестал бы что-то значить. Четыре вида — конечное разнообразие, поэтому три одинаковых подряд
  * смотрелись бы не как везение, а как ошибка розыгрыша.
+ *
+ * `hypeWeight` — множитель веса Волны хайпа от Характера «Хайп» (`characterMods(...).hype`): он
+ * меняет только частоту вида, а не силу его эффекта.
  */
-export function rollEventKind(seen: readonly EventKind[], rnd: () => number): EventKind {
-  const weight = (kind: EventKind) => (seen.includes(kind) ? REPEAT_PENALTY : 1);
+export function rollEventKind(seen: readonly EventKind[], rnd: () => number, hypeWeight = 1): EventKind {
+  // Вес Волны хайпа множит Характер «Хайп» (OpenAI); штраф за повтор считается от него, как от единицы.
+  const weight = (kind: EventKind) => (seen.includes(kind) ? REPEAT_PENALTY : 1) * (kind === 'hype' ? hypeWeight : 1);
   let roll = rnd() * EVENT_KINDS.reduce((sum, kind) => sum + weight(kind), 0);
   for (const kind of EVENT_KINDS) {
     roll -= weight(kind);

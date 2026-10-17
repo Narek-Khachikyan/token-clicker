@@ -42,6 +42,7 @@ import {
   UPGRADES_BY_GEN, type Upgrade,
 } from './upgrades';
 import { GENERATIONS } from '../data/generations';
+import { characterIncomeMult } from './character';
 import { LAB_IDS, type LabId } from '../data/labs';
 import { HEAT_COOL_SEC, HEAT_PENALTY, heatRate, OVERHEAT_STUN_SEC, overheatStunMult, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX, thermalRead } from './thermal';
 import { claimMilestones, MILESTONES, milestoneHint, nextMilestone } from './milestones';
@@ -2131,9 +2132,10 @@ describe('flagship synergy', () => {
     s = buyAgents(s, junior.id, 1);
     expect(flagshipMult(s, flag)).toBeCloseTo(1 + 0.02 * 21);
     expect(modelIncome(s, flag) - before).toBeCloseTo(flag.baseIncome * 10 * 0.02);
-    // Младшие и чужая Лаборатория бонус не получают.
+    // Младшие и чужая Лаборатория бонус Флагмана не получают. Чужая Модель берёт только «Открытые
+    // веса» Meta (31 Агент из полки в 40: +10% × 31/71), и больше ничего.
     expect(modelIncome(s, junior)).toBeCloseTo(junior.baseIncome * 21);
-    expect(modelIncome(buyAgents(s, other.id, 10), other)).toBeCloseTo(other.baseIncome * 10);
+    expect(modelIncome(buyAgents(s, other.id, 10), other)).toBeCloseTo(other.baseIncome * 10 * (1 + (0.1 * 31) / 71));
   });
   it('упирается в потолок ×3, дальше младшие Агенты бонус не растят', () => {
     // Потолок держится на живом состоянии, а не только формулой: без него младших можно было бы
@@ -2542,8 +2544,7 @@ describe('temperature', () => {
   });
 });
 
-// Характер Лаборатории (ADR-0011) живёт только в Температуре и не смеет тронуть базовые цену и Доход
-// Модели: Ранги разных Лабораторий перемежаются, и любой сдвиг цены или Дохода по Лаборатории
+// Характер Лаборатории (ADR-0011) не смеет тронуть базовые цену и Доход Модели: Ранги разных Лабораторий перемежаются, и любой сдвиг цены или Дохода по Лаборатории
 // ставит монотонность по Рангу под вопрос. Проверка идёт по ВСЕМУ каталогу и по ВСЕМ наборам из
 // восьми Лабораторий (256 офисов на Поколение), потому что вред Характера виден только в том
 // составе, где он включён.
@@ -2567,7 +2568,9 @@ describe('lab character keeps the rank ladder', () => {
           // у каждой Модели: Ранг сравнивается на общем основании.
           const thermal = thermalRead(office).mult;
           const cost = g.models.map((m) => bulkCost(m, 0, 1, discountMult(office)));
-          const income = g.models.map((m) => m.baseIncome * thermal);
+          // Доход Агента с Характерами состава («Конвейер», «Открытые веса») сверх Температуры: лестница
+          // обязана держаться и с ними, а не только на голой базе каталога.
+          const income = g.models.map((m) => m.baseIncome * thermal * characterIncomeMult(office, m));
           for (let i = 1; i < g.models.length; i++) {
             expect(cost[i]).toBeGreaterThan(cost[i - 1]);
             expect(income[i]).toBeGreaterThan(income[i - 1]);
@@ -2586,11 +2589,14 @@ describe('lab character keeps the rank ladder', () => {
 
   it('pays every model the same whichever laboratories fill the rest of the office', () => {
     // Агент m и баласт из двух Агентов другой Лаборатории: Доход m обязан быть одним и тем же
-    // при любом балласте, в том числе с Характером. Меняется только Температура (она общая).
+    // при любом балласте. Исключение одно и названо: Агенты Meta («Открытые веса») усиливают чужие
+    // Модели, поэтому Meta в балласте не участвует — для неё свой тест ниже. Характеры разнообразия
+    // («Экосистема», «Конвейер») считают лишь Лаборатории и Модели с пятью Агентами и больше, а в
+    // балласте их два.
     for (const g of CATALOG) {
       for (const m of g.models) {
         let reference: number | null = null;
-        for (const ballast of g.models.filter((b) => b.lab !== m.lab)) {
+        for (const ballast of g.models.filter((b) => b.lab !== m.lab && b.lab !== 'meta')) {
           const office: GameState = {
             ...cold(newGame(T0)),
             generation: g.index,
@@ -2601,6 +2607,20 @@ describe('lab character keeps the rank ladder', () => {
           reference ??= income;
           expect(income).toBe(reference);
         }
+      }
+    }
+  });
+
+  it('lets Meta lift other laboratories without ever lowering one', () => {
+    for (const g of CATALOG) {
+      for (const m of g.models.filter((x) => x.lab !== 'meta')) {
+        const base: GameState = { ...cold(newGame(T0)), generation: g.index, maxGeneration: g.index, agents: { [m.id]: 5 } };
+        const meta = g.models.find((x) => x.lab === 'meta');
+        if (!meta) continue;
+        const withMeta = { ...base, agents: { ...base.agents, [meta.id]: 2 } };
+        expect(modelIncome(withMeta, m)).toBeGreaterThan(modelIncome(base, m));
+        // Прибавка слабая: «слегка» не должно перекраивать лестницу Дохода.
+        expect(modelIncome(withMeta, m)).toBeLessThan(modelIncome(base, m) * 1.1);
       }
     }
   });
