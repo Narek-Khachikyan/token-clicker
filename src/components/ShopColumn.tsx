@@ -47,6 +47,7 @@ import { CoachArrow } from './CoachArrow';
 import { onTabRowKeyDown } from './tabRow';
 import { ChallengeCard, CourseCard, PrestigeForecastCard, PrestigeSectionNav, ReturnGenerationCard } from './PrestigeTab';
 import { playDenySound } from '../audio/sound';
+import { thirdSlotBusy } from '../economy/research';
 import { buyAmountFor } from '../hotkeys';
 
 // 8 искр из точки покупки. Радиус 14–26 px — чуть больше самой кнопки, поэтому жест читается
@@ -1375,6 +1376,8 @@ const PerkTreeReset: React.FC = () => {
   const owned = useGameStore((s) => s.state.perks.length);
   const spent = useGameStore((s) => s.state.computeSpent);
   const notation = useGameStore((s) => s.state.settings.notation);
+  // Сброс снял бы Перк третьего слота, а Исследование в нём осталось бы без него: пока оно идёт, сброс ждёт.
+  const busy = useGameStore((s) => thirdSlotBusy(s.state));
   const [sure, setSure] = useState(false);
 
   if (used) {
@@ -1389,6 +1392,11 @@ const PerkTreeReset: React.FC = () => {
       <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
         Раз за Забег дерево сбрасывается бесплатно: все Перки снимаются, а потраченный Compute возвращается.
       </div>
+      {busy && (
+        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>
+          Третий слот занят Исследованием: сброс снял бы его Перк, поэтому ждёт, пока Исследование соберут.
+        </div>
+      )}
       <button
         onClick={() => {
           if (!sure) {
@@ -1399,7 +1407,7 @@ const PerkTreeReset: React.FC = () => {
           resetPerkTree();
         }}
         onBlur={() => setSure(false)}
-        disabled={owned === 0}
+        disabled={owned === 0 || busy}
         className="pixel-btn"
         style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', alignSelf: 'flex-start' }}
       >
