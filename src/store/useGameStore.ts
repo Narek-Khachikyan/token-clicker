@@ -50,9 +50,11 @@ import {
 } from '../economy/purchaseQueue';
 import { activeRule } from '../economy/rules';
 import { HOLD_CLICK_MIN_GAP_MS, pushClick } from '../economy/streak';
-import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX } from '../economy/thermal';
+import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX, thermalModsFor } from '../economy/thermal';
 import { perkEffects } from '../economy/perks';
 import { pickQuip, recordQuip } from '../economy/quips';
+import type { CharacterQuipTrigger } from '../data/characterQuips';
+import { isFirstHireOfCharacterLab, loudestCharacterLab, pickCharacterQuip } from '../economy/character';
 import { availableUpgrades } from '../economy/upgrades';
 import {
   computeRuleSeen,
@@ -778,6 +780,22 @@ export const useGameStore = create<GameStore>((set, get) => {
   };
 
   /**
+   * Реплика Маскота о Характере Лаборатории (ADR-0011): тот же пузырь, что у реплик Клика, но из
+   * другой таблицы и мимо «Переписки». В `quipsSeen` она не пишется, Достижений не открывает и
+   * Доход не меняет: строка только объясняет механику, поэтому и стоит вне `GameState`.
+   */
+  const speakCharacter = (lab: LabId, on: CharacterQuipTrigger, salt: number, withSound: boolean): void => {
+    const quip = pickCharacterQuip(lab, on, salt);
+    if (!quip) return;
+    const nonce = ++quipCounter;
+    if (withSound) playQuipSound(get().state.settings);
+    set({ lastQuip: { id: quip.id, text: quip.text, lab: quip.lab, nonce } });
+    setTimeout(() => {
+      if (get().lastQuip?.nonce === nonce) set({ lastQuip: null });
+    }, QUIP_HIDE_MS);
+  };
+
+  /**
    * Очередь закупок наняла Агентов на живом тике: голос и последствия те же, что у ручной покупки.
    *
    * Движок исполняет очередь сам, а `buyAgents` стора — единственное место, где покупка Агента
@@ -820,6 +838,10 @@ export const useGameStore = create<GameStore>((set, get) => {
   const announceThermal = (before: GameState, after: GameState, dt: number): void => {
     if (after.overheatedAt !== before.overheatedAt && after.overheatedAt > 0) {
       playCoolingSound(after.settings);
+      // Маскот самой громкой Лаборатории с Характером комментирует сброс: слов больше, звука нет
+      // (сброс уже прозвучал), экономики нет вовсе.
+      const loud = loudestCharacterLab(after);
+      if (loud) speakCharacter(loud, 'overheat', after.overheatedAt, false);
       return;
     }
     // Строгое падение кошелька при подросшем перегреве — только Галлюцинация: обычный тик
@@ -828,9 +850,9 @@ export const useGameStore = create<GameStore>((set, get) => {
       playHallucinationSound(after.settings);
       return;
     }
-    // Скачок выше обычного нагрева за dt: обычный нагрев не больше heatRate(TEMP_MAX)*dt,
+    // Скачок выше обычного нагрева за dt: обычный нагрев не больше heatRate(TEMP_MAX)*dt (с Характерами офиса),
     // а Галлюцинация добавляет сверху HALLUC_HEAT — порог между ними с запасом.
-    const maxNormal = heatRate(TEMP_MAX) * Math.max(0, dt);
+    const maxNormal = heatRate(TEMP_MAX, thermalModsFor(before)) * Math.max(0, dt);
     if (after.heat - before.heat > maxNormal + HALLUC_HEAT / 2) {
       playHallucinationSound(after.settings);
     }
@@ -1111,6 +1133,11 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Отметка о последней покупке — это голос офиса: следующий Клик заговорит
       // Лабораторией именно этой Модели. Ставится только на успешной покупке.
       set({ state: awardEarned(risen), lastBoughtModelId: modelId });
+      // Первый Агент Лаборатории с Характером: Маскот называет, что принёс в офис, ещё до первого Клика.
+      const hiredLab = MODEL_BY_ID[modelId]?.lab;
+      if (hiredLab && isFirstHireOfCharacterLab(state, bought, hiredLab)) {
+        speakCharacter(hiredLab, 'hire', bought.lastTick, true);
+      }
       // Момент читается по паре «до / после» самой покупки, поэтому импорт и загрузка сейва
       // Маскотов заново не вводят. Гасит поле таймер на один срок: он сверяет nonce, и более
       // свежий момент прежний таймер не снимает.

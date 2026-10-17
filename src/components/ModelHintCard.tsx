@@ -1,5 +1,8 @@
 import React from 'react';
 import { useGameStore } from '../store/useGameStore';
+import { CHARACTERS } from '../data/characters';
+import { characterStrength } from '../economy/character';
+import { safeTemp } from '../economy/thermal';
 import type { Model } from '../economy/catalog';
 import { formatCount, formatDuration, formatMultiplier, formatNumber } from '../economy/format';
 import {
@@ -95,6 +98,7 @@ export const ModelHintCard: React.FC<{ model: Model }> = ({ model }) => {
   const notation = state.settings.notation;
   const card = modelCardSummary(state, model);
   const owned = state.agents[model.id] ?? 0;
+  const character = CHARACTERS[model.lab];
   const perSec = (n: number) => `${formatNumber(n, notation)} / сек`;
   const thermalColor =
     card.thermalMult < 1 ? 'var(--red-text)' : card.thermalMult > 1 ? 'var(--green-text)' : undefined;
@@ -129,6 +133,16 @@ export const ModelHintCard: React.FC<{ model: Model }> = ({ model }) => {
             отдельной строкой «сейчас» под итогом, а не в произведении. */}
         <Line label="Температура сейчас" value={formatMultiplier(card.thermalMult, notation)} muted color={thermalColor} />
       </Section>
+
+      {character && (
+        <Section title="Характер Лаборатории">
+          <div style={{ color: 'var(--text-main)' }}>
+            <span style={{ fontWeight: 700 }}>{character.name}</span>: {character.summary}
+          </div>
+          <Line label="Сила в вашем офисе" value={`${Math.round(characterStrength(state, model.lab) * 100)}%`} muted />
+          <Line label="Безопасная Температура офиса" value={safeTemp(state).toFixed(2)} muted />
+        </Section>
+      )}
 
       <Section title="Следующий Агент">
         <Line

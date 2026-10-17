@@ -181,8 +181,9 @@ describe('temperature slices', () => {
       expect(view.mult).toBe(formatNumber(read.mult, 'short'));
       expect(view.valueText).toContain(view.status);
     }
-    // Жар 0.9 без перегрева: Доход 1 + 1.2 × 0.9 = 2.08, статус «Стабильно».
-    expect(thermalView(heated(0, 0.9)).valueText).toBe('0.90 из 1.6, Доход ×2.08, Стабильно');
+    // Жар 0.9 без перегрева: Доход 1 + 1.2 × 0.9 = 2.08, статус «Стабильно». Офис пуст: Характеры
+    // Лабораторий (ADR-0011) двигают этот множитель, и «поздняя игра» несёт их с собой.
+    expect(thermalView({ ...heated(0, 0.9), agents: {} }).valueText).toBe('0.90 из 1.6, Доход ×2.08, Стабильно');
   });
 
   it('names the heat state in words, not only in colour', () => {
@@ -223,6 +224,20 @@ describe('temperature slices', () => {
     expect(thermalView(heated(0.7)).risk).toBe('перегрев 70%');
     expect(thermalView(heated(0.7)).riskHot).toBe(true);
     expect(thermalView(heated(0.5)).riskHot).toBe(false);
+  });
+
+  it('prints the safe temperature of the office and moves it with the composition', () => {
+    const officeOf = (lab: 'anthropic' | 'xai'): GameState => {
+      const model = CATALOG[2].models.find((m) => m.lab === lab)!;
+      return { ...newGame(T0), generation: 2, agents: { [model.id]: 30 }, temp: 0, heat: 0 };
+    };
+    const calm = thermalView(officeOf('anthropic'));
+    const hot = thermalView(officeOf('xai'));
+    expect(calm.safe).toBe(`безопасно до ${thermalRead(officeOf('anthropic')).safeTemp.toFixed(2)}`);
+    expect(calm.safe).not.toBe(hot.safe);
+    expect(thermalRead(officeOf('anthropic')).safeTemp).toBeGreaterThan(thermalRead(officeOf('xai')).safeTemp);
+    // Ровная шкала не перерисовывается: безопасная Температура стоит, пока не сменился состав офиса.
+    expect(changes(idle(lateGame(), 200), thermalView)).toBe(0);
   });
 
   it('sets the root tone from heat and from the stun after an overheat', () => {

@@ -298,7 +298,7 @@ export const ThermalDial: React.FC = () => {
           lineHeight: 1.35,
         }}
       >
-        Тяни мышью или жми Ctrl + ← →
+        Тяни мышью или жми Ctrl + ← → · {view.safe}
         {view.stunned ? ' · Сброс: жар в нуле, Доход вернётся' : ''}
       </div>
     </div>
