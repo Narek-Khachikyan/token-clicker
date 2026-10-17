@@ -1,5 +1,6 @@
 import { CATALOG, computeGain, LAST_GENERATION, MODEL_BY_ID, prestigeDivisor, type Model } from './catalog';
 import { challengeIncomeMult } from './challenges';
+import { characterIncomeMult, characterMods, ecosystemBoost } from './character';
 import type { LabId } from '../data/labs';
 import { collectCrystals, crystalIncomeMult } from './crystal';
 import {
@@ -310,6 +311,7 @@ export type IncomeFactorKind =
   | 'flagship'
   | 'labPerk'
   | 'pairSynergy'
+  | 'character'
   | 'genPerk'
   | 'orchestra'
   | 'rule'
@@ -353,7 +355,8 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
   // Синергии, а не все усиления сразу.
   const noSynergy = state.activeChallenge === 'no-synergy';
   if (!noSynergy && hasUpgrade(state, synergyUpgradeId(state.generation, model.lab))) {
-    const synergy = 1 + SYNERGY_PER_AGENT * labAgents(state, model.lab);
+    // «Экосистема» Google растит именно прибавку Синергии; у остальных Лабораторий множитель — единица.
+    const synergy = 1 + SYNERGY_PER_AGENT * labAgents(state, model.lab) * ecosystemBoost(state, model.lab);
     mult *= synergy;
     note(out, 'synergy', synergy);
   }
@@ -381,6 +384,10 @@ function modelMultiplier(state: GameState, model: Model, out?: IncomeFactor[]): 
       note(out, 'pairSynergy', PAIR_SYNERGY_MULT);
     }
   }
+  // Характеры состава («Конвейер» Alibaba, «Открытые веса» Meta): множитель, не поправка базы.
+  const character = characterIncomeMult(state, model);
+  mult *= character;
+  note(out, 'character', character);
   // «Наследие поколений» множит все Модели одинаково, поэтому ранговая лестница внутри Поколения
   // не инвертируется по построению. Здесь же верхний Перк Оркестратора: тоже один множитель на всех.
   const effects = perkEffects(state.perks);
@@ -620,7 +627,12 @@ export function clickValue(state: GameState, income?: number, now: number = stat
   // на каждом тике и на каждой проверке тени — пустая трата, и тик позднего Поколения платил бы
   // её двадцать раз в секунду. Ленивый подсчёт: та же сумма, но только когда она умножается.
   const rate = pct > 0 ? (income ?? totalIncome(state)) : 0;
-  return clickMultiplierFor(state, now) * (flat * globalMult(state) + rate * pct + clickCatchUp(state, now));
+  // «Эффективность» DeepSeek усиливает сам Клик, но не возврат «Ночного кодинга»: тот — выплата
+  // за глушение окна, а не заработок.
+  return (
+    clickMultiplierFor(state, now) *
+    ((flat * globalMult(state) + rate * pct) * characterMods(state).click + clickCatchUp(state, now))
+  );
 }
 
 /**
@@ -953,7 +965,7 @@ function advanceEvents(state: GameState, now: number, rnd: () => number): GameSt
   // Догоняющее окно — только за пойманное и только по шансу: иначе цепочки не сложились бы
   // никогда (устоявшиеся паузы выводят за комбо-окно), а каждое Событие тянуло бы серию.
   const encore = prevCaught && rnd() < ENCORE_CHANCE;
-  const kind = rollEventKind(event ? [event.kind] : [], rnd);
+  const kind = rollEventKind(event ? [event.kind] : [], rnd, characterMods(state).hype);
   return {
     ...state,
     // Окно переносится на новое, а не остаётся в прошлом: иначе события сыпались бы каждый тик.

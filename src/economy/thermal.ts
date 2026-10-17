@@ -160,8 +160,13 @@ export function thermalMods(perks: string[]): ThermalMods {
 export function thermalModsFor(state: Pick<GameState, 'perks' | 'generation' | 'agents'>): ThermalMods {
   const perks = thermalMods(state.perks);
   const office = characterMods(state);
-  if (office.heat === 1 && office.yield === 0) return perks;
-  return { ...perks, heat: perks.heat * office.heat, yield: Math.max(-1, perks.yield + office.yield) };
+  if (office.heat === 1 && office.yield === 0 && office.hallu === 1) return perks;
+  return {
+    ...perks,
+    heat: perks.heat * office.heat,
+    hallu: perks.hallu * office.hallu,
+    yield: Math.max(-1, perks.yield + office.yield),
+  };
 }
 
 /**
