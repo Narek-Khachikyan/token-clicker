@@ -711,6 +711,80 @@ describe('migration of the research slots', () => {
   });
 });
 
+describe('migration of the Файнтюн stock and the Файнтюны (ТЗ #116)', () => {
+  /** Сохранение v15 в форме, какой его писала игра: Заготовок и Файнтюнов в нём ещё нет. */
+  const v15Save = (over: Record<string, unknown>) => {
+    const { finetuneStock: _s, finetunes: _f, ...base } = newGame(T0);
+    return { ...base, version: 15, ...over };
+  };
+
+  it('gives a save of the previous version no stock and no Файнтюны, and keeps everything the player had', () => {
+    const s = migrate(v15Save({ generation: 3, tokens: 4e9, crystals: 2, course: 'frugal', research: [{ kind: 'boost', term: '2h', startedAt: T0 - MIN }] }), T0);
+    expect(s.version).toBe(SAVE_VERSION);
+    expect(s.finetuneStock).toBe(0);
+    expect(s.finetunes).toEqual({});
+    expect([s.generation, s.tokens, s.crystals, s.course]).toEqual([3, 4e9, 2, 'frugal']);
+    expect(s.research).toEqual([{ kind: 'boost', term: '2h', startedAt: T0 - MIN }]);
+  });
+
+  it('loads an export code of the previous version without loss', () => {
+    const s = importSave(encodeRaw(v15Save({ generation: 4, maxGeneration: 6, tokens: 12345, prestiges: 4, crystals: 2 })), T0)!;
+    expect(s).not.toBeNull();
+    expect(s.version).toBe(SAVE_VERSION);
+    expect([s.generation, s.maxGeneration, s.tokens, s.prestiges, s.crystals]).toEqual([4, 6, 12345, 4, 2]);
+    expect(s.finetuneStock).toBe(0);
+    expect(s.finetunes).toEqual({});
+  });
+
+  it('migrates a save from every earlier version to the same empty stock', () => {
+    for (let version = 6; version <= 15; version++) {
+      const s = migrate({ version, tokens: 77, crystals: 1 }, T0);
+      expect(s.version, `v${version}`).toBe(SAVE_VERSION);
+      expect(s.finetuneStock, `v${version}`).toBe(0);
+      expect(s.finetunes, `v${version}`).toEqual({});
+      expect(s.tokens, `v${version}`).toBe(77);
+    }
+  });
+
+  it('keeps the stock, the Файнтюны and a finetune research through a save, an export and an import', () => {
+    const s = {
+      ...newGame(T0),
+      agents: { [CATALOG[0].models[0].id]: 2 },
+      finetuneStock: 5,
+      finetunes: { [CATALOG[0].models[0].id]: 'turbo' as const },
+      research: [{ kind: 'finetune' as const, term: '8h' as const, startedAt: T0 - MIN }],
+    };
+    expect(migrate(JSON.parse(JSON.stringify(s)), T0)).toMatchObject({ finetuneStock: 5, finetunes: s.finetunes, research: s.research });
+    expect(importSave(exportSave(s), T0)).toMatchObject({ finetuneStock: 5, finetunes: s.finetunes, research: s.research });
+  });
+
+  it('drops a Файнтюн on an unknown model, on a model of another generation and with an unknown archetype', () => {
+    const own = CATALOG[0].models[0].id;
+    const other = CATALOG[1].models[0].id;
+    const s = migrate(
+      v15Save({
+        generation: 0,
+        finetunes: { [own]: 'thinking', [other]: 'turbo', ghost: 'thinking', [CATALOG[0].models[1].id]: 'boost' },
+      }),
+      T0,
+    );
+    expect(s.finetunes).toEqual({ [own]: 'thinking' });
+  });
+
+  it('reads a junk stock as zero and keeps a whole number of Заготовок', () => {
+    expect(migrate(v15Save({ finetuneStock: -3 }), T0).finetuneStock).toBe(0);
+    expect(migrate(v15Save({ finetuneStock: 'many' }), T0).finetuneStock).toBe(0);
+    expect(migrate(v15Save({ finetuneStock: 2.7 }), T0).finetuneStock).toBe(2);
+  });
+
+  it('reads a non-record as no Файнтюны and does not let a prototype key through', () => {
+    expect(migrate(v15Save({ finetunes: 'thinking' }), T0).finetunes).toEqual({});
+    expect(migrate(v15Save({ finetunes: ['thinking'] }), T0).finetunes).toEqual({});
+    const polluted = JSON.parse('{"__proto__": "thinking"}');
+    expect(migrate(v15Save({ finetunes: polluted }), T0).finetunes).toEqual({});
+  });
+});
+
 describe('import rejects non-saves', () => {
   it('rejects an empty object, an empty array and arbitrary JSON without progress fields', () => {
     expect(importSave(encodeRaw({}), T0)).toBeNull();

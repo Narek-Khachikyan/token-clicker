@@ -31,14 +31,16 @@ import { prestigeForecast } from '../economy/prestigeForecast';
 import { milestoneHint, milestoneReward, nextMilestone, type Milestone } from '../economy/milestones';
 import { queueCapacity } from '../economy/purchaseQueue';
 import { arenaOutlook, buyStreakNow, ruleEffect, thoughtOutlook } from '../economy/rules';
-import type { GameState, Glitch, ResearchTermId } from '../economy/state';
+import type { FinetuneArchetype, GameState, Glitch, ResearchKind, ResearchTermId } from '../economy/state';
 import {
   isResearchReady,
   RESEARCH_BOOST_MULT,
   RESEARCH_DURATION_MS,
+  RESEARCH_FINETUNE_YIELD,
   researchBoostActive,
   researchHasteMs,
 } from '../economy/research';
+import { FINETUNE_SPEC } from '../economy/finetune';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
 import {
   availableUpgrades,
@@ -646,6 +648,39 @@ export function crystalGrowthView(s: GameState): CrystalGrowthView {
 /** Срок Исследования словами: подпись слота. */
 export const RESEARCH_TERM_TEXT: Record<ResearchTermId, string> = { '30m': '30 минут', '2h': '2 часа', '8h': '8 часов' };
 
+/** Вид результата словами: кнопка выбора при закладке и подпись слота (ТЗ #116). */
+export const RESEARCH_KIND_TEXT: Record<ResearchKind, string> = { boost: 'Временное усиление', finetune: 'Заготовка Файнтюна' };
+
+/** Сколько Заготовок даёт срок, словами с числом: «одна Заготовка», «две Заготовки», «четыре Заготовки». */
+export function finetuneYieldText(term: ResearchTermId, notation: GameState['settings']['notation'] = 'short'): string {
+  return `${RESEARCH_FINETUNE_YIELD[term]} ${formatCount(RESEARCH_FINETUNE_YIELD[term], 'Заготовка', 'Заготовки', 'Заготовок', notation)}`;
+}
+
+/**
+ * Подписи архетипа для кнопок Файнтюна в карточке Модели: во сколько раз её Доход и как сдвигается жар
+ * офиса. Числа — из `FINETUNE_SPEC`, поэтому карточка не расходится с экономикой.
+ */
+export interface FinetuneChoiceView {
+  archetype: FinetuneArchetype;
+  label: string;
+  incomeText: string;
+  heatText: string;
+}
+
+export function finetuneChoiceViews(): FinetuneChoiceView[] {
+  const comma = (n: number) => String(n).replace('.', ',');
+  return (['thinking', 'turbo'] as const).map((archetype) => {
+    const spec = FINETUNE_SPEC[archetype];
+    const pct = Math.round(Math.abs(spec.heatDelta) * 100);
+    return {
+      archetype,
+      label: spec.label,
+      incomeText: `Доход ×${comma(spec.incomeMult)}`,
+      heatText: spec.heatDelta > 0 ? `жар +${pct}%` : `жар −${pct}%`,
+    };
+  });
+}
+
 /**
  * Один слот Исследований. Плоский объект, а не массив: слот подписывается отдельно, и `useShallow`
  * перерисовывает его только при смене одного из полей. Процент целый, поэтому полоса не дёргается каждый
@@ -656,6 +691,8 @@ export interface ResearchSlotView {
   busy: boolean;
   /** Созрело: сбор уже можно нажать. */
   ready: boolean;
+  /** Вид результата словами: «Временное усиление» или «Заготовка Файнтюна». */
+  resultText: string;
   termText: string;
   /** Сколько осталось созревать; «готово», когда созрело, пусто в пустом слоте. */
   leftText: string;
@@ -666,13 +703,14 @@ export interface ResearchSlotView {
 /** Слот Исследований по индексу, часы — `lastTick`, тот же, которым читает тик. Пустой слот — без подписей. */
 export function researchSlotView(s: GameState, index: number): ResearchSlotView {
   const job = s.research[index];
-  if (!job) return { busy: false, ready: false, termText: '', leftText: '', progress: 0 };
+  if (!job) return { busy: false, ready: false, resultText: '', termText: '', leftText: '', progress: 0 };
   const duration = RESEARCH_DURATION_MS[job.term];
   const elapsed = Math.max(0, s.lastTick - job.startedAt);
   const ready = isResearchReady(job, s.lastTick);
   return {
     busy: true,
     ready,
+    resultText: RESEARCH_KIND_TEXT[job.kind],
     termText: RESEARCH_TERM_TEXT[job.term],
     leftText: ready ? 'готово' : formatDuration(Math.ceil((duration - elapsed) / 1000)),
     progress: ready ? 100 : Math.floor((elapsed / duration) * 100),

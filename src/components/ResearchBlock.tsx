@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useGameStore, useStateSlice } from '../store/useGameStore';
-import { researchBoostView, researchHasteView, researchSlotView, RESEARCH_TERM_TEXT } from '../store/selectors';
-import { RESEARCH_BOOST_WINDOW_MS, RESEARCH_SLOTS, RESEARCH_TERM_IDS } from '../economy/research';
-import type { ResearchTermId } from '../economy/state';
+import { finetuneYieldText, researchBoostView, researchHasteView, researchSlotView, RESEARCH_KIND_TEXT, RESEARCH_TERM_TEXT } from '../store/selectors';
+import { RESEARCH_BOOST_WINDOW_MS, RESEARCH_KINDS, RESEARCH_SLOTS, RESEARCH_TERM_IDS } from '../economy/research';
+import type { ResearchKind, ResearchTermId } from '../economy/state';
 import { Num } from './Num';
 import { useMotionAllowed } from './EventSprites';
 
@@ -14,6 +14,7 @@ import { useMotionAllowed } from './EventSprites';
 export const ResearchBlock: React.FC = () => {
   const hasFree = useStateSlice((s) => s.research.length < RESEARCH_SLOTS);
   const boost = useStateSlice(researchBoostView);
+  const stock = useStateSlice((s) => s.finetuneStock);
 
   return (
     <div
@@ -31,6 +32,12 @@ export const ResearchBlock: React.FC = () => {
       ))}
 
       {hasFree && <TermChoice />}
+
+      {/* Запас переживает Престиж; применяется к нанятой Модели в её карточке в магазине (ТЗ #116). */}
+      <div style={{ fontSize: 'var(--text-sm)', color: stock > 0 ? 'var(--text-main)' : 'var(--text-muted)' }}>
+        Заготовки Файнтюна: <Num>{stock}</Num>
+        {stock > 0 && <span style={{ color: 'var(--text-muted)' }}> — примените к Модели в магазине: Thinking или Turbo.</span>}
+      </div>
 
       <div
         style={{
@@ -84,7 +91,7 @@ const ResearchSlot: React.FC<{ index: number }> = ({ index }) => {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--space-2)', fontSize: 'var(--text-sm)' }}>
         <span style={{ color: 'var(--text-main)' }}>
-          Слот {index + 1}: Исследование на {view.termText}
+          Слот {index + 1}: {view.resultText} на {view.termText}
         </span>
         <span style={{ color: view.ready ? 'var(--green)' : 'var(--text-muted)' }}>{view.leftText}</span>
       </div>
@@ -166,21 +173,42 @@ const HasteControl: React.FC<{ index: number }> = ({ index }) => {
 };
 
 /**
- * Выбор срока для свободного слота: три кнопки, у каждой названа отдача — окно усиления и его множитель.
- * Закладка идёт в первый свободный слот, так что выбор один на оба.
+ * Выбор результата и срока для свободного слота (ТЗ #116): сначала вид результата, потом срок. У каждого
+ * срока названа отдача выбранного вида — окно усиления или число Заготовок. Закладка идёт в первый свободный
+ * слот, так что выбор один на оба. Вид держит сама панель: он выбирается перед закладкой и не сохраняется.
  */
 const TermChoice: React.FC = () => {
   const plantResearch = useGameStore((s) => s.plantResearch);
   const multText = useStateSlice((s) => researchBoostView(s).multText);
+  const notation = useStateSlice((s) => s.settings.notation);
+  const [kind, setKind] = useState<ResearchKind>('boost');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+      <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Результат:</div>
+      <div role="group" aria-label="Вид результата Исследования" style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)' }}>
+        {RESEARCH_KINDS.map((k: ResearchKind) => (
+          <button
+            key={k}
+            aria-pressed={kind === k}
+            onClick={() => setKind(k)}
+            className="pixel-btn"
+            style={{
+              padding: 'var(--space-1) var(--space-2)',
+              fontSize: 'var(--text-sm)',
+              borderColor: kind === k ? 'var(--accent-color)' : undefined,
+            }}
+          >
+            {RESEARCH_KIND_TEXT[k]}
+          </button>
+        ))}
+      </div>
       <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Заложить в свободный слот:</div>
       {/* Столбиком, а не рядом: на 320 px три кнопки в ряд переносили бы срок и отдачу по строкам. */}
       {RESEARCH_TERM_IDS.map((term: ResearchTermId) => (
         <button
           key={term}
-          onClick={() => plantResearch(term)}
+          onClick={() => plantResearch(term, kind)}
           className="pixel-btn"
           style={{
             display: 'flex',
@@ -195,7 +223,13 @@ const TermChoice: React.FC = () => {
         >
           <span>{RESEARCH_TERM_TEXT[term]}</span>
           <span style={{ color: 'var(--text-muted)' }}>
-            ×<Num>{multText}</Num> на <Num>{RESEARCH_BOOST_WINDOW_MS[term] / 60_000}</Num> мин
+            {kind === 'boost' ? (
+              <>
+                ×<Num>{multText}</Num> на <Num>{RESEARCH_BOOST_WINDOW_MS[term] / 60_000}</Num> мин
+              </>
+            ) : (
+              <>+{finetuneYieldText(term, notation)}</>
+            )}
           </span>
         </button>
       ))}

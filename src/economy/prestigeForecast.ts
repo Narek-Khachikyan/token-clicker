@@ -75,6 +75,7 @@ export const PRESTIGE_RESETS: readonly PrestigeEffect[] = [
   { label: 'Предложение Курса и выбор (выбранный Курс начнёт следующий Забег)', fields: ['courseOffer', 'courseNext'] },
   { label: 'Идущее Событие и цепочка пойманных', fields: ['event', 'eventCaughtAt', 'nextEventAt', 'combo'] },
   { label: 'Временное усиление Исследования (окно принадлежит Забегу)', fields: ['researchBoostUntil'] },
+  { label: 'Файнтюны (Модели теряют архетип вместе с Агентами)', fields: ['finetunes'] },
 ];
 
 export const PRESTIGE_KEEPS: readonly PrestigeEffect[] = [
@@ -83,6 +84,7 @@ export const PRESTIGE_KEEPS: readonly PrestigeEffect[] = [
   { label: 'Достижения и Датасет', fields: ['achievements'] },
   { label: 'Compute-кристаллы и ускорители', fields: ['crystals', 'crystalPlantedAt', 'crystalUpgrades'] },
   { label: 'Исследования в слотах: срок и часы закладки', fields: ['research'] },
+  { label: 'Заготовки Файнтюна в запасе', fields: ['finetuneStock'] },
   { label: 'Вехи', fields: ['milestones'] },
   { label: 'Переписка', fields: ['quipsSeen'] },
   { label: 'Температура', fields: ['temp', 'heat', 'overheatedAt'] },

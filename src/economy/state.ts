@@ -1,6 +1,6 @@
 import { TEMP_START } from './thermal';
 
-export const SAVE_VERSION = 15;
+export const SAVE_VERSION = 16;
 
 /**
  * Громкость по умолчанию: 0.6, а не 1.
@@ -47,8 +47,11 @@ export interface Glitch {
   clicks: number;
 }
 
-/** Вид результата Исследования: пока единственный — временное усиление (ТЗ #115). */
-export type ResearchKind = 'boost';
+/** Вид результата Исследования: временное усиление (ТЗ #115) или Заготовка Файнтюна (ТЗ #116). */
+export type ResearchKind = 'boost' | 'finetune';
+
+/** Архетип Файнтюна (ТЗ #116): «Thinking» — больше Дохода и жара, «Turbo» — меньше Дохода и охлаждение. */
+export type FinetuneArchetype = 'thinking' | 'turbo';
 
 /** Срок Исследования: id из таблицы `RESEARCH_DURATION_MS` в research.ts. */
 export type ResearchTermId = '30m' | '2h' | '8h';
@@ -129,6 +132,10 @@ export interface GameState {
   /** Мс часов игры, до которых действует временное усиление Исследования; 0 = не действует.
    *  Сбрасывается Престижем: усиление, как Событие, принадлежит Забегу. */
   researchBoostUntil: number;
+  /** Заготовки Файнтюна в запасе (ТЗ #116): результат Исследования. Переживает Престиж, тратится на один Файнтюн. */
+  finetuneStock: number;
+  /** Применённые Файнтюны текущего Забега: id Модели → архетип. Престиж их сбрасывает, как Агентов. */
+  finetunes: Record<string, FinetuneArchetype>;
   /** Id забранных вех: список, потому что порядок забора задаёт сама таблица, а не игрок. */
   milestones: string[];
   /** Сколько событий выпадало за игру: счётчик выпадений, а не список видов. */
@@ -244,6 +251,8 @@ export function newGame(now: number): GameState {
     crystalUpgrades: [],
     research: [],
     researchBoostUntil: 0,
+    finetuneStock: 0,
+    finetunes: {},
     milestones: [],
     eventsSeen: 0,
     eventCaughtAt: 0,

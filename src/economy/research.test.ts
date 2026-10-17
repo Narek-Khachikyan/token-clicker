@@ -10,6 +10,8 @@ import {
   plantResearch,
   RESEARCH_BOOST_MULT,
   RESEARCH_BOOST_WINDOW_MS,
+  RESEARCH_DURATION_MS,
+  RESEARCH_FINETUNE_YIELD,
 } from './research';
 
 const T0 = 1_700_000_000_000;
@@ -159,6 +161,39 @@ describe('сбор готового Исследования', () => {
     const boosted = { ...base, researchBoostUntil: until };
     expect(totalIncome(boosted, T0)).toBeCloseTo(totalIncome(base, T0) * RESEARCH_BOOST_MULT, 6);
     expect(totalIncome(boosted, until)).toBeCloseTo(totalIncome(base, until), 6);
+  });
+});
+
+describe('Заготовка Файнтюна как результат Исследования (ТЗ #116)', () => {
+  it('закладывается с видом «Заготовка» и срок сохраняет', () => {
+    const s = plantResearch(newGame(T0), 'finetune', '2h', T0);
+    expect(s.research).toEqual([{ kind: 'finetune', term: '2h', startedAt: T0 }]);
+  });
+
+  it('созревает по стенным часам, а не по Доходу: до срока сбор ничего не даёт', () => {
+    const planted = plantResearch(earning(), 'finetune', '2h', T0);
+    expect(collectResearch(planted, 0, T0 + RESEARCH_DURATION_MS['2h'] - 1)).toBe(planted);
+  });
+
+  it.each(['30m', '2h', '8h'] as const)('сбор по сроку %s кладёт Заготовки из таблицы и не трогает усиление', (term) => {
+    const planted = plantResearch(earning(), 'finetune', term, T0);
+    const now = T0 + RESEARCH_DURATION_MS[term];
+    const s = collectResearch(planted, 0, now);
+    expect(s.finetuneStock).toBe(RESEARCH_FINETUNE_YIELD[term]);
+    expect(s.research).toEqual([]);
+    expect(s.researchBoostUntil).toBe(0);
+  });
+
+  it('Заготовки растут от запаса, а не заменяют его', () => {
+    const planted = { ...plantResearch(earning(), 'finetune', '30m', T0), finetuneStock: 3 };
+    expect(collectResearch(planted, 0, T0 + 30 * MIN).finetuneStock).toBe(3 + RESEARCH_FINETUNE_YIELD['30m']);
+  });
+
+  it('длиннее срок — больше Заготовок, но не в разы на каждый час срока', () => {
+    const per = (term: '30m' | '2h' | '8h') => RESEARCH_FINETUNE_YIELD[term] / (RESEARCH_DURATION_MS[term] / 3_600_000);
+    expect(RESEARCH_FINETUNE_YIELD['2h']).toBeGreaterThan(RESEARCH_FINETUNE_YIELD['30m']);
+    expect(RESEARCH_FINETUNE_YIELD['8h']).toBeGreaterThan(RESEARCH_FINETUNE_YIELD['2h']);
+    expect(per('8h')).toBeLessThan(per('30m'));
   });
 });
 

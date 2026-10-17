@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGameStore } from './useGameStore';
 import { newGame, type GameState } from '../economy/state';
-import { isResearchReady, RESEARCH_BOOST_WINDOW_MS, RESEARCH_DURATION_MS } from '../economy/research';
+import { isResearchReady, RESEARCH_BOOST_WINDOW_MS, RESEARCH_DURATION_MS, RESEARCH_FINETUNE_YIELD } from '../economy/research';
+import { CATALOG } from '../economy/catalog';
+import { FINETUNE_QUIPS } from '../data/finetuneQuips';
 import { playAchievementSound, playUpgradeSound } from '../audio/sound';
 
 /** Звук заглушен: в node нет AudioContext, а здесь важно только, что игрок получил сигнал. */
@@ -96,6 +98,56 @@ describe('Исследование в сторе', () => {
     expect(state().lastTick - T0).toBeGreaterThanOrEqual(RESEARCH_DURATION_MS['30m']);
     expect(state().research).toHaveLength(1);
     expect(state().researchBoostUntil).toBe(0);
+  });
+
+  it('закладка с видом «Заготовка» попадает в слот с этим видом', () => {
+    store().plantResearch('2h', 'finetune');
+    expect(state().research).toEqual([{ kind: 'finetune', term: '2h', startedAt: state().lastTick }]);
+  });
+
+  it('сбор Заготовки кладёт её в запас, а не в усиление', () => {
+    store().plantResearch('30m', 'finetune');
+    const planted = state().lastTick;
+    useGameStore.setState({ state: { ...state(), lastTick: planted + RESEARCH_DURATION_MS['30m'] } });
+    store().collectResearch(0);
+    expect(state().finetuneStock).toBe(RESEARCH_FINETUNE_YIELD['30m']);
+    expect(state().researchBoostUntil).toBe(0);
+  });
+});
+
+describe('Файнтюн в сторе (ТЗ #116)', () => {
+  const hired = CATALOG[0].models[0];
+
+  const withStock = (stock: number) =>
+    useGameStore.setState({ state: { ...state(), finetuneStock: stock, agents: { [hired.id]: 1 } } });
+
+  it('применение списывает Заготовку, записывает архетип и звучит, а Модель отвечает репликой своей Лаборатории', () => {
+    withStock(1);
+    store().applyFinetune(hired.id, 'thinking');
+    expect(state().finetunes).toEqual({ [hired.id]: 'thinking' });
+    expect(state().finetuneStock).toBe(0);
+    expect(vi.mocked(playUpgradeSound)).toHaveBeenCalledTimes(1);
+    expect(store().lastQuip?.lab).toBe(hired.lab);
+    const lines = FINETUNE_QUIPS.filter((q) => q.archetype === 'thinking').map((q) => q.id);
+    expect(lines).toContain(store().lastQuip?.id);
+  });
+
+  it('реплика Файнтюна не попадает в «Переписку» и гаснет по своему таймеру', () => {
+    withStock(1);
+    store().applyFinetune(hired.id, 'turbo');
+    expect(state().quipsSeen).toEqual([]);
+    expect(store().lastQuip).not.toBeNull();
+    vi.advanceTimersByTime(4500);
+    expect(store().lastQuip).toBeNull();
+  });
+
+  it('без Заготовки применение молчит: ни состояния, ни звука, ни реплики', () => {
+    withStock(0);
+    const before = state();
+    store().applyFinetune(hired.id, 'thinking');
+    expect(state()).toBe(before);
+    expect(vi.mocked(playUpgradeSound)).not.toHaveBeenCalled();
+    expect(store().lastQuip).toBeNull();
   });
 });
 

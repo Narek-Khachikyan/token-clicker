@@ -6,6 +6,7 @@ import {
   crystalShatterView,
   crystalStockView,
   crystalUpgradeView,
+  finetuneChoiceViews,
   GOAL_TICK_COUNT,
   modelFigures,
   modelView,
@@ -18,6 +19,7 @@ import {
 } from '../store/selectors';
 import { useMotionAllowed } from './EventSprites';
 import { CATALOG, type Model } from '../economy/catalog';
+import { finetuneName, finetuneOf } from '../economy/finetune';
 import type { GameState, Notation } from '../economy/state';
 import { CHARACTERS } from '../data/characters';
 import { LABS, type LabId } from '../data/labs';
@@ -394,6 +396,37 @@ const AAReferenceView: React.FC<{ model: Model }> = ({ model: m }) => (
 const AAReference = React.memo(AAReferenceView);
 
 /**
+ * Применение Заготовки Файнтюна к этой Модели (ТЗ #116). Строка видна, только пока есть Заготовка, Модель
+ * нанята и Файнтюна у неё ещё нет; две кнопки — два архетипа, у каждой названа отдача. Одна Заготовка — один
+ * Файнтюн, и применить его можно только к нанятой Модели: отказы ядра стор молчит, поэтому строка их не дублирует.
+ */
+const FinetuneRow: React.FC<{ model: Model }> = ({ model: m }) => {
+  const stock = useStateSlice((s) => s.finetuneStock);
+  const owned = useStateSlice((s) => s.agents[m.id] ?? 0);
+  const archetype = useStateSlice((s) => finetuneOf(s, m.id));
+  const applyFinetune = useGameStore((s) => s.applyFinetune);
+  if (stock < 1 || owned < 1 || archetype !== null) return null;
+  return (
+    <div role="group" aria-label={`Файнтюн: ${m.name}`} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--space-1)' }}>
+      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Файнтюн:</span>
+      {finetuneChoiceViews().map((c) => (
+        <button
+          key={c.archetype}
+          onClick={() => applyFinetune(m.id, c.archetype)}
+          className="pixel-btn"
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'left' }}
+        >
+          <span style={{ color: 'var(--text-main)' }}>{c.label}</span>
+          <span style={{ color: 'var(--text-muted)' }}>
+            {c.incomeText}, {c.heatText}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+};
+
+/**
  * Карточка Модели. Подписана на свой срез `modelView` (множитель и режим берёт из стора), а не на
  * состояние: на тике перерисовывается, только когда в ней изменилась напечатанная цифра.
  */
@@ -414,6 +447,8 @@ const ModelCard: React.FC<{
   const { owned, count, canAfford, showsGain, goalTicks } = view;
   const lab = LABS[m.lab];
   const character = CHARACTERS[m.lab];
+  // Архетип Файнтюна меняет имя Модели: «Claude Sonnet 4.5 Thinking» (ТЗ #116).
+  const archetype = useStateSlice((s) => finetuneOf(s, m.id));
   // Полная запись читает те же числа, что напечатаны на кнопке, но только в момент наведения.
   const figure = (pick: (f: ReturnType<typeof modelFigures>) => number) => (s: GameState) =>
     pick(modelFigures(s, m, buyAmount, sellMode));
@@ -430,7 +465,7 @@ const ModelCard: React.FC<{
                   словам: в 22 px «Claude 3 Haiku» шире колонки телефона, а многоточие
                   отрезало бы ровно то, что отличает одну Модель от соседней. */}
               <span className="pixel-22" style={{ color: 'var(--text-main)' }}>
-                {m.name}
+                {finetuneName(m.name, archetype)}
               </span>
               {m.isFlagship && (
                 <span style={{ color: 'var(--gold)', flexShrink: 0 }} title="Флагман">
@@ -661,6 +696,9 @@ const ModelCard: React.FC<{
           </div>
         </div>
       </div>
+
+      {/* Файнтюн — не покупка, поэтому строка вне обёртки отказа выше. */}
+      <FinetuneRow model={m} />
 
       {/* Очередь закупок («Агенты сами»): один Агент в конец очереди по цене ручной покупки. */}
       {queue.active && !sellMode && (

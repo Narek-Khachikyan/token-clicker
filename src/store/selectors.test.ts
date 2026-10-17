@@ -52,6 +52,8 @@ import {
   pledgeView,
   prestigeCardView,
   queueView,
+  finetuneChoiceViews,
+  finetuneYieldText,
   researchBoostView,
   researchHasteView,
   researchSlotView,
@@ -900,6 +902,24 @@ describe('research slot views', () => {
     const states = idle(planted(T0, '8h'), 200);
     expect(changes(states, (s) => researchSlotView(s, 0))).toBeLessThanOrEqual(1);
     expect(changes(states, researchBoostView)).toBe(0);
+  });
+
+  it('names the result of the research in the slot: the boost or the Заготовка Файнтюна', () => {
+    expect(researchSlotView(planted(T0), 0).resultText).toBe('Временное усиление');
+    const finetune = { ...RUN, research: [{ kind: 'finetune' as const, term: '2h' as const, startedAt: T0 }] };
+    expect(researchSlotView(finetune, 0)).toMatchObject({ resultText: 'Заготовка Файнтюна', termText: '2 часа' });
+  });
+
+  it('writes the Заготовка yield with the Russian plural of its term', () => {
+    expect(finetuneYieldText('30m')).toBe('1 Заготовка');
+    expect(finetuneYieldText('2h')).toBe('2 Заготовки');
+    expect(finetuneYieldText('8h')).toBe('4 Заготовки');
+  });
+
+  it('shows the archetype choices of the shop from the archetype constants: Thinking up, Turbo down', () => {
+    const [thinking, turbo] = finetuneChoiceViews();
+    expect(thinking).toMatchObject({ archetype: 'thinking', label: 'Thinking', incomeText: 'Доход ×1,08', heatText: 'жар +20%' });
+    expect(turbo).toMatchObject({ archetype: 'turbo', label: 'Turbo', incomeText: 'Доход ×0,92', heatText: 'жар −20%' });
   });
 });
 

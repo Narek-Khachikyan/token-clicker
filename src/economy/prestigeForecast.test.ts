@@ -120,6 +120,8 @@ function loadedRun(): GameState {
     course: 'scale',
     courseOffer: ['frugal', 'cool', 'signal'],
     courseNext: 'cool',
+    finetuneStock: 3,
+    finetunes: { [CATALOG[2].flagship.id]: 'thinking' },
   };
 }
 

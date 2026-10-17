@@ -5,8 +5,9 @@ import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
 import { MILESTONE_BY_ID } from './milestones';
 import { PERK_BY_ID } from './perks';
-import { DEFAULT_CHANNEL_VOLUME, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type GameState, type Glitch, type ResearchJob, type ResearchKind, type ResearchTermId } from './state';
+import { DEFAULT_CHANNEL_VOLUME, DEFAULT_VOLUME, EVENT_KINDS, newGame, SAVE_VERSION, type ActiveEvent, type EventKind, type FinetuneArchetype, type GameState, type Glitch, type ResearchJob, type ResearchKind, type ResearchTermId } from './state';
 import { RESEARCH_KINDS, RESEARCH_SLOTS, RESEARCH_TERM_IDS } from './research';
+import { FINETUNE_ARCHETYPES } from './finetune';
 import { QUIPS_SEEN_CAP } from './quips';
 import { buyStreakLimit, ruleEffect } from './rules';
 import { COURSE_BY_ID } from '../data/courses';
@@ -208,6 +209,15 @@ export const MIGRATIONS: Record<number, Migration> = {
     research: raw.research ?? [],
     researchBoostUntil: raw.researchBoostUntil ?? 0,
   }),
+  // Заготовки Файнтюна и применённые Файнтюны пришли в v16 (ТЗ #116). У живого сохранения их нет, а ноль
+  // Заготовок и пустой список Файнтюнов — ровно то, как игра выглядела до Исследований-Файнтюнов. Чистое
+  // добавление: разбор ниже сам отсеет то, что Файнтюн держать не может.
+  15: (raw) => ({
+    ...raw,
+    version: 16,
+    finetuneStock: raw.finetuneStock ?? 0,
+    finetunes: raw.finetunes ?? {},
+  }),
 };
 
 /** Особых Перков Поколения в прошлых версиях: по числу Поколений тогдашнего каталога. */
@@ -339,6 +349,22 @@ const researchOf = (v: unknown, clampFuture: (v: number) => number): ResearchJob
     jobs.push({ kind, term, startedAt });
   }
   return jobs.slice(0, RESEARCH_SLOTS);
+};
+
+/**
+ * Файнтюны из сохранения: только Модели текущего Поколения (Файнтюн сгорает с Престижем, так что чужое
+ * Поколение — мусор) и только известные архетипы. Остальное отбрасывается, как у Перков и Испытаний.
+ */
+const finetunesOf = (v: unknown, generation: number): Record<string, FinetuneArchetype> => {
+  const out: Record<string, FinetuneArchetype> = {};
+  if (!isPlainRecord(v)) return out;
+  for (const id of Object.keys(v)) {
+    const archetype = v[id];
+    if (!hasOwn(MODEL_BY_ID, id) || MODEL_BY_ID[id].generation !== generation) continue;
+    if (typeof archetype !== 'string' || !(FINETUNE_ARCHETYPES as readonly string[]).includes(archetype)) continue;
+    out[id] = archetype as FinetuneArchetype;
+  }
+  return out;
 };
 
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -477,6 +503,9 @@ export function migrate(raw: unknown, now: number): GameState {
     research: researchOf(data.research, clampFuture),
     // Окно усиления — мс часов игры: из будущего притягивается к `now`, как и остальные окна.
     researchBoostUntil: clampFuture(stamp(data.researchBoostUntil)),
+    // Заготовки — счётчик, как кристаллы: целые и неотрицательные.
+    finetuneStock: count(data.finetuneStock),
+    finetunes: finetunesOf(data.finetunes, generation),
     eventsSeen: count(data.eventsSeen),
     eventCaughtAt,
     catchUpPaid: Math.max(0, num(data.catchUpPaid, 0)),

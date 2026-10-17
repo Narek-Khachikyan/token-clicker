@@ -8,8 +8,19 @@ const MIN_MS = 60_000;
  */
 export const RESEARCH_SLOTS = 2;
 
-export const RESEARCH_KINDS: readonly ResearchKind[] = ['boost'];
+export const RESEARCH_KINDS: readonly ResearchKind[] = ['boost', 'finetune'];
 export const RESEARCH_TERM_IDS: readonly ResearchTermId[] = ['30m', '2h', '8h'];
+
+/**
+ * Сколько Заготовок Файнтюна выдаёт один сбор Исследования по сроку (ТЗ #116). Длиннее — больше, но не
+ * в разы: в минуту срока отдача падает, как у временного усиления. Длинный срок ценнее тем, что созревает
+ * без игрока: вернувшись из простоя, он отдаёт сразу несколько Заготовок.
+ */
+export const RESEARCH_FINETUNE_YIELD: Record<ResearchTermId, number> = {
+  '30m': 1,
+  '2h': 2,
+  '8h': 4,
+};
 
 /** Срок созревания по стенным часам: 30 минут, 2 часа, 8 часов (ТЗ #115 фиксирует их).
  *  Созревание считается по часам состояния, без таймера: готовое ждёт сбора, слот занят до него. */
@@ -102,7 +113,7 @@ export function collectResearch(state: GameState, index: number, now: number): G
   return payOut({ ...state, research }, job, now);
 }
 
-/** Выплата результата по виду. Вид один, но переключатель по нему — место, куда встанут #116 и #118. */
+/** Выплата результата по виду. Переключатель по виду — место, куда встанет #118 (постоянное открытие). */
 function payOut(state: GameState, job: ResearchJob, now: number): GameState {
   switch (job.kind) {
     case 'boost':
@@ -110,6 +121,8 @@ function payOut(state: GameState, job: ResearchJob, now: number): GameState {
         ...state,
         researchBoostUntil: Math.max(state.researchBoostUntil, now) + RESEARCH_BOOST_WINDOW_MS[job.term],
       };
+    case 'finetune':
+      return { ...state, finetuneStock: state.finetuneStock + RESEARCH_FINETUNE_YIELD[job.term] };
   }
 }
 
