@@ -16,7 +16,7 @@ Token Clicker: a Russian-language browser idle/clicker — the player hires real
 
 ## Guardrails
 
-- **Stop at a verified working tree**: `npm test` and `npx tsc -b` green — there is no linter and no CI. The developer commits, pushes and opens the PR; never commit, publish or deploy on your own initiative.
+- **Stop at a verified working tree**: `npm test` and `npx tsc -b` green — there is no linter and no CI.
 - **Kill only the PID you captured at spawn** — a `pkill -f` or a name match can hit your own process.
 - **Keep credentials and personal data out of code, logs, fixtures and messages.**
 - **Your browser profile holds a real save.** `npm run dev` takes the next free port and each origin keeps its own save: note the port, and check UI in a private window or on a throwaway port.
