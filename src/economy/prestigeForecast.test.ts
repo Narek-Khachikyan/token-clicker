@@ -94,6 +94,8 @@ function loadedRun(): GameState {
     crystals: 4,
     crystalPlantedAt: T0 - 5000,
     crystalUpgrades: ['cu:speed1'],
+    research: [{ kind: 'boost', term: '8h', startedAt: T0 - 1000 }],
+    researchBoostUntil: T0 + 60_000,
     milestones: ['m1'],
     eventsSeen: 6,
     eventCaughtAt: T0 - 10,

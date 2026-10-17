@@ -49,6 +49,7 @@ import { LAB_IDS, type LabId } from '../data/labs';
 import { HEAT_COOL_SEC, HEAT_PENALTY, heatRate, OVERHEAT_STUN_SEC, overheatStunMult, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX, thermalRead } from './thermal';
 import { claimMilestones, MILESTONES, milestoneHint, nextMilestone } from './milestones';
 import { GLOSSARY } from '../data/glossary';
+import { RESEARCH_BOOST_MULT, RESEARCH_BOOST_WINDOW_MS, RESEARCH_DURATION_MS } from './research';
 import { GEN_SCALE, PRESTIGE_DIVISOR_UNITS, PRESTIGE_PACE } from './catalog';
 
 const T0 = 1_000_000;
@@ -2788,6 +2789,18 @@ describe('milestones', () => {
 });
 
 describe('glossary', () => {
+  it('quotes the research terms and boost windows from the research constants', () => {
+    const text = GLOSSARY.find((g) => g.term === 'Исследование')?.text ?? '';
+    // Сроки и окна берутся из констант: правка таблицы без правки глоссария здесь не пройдёт.
+    expect(text).toContain(`${RESEARCH_DURATION_MS['30m'] / 60_000} минут`);
+    expect(text).toContain(`${RESEARCH_DURATION_MS['2h'] / 3_600_000} часа`);
+    expect(text).toContain(`${RESEARCH_DURATION_MS['8h'] / 3_600_000} часов`);
+    for (const term of ['30m', '2h', '8h'] as const) {
+      expect(text).toContain(`${RESEARCH_BOOST_WINDOW_MS[term] / 60_000} минут`);
+    }
+    expect(text).toContain(`в ${String(RESEARCH_BOOST_MULT).replace('.', ',')} раза`);
+  });
+
   it('quotes the event schedule from the event constants', () => {
     const timing = `Первое Событие после старта Забега приходит через ${FIRST_EVENT_MIN_MS / 1000}–${FIRST_EVENT_MAX_MS / 1000} секунд, а дальше между Событиями проходит от двух до десяти минут`;
     for (const term of ['Событие', 'Волна хайпа']) {

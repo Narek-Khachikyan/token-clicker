@@ -1,6 +1,6 @@
 import { TEMP_START } from './thermal';
 
-export const SAVE_VERSION = 14;
+export const SAVE_VERSION = 15;
 
 /**
  * Громкость по умолчанию: 0.6, а не 1.
@@ -45,6 +45,24 @@ export interface Glitch {
   stolen: number;
   /** Удары игрока по этому Глюку: на третьем он лопается. */
   clicks: number;
+}
+
+/** Вид результата Исследования: пока единственный — временное усиление (ТЗ #115). */
+export type ResearchKind = 'boost';
+
+/** Срок Исследования: id из таблицы `RESEARCH_DURATION_MS` в research.ts. */
+export type ResearchTermId = '30m' | '2h' | '8h';
+
+/**
+ * Исследование в слоте: закладка, которая созревает по стенным часам и ждёт сбора (план
+ * `docs/plans/deepening.md`, слой 6). Поля — вид результата, срок и мс закладки; будущие виды
+ * (тикеты #116, #118) добавляют свои поля рядом, а эти не меняют.
+ */
+export interface ResearchJob {
+  kind: ResearchKind;
+  term: ResearchTermId;
+  /** Мс часов игры (тот же `lastTick`, что у Compute-кристалла) в момент закладки. */
+  startedAt: number;
 }
 
 export interface GameState {
@@ -105,6 +123,11 @@ export interface GameState {
   crystalPlantedAt: number;
   /** Перманентные ускорители роста за кристаллы; id принадлежат таблице в crystal.ts. */
   crystalUpgrades: string[];
+  /** Исследования, заложенные в слоты (ТЗ #115): созревают по стенным часам, переживают Престиж. */
+  research: ResearchJob[];
+  /** Мс часов игры, до которых действует временное усиление Исследования; 0 = не действует.
+   *  Сбрасывается Престижем: усиление, как Событие, принадлежит Забегу. */
+  researchBoostUntil: number;
   /** Id забранных вех: список, потому что порядок забора задаёт сама таблица, а не игрок. */
   milestones: string[];
   /** Сколько событий выпадало за игру: счётчик выпадений, а не список видов. */
@@ -218,6 +241,8 @@ export function newGame(now: number): GameState {
     crystals: 0,
     crystalPlantedAt: 0,
     crystalUpgrades: [],
+    research: [],
+    researchBoostUntil: 0,
     milestones: [],
     eventsSeen: 0,
     eventCaughtAt: 0,

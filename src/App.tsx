@@ -6,6 +6,7 @@ import { NewsTicker } from './components/NewsTicker';
 import { ClickColumn } from './components/ClickColumn';
 import { OfficeColumn } from './components/OfficeColumn';
 import { ShopColumn } from './components/ShopColumn';
+import { ResearchTab } from './components/ResearchBlock';
 import { Footer } from './components/Footer';
 import {
   AchievementsModal,
@@ -310,6 +311,7 @@ export const App: React.FC = () => {
             >
               {activeTab === 'click' && <ClickColumn full />}
               {activeTab === 'office' && <OfficeColumn full />}
+              {activeTab === 'research' && <ResearchTab />}
               {(activeTab === 'shop' || activeTab === 'upgrades' || activeTab === 'prestige') && (
                 <ShopColumn full />
               )}
@@ -334,6 +336,7 @@ export const App: React.FC = () => {
               ['click', 'chat', 'Промпт'],
               ['office', 'office', 'Офис'],
               ['shop', 'shop', 'Магазин'],
+              ['research', 'rise', 'Исследования'],
             ] as [ActiveTab, IconName, string][]
           ).map(([t, icon, label]) => (
             // Слот нужен стрелке подсказки: у кнопки clip-path, и стрелка внутри неё обрезалась бы.

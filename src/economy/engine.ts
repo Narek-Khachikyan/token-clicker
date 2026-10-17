@@ -4,6 +4,7 @@ import { characterIncomeMult, characterMods, ecosystemBoost } from './character'
 import type { LabId } from '../data/labs';
 import { courseClickMult, courseEventWindowMult, courseIncomeMult, coursePriceMult, courseMissing, offerCourse, takeCourse } from './course';
 import { collectCrystals, crystalIncomeMult } from './crystal';
+import { researchBoostMult } from './research';
 import {
   applyOverheat,
   HALLUC_HEAT,
@@ -497,7 +498,15 @@ export function modelIncome(state: GameState, model: Model, now: number = state.
  */
 function incomeRate(state: GameState, now: number): number {
   const total = CATALOG[state.generation].models.reduce((s, m) => s + modelIncome(state, m, now), 0);
-  return total * eventMultiplierFor(state, now) * downtimeIncomeMult(state, now) * thermalRead(state, now).mult;
+  // Временное усиление Исследования — живой множитель, как Температура и событие: в `offlineIncome` не
+  // входит, поэтому оффлайн-доход от него не зависит (ТЗ #115: Исследования не меняют `applyOffline`).
+  return (
+    total *
+    eventMultiplierFor(state, now) *
+    downtimeIncomeMult(state, now) *
+    thermalRead(state, now).mult *
+    researchBoostMult(state, now)
+  );
 }
 
 /** Доход активного тика: то, что платит база, событие и живые Глюки. */
@@ -974,6 +983,10 @@ export function applyOffline(state: GameState, now: number): { state: GameState;
         startedAt: Math.min(s.startedAt, now),
         runStartedAt: Math.min(s.runStartedAt, now),
         crystalPlantedAt: Math.min(s.crystalPlantedAt, now),
+        // Закладка из будущего встаёт на сейчас, а усиление не длится дольше сейчас: иначе откат часов
+        // растянул бы срок созревания или окно, которого игрок не покупал.
+        research: s.research.map((j) => (j.startedAt > now ? { ...j, startedAt: now } : j)),
+        researchBoostUntil: Math.min(s.researchBoostUntil, now),
         pledgeUntil: Math.min(s.pledgeUntil, now),
         nextEventAt: Math.min(s.nextEventAt, now),
         nextGlitchAt: Math.min(s.nextGlitchAt, now),
@@ -1235,6 +1248,9 @@ export function prestige(state: GameState, now: number = state.lastTick, chosen:
     eventCaughtAt: 0,
     nextEventAt: 0,
     combo: 0,
+    // Временное усиление Исследования принадлежит Забегу, как Событие: окно, дожившее до Престижа,
+    // поднимало бы Доход нового Забега без его Агентов. Сами Исследования в `research` не трогаются.
+    researchBoostUntil: 0,
     runStartedAt: clock,
     lastTick: clock,
   };

@@ -31,7 +31,13 @@ import { prestigeForecast } from '../economy/prestigeForecast';
 import { milestoneHint, milestoneReward, nextMilestone, type Milestone } from '../economy/milestones';
 import { queueCapacity } from '../economy/purchaseQueue';
 import { arenaOutlook, buyStreakNow, ruleEffect, thoughtOutlook } from '../economy/rules';
-import type { GameState, Glitch } from '../economy/state';
+import type { GameState, Glitch, ResearchTermId } from '../economy/state';
+import {
+  isResearchReady,
+  RESEARCH_BOOST_MULT,
+  RESEARCH_DURATION_MS,
+  researchBoostActive,
+} from '../economy/research';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
 import {
   availableUpgrades,
@@ -633,6 +639,60 @@ export function crystalGrowthView(s: GameState): CrystalGrowthView {
     leftText: s.crystalPlantedAt === 0 ? '' : formatDuration(leftSec),
     width: Math.round(progress * 1000) / 10,
     now: Math.round(progress * 100),
+  };
+}
+
+/** Срок Исследования словами: подпись слота. */
+export const RESEARCH_TERM_TEXT: Record<ResearchTermId, string> = { '30m': '30 минут', '2h': '2 часа', '8h': '8 часов' };
+
+/**
+ * Один слот Исследований. Плоский объект, а не массив: слот подписывается отдельно, и `useShallow`
+ * перерисовывает его только при смене одного из полей. Процент целый, поэтому полоса не дёргается каждый
+ * тик, а меняется раз в долю срока, и текст «осталось» меняется раз в минуту, а не на каждом тике.
+ */
+export interface ResearchSlotView {
+  /** В слоте лежит Исследование: оно созревает или уже ждёт сбора. */
+  busy: boolean;
+  /** Созрело: сбор уже можно нажать. */
+  ready: boolean;
+  termText: string;
+  /** Сколько осталось созревать; «готово», когда созрело, пусто в пустом слоте. */
+  leftText: string;
+  /** Целый процент созревания 0..100. */
+  progress: number;
+}
+
+/** Слот Исследований по индексу, часы — `lastTick`, тот же, которым читает тик. Пустой слот — без подписей. */
+export function researchSlotView(s: GameState, index: number): ResearchSlotView {
+  const job = s.research[index];
+  if (!job) return { busy: false, ready: false, termText: '', leftText: '', progress: 0 };
+  const duration = RESEARCH_DURATION_MS[job.term];
+  const elapsed = Math.max(0, s.lastTick - job.startedAt);
+  const ready = isResearchReady(job, s.lastTick);
+  return {
+    busy: true,
+    ready,
+    termText: RESEARCH_TERM_TEXT[job.term],
+    leftText: ready ? 'готово' : formatDuration(Math.ceil((duration - elapsed) / 1000)),
+    progress: ready ? 100 : Math.floor((elapsed / duration) * 100),
+  };
+}
+
+/** Временное усиление: идёт ли оно, на сколько поднят Доход и сколько ещё. */
+export interface ResearchBoostView {
+  active: boolean;
+  /** Во сколько раз поднят живой Доход, с запятой: «1,5». */
+  multText: string;
+  /** Сколько осталось до конца окна; пусто вне окна. */
+  leftText: string;
+}
+
+export function researchBoostView(s: GameState): ResearchBoostView {
+  const active = researchBoostActive(s, s.lastTick);
+  return {
+    active,
+    multText: String(RESEARCH_BOOST_MULT).replace('.', ','),
+    leftText: active ? formatDuration(Math.ceil((s.researchBoostUntil - s.lastTick) / 1000)) : '',
   };
 }
 

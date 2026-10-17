@@ -40,6 +40,8 @@
  *   --uprising       политика поднимает стадию Восстания, как стор: красные События выпадают (по умолчанию
  *                    их в прогоне нет — симулятор стора не гоняет); разбор — docs/plans/110-pace-report.md
  *   --glitches MODE  Глюки: live (по умолчанию: растут, политика их не трогает) | pop (лопает сразу) | none
+ *   --research TERM  Исследование (ТЗ #115): none (по умолчанию) | 30m | 2h | 8h — закладывает этот срок в
+ *                    свободный слот и собирает созревшее сразу (верхняя граница внимательного игрока)
  *   --no-characters  выключить Характеры Лабораторий (ADR-0011): база для сравнения «с / без»;
  *                    таблица в памяти очищается, файлы не трогаются
  *   --verbose        строка на каждую минуту
@@ -62,7 +64,7 @@ import { CHARACTERS } from '../src/data/characters';
 import { LAB_IDS } from '../src/data/labs';
 import { characterStrength } from '../src/economy/character';
 import { safeTemp } from '../src/economy/thermal';
-import { DEFAULT_POLICY, DT, doPrestige, newSession, prestigeDue, tick, type ThermalPolicy } from './greedyPolicy';
+import { DEFAULT_POLICY, DT, doPrestige, newSession, prestigeDue, tick, type PolicyOptions, type ThermalPolicy } from './greedyPolicy';
 
 const arg = (k: string, d: number) => {
   const i = process.argv.indexOf(`--${k}`);
@@ -91,6 +93,11 @@ const glitchesArg = (): 'live' | 'pop' | 'none' => {
   if (v !== 'live' && v !== 'pop' && v !== 'none') throw new Error(`--glitches: live|pop|none, получено ${v}`);
   return v;
 };
+const researchArg = (): PolicyOptions['research'] => {
+  const v = strArg('research', 'none');
+  if (v !== 'none' && v !== '30m' && v !== '2h' && v !== '8h') throw new Error(`--research: none|30m|2h|8h, получено ${v}`);
+  return v;
+};
 if (has('no-characters')) for (const lab of LAB_IDS) delete CHARACTERS[lab];
 
 const POLICY = {
@@ -105,6 +112,7 @@ const POLICY = {
   challenges: challengeArg(),
   uprising: has('uprising'),
   glitches: glitchesArg(),
+  research: researchArg(),
 };
 const CAMPAIGN = has('campaign');
 const VERBOSE = has('verbose');

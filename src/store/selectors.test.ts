@@ -52,6 +52,8 @@ import {
   pledgeView,
   prestigeCardView,
   queueView,
+  researchBoostView,
+  researchSlotView,
   ruleStatusText,
   scarcityView,
   thoughtMeterView,
@@ -860,5 +862,42 @@ describe('thought meter on the Click column', () => {
 
   it('is steady across idle ticks of a calm run', () => {
     expect(changes(idle(reasoning, 100), thoughtMeterView)).toBe(0);
+  });
+});
+
+describe('research slot views', () => {
+  const RUN = { ...newGame(T0), temp: 0, heat: 0, nextEventAt: FAR, nextGlitchAt: FAR };
+  const planted = (startedAt: number, term: '30m' | '2h' | '8h' = '30m') => ({
+    ...RUN,
+    research: [{ kind: 'boost' as const, term, startedAt }],
+  });
+
+  it('shows an empty slot as free', () => {
+    const view = researchSlotView(RUN, 0);
+    expect(view.busy).toBe(false);
+    expect(view.ready).toBe(false);
+  });
+
+  it('shows the term, the time left and the progress of a running research', () => {
+    // 10 минут из 30: треть срока прошла, двадцать минут осталось.
+    const view = researchSlotView({ ...planted(T0), lastTick: T0 + 10 * 60_000 }, 0);
+    expect(view).toMatchObject({ busy: true, ready: false, termText: '30 минут', leftText: '20 мин 0 с', progress: 33 });
+  });
+
+  it('shows a research that has ripened as ready to collect, with the full bar', () => {
+    const view = researchSlotView({ ...planted(T0), lastTick: T0 + 30 * 60_000 }, 0);
+    expect(view).toMatchObject({ busy: true, ready: true, leftText: 'готово', progress: 100 });
+  });
+
+  it('names the boost of the active window and its time left, and says nothing when there is none', () => {
+    expect(researchBoostView(RUN).active).toBe(false);
+    const boosted = researchBoostView({ ...RUN, researchBoostUntil: T0 + 3 * 60_000 });
+    expect(boosted).toMatchObject({ active: true, multText: '1,5', leftText: '3 мин 0 с' });
+  });
+
+  it('is steady across idle ticks: the slot repaints only as its minutes or whole percents change', () => {
+    const states = idle(planted(T0, '8h'), 200);
+    expect(changes(states, (s) => researchSlotView(s, 0))).toBeLessThanOrEqual(1);
+    expect(changes(states, researchBoostView)).toBe(0);
   });
 });
