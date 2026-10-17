@@ -30,7 +30,7 @@ import { THERMAL_HOT_HEAT, THERMAL_STATE_LABEL, thermalState, type ThermalStateI
 import { prestigeForecast } from '../economy/prestigeForecast';
 import { milestoneHint, milestoneReward, nextMilestone, type Milestone } from '../economy/milestones';
 import { queueCapacity } from '../economy/purchaseQueue';
-import { activeRule, arenaOutlook, buyStreakNow, thoughtOutlook } from '../economy/rules';
+import { arenaOutlook, buyStreakNow, ruleEffect, thoughtOutlook } from '../economy/rules';
 import type { GameState, Glitch } from '../economy/state';
 import { TEMP_MAX, thermalRead } from '../economy/thermal';
 import {
@@ -830,8 +830,8 @@ export interface ScarcityView {
  * жива: после паузы срез неподвижен.
  */
 export function scarcityView(s: GameState): ScarcityView {
-  const effect = activeRule(s)?.effect;
-  if (effect?.kind !== 'buyStreak') return { active: false, extra: 0, seconds: 0 };
+  const effect = ruleEffect(s, 'buyStreak');
+  if (!effect) return { active: false, extra: 0, seconds: 0 };
   const streak = buyStreakNow(s);
   if (streak === 0) return { active: true, extra: 0, seconds: 0 };
   return {
@@ -859,9 +859,9 @@ export interface ThoughtMeterView {
  * десять раз в секунду, но только пока идёт удержание; в покое он неподвижен.
  */
 export function thoughtMeterView(s: GameState): ThoughtMeterView {
-  const effect = activeRule(s)?.effect;
+  const effect = ruleEffect(s, 'heldThought');
   const outlook = thoughtOutlook(s);
-  if (effect?.kind !== 'heldThought' || !outlook) {
+  if (!effect || !outlook) {
     return { active: false, holding: false, seconds: '', mult: '', width: 0 };
   }
   const notation = s.settings.notation;

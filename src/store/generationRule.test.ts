@@ -45,6 +45,12 @@ const freshStore = (s: GameState = newGame(T0)): void => {
   useGameStore.setState({ state: { ...s, temp: 0, heat: 0 }, toasts: [], buyAmount: 1, lastQuip: null, lastBoughtModelId: null });
 };
 
+/** Престиж так, как его делает игрок: Курс выбирается до подтверждения, без выбора стор не пускает. */
+const prestigeNow = (): void => {
+  store().chooseCourse(state().courseOffer[0]);
+  store().triggerPrestige();
+};
+
 /** Игрок, стоящий на Флагмане Поколения `index` и готовый к Престижу в следующее. */
 const atFlagship = (index: number): void => {
   freshStore();
@@ -67,7 +73,7 @@ describe('вход в Поколение с Правилом', () => {
     it(`«${rule.name}»: лента и реплика Модели объявляют Правило при Престиже`, () => {
       atFlagship(rule.generation - 1);
       expect(state().generation).toBe(rule.generation - 1);
-      store().triggerPrestige();
+      prestigeNow();
       expect(state().generation).toBe(rule.generation);
       expect(store().news).toBe(rule.news);
       expect(store().lastQuip?.text).toBe(rule.quip.text);
@@ -77,7 +83,7 @@ describe('вход в Поколение с Правилом', () => {
     it(`«${rule.name}»: реплика Правила не попадает в Переписку и гаснет сама`, () => {
       atFlagship(rule.generation - 1);
       const heardBefore = state().quipsSeen;
-      store().triggerPrestige();
+      prestigeNow();
       expect(state().quipsSeen).toEqual(heardBefore);
       expect(store().lastQuip).not.toBeNull();
       vi.advanceTimersByTime(60_000);

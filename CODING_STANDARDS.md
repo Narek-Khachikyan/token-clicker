@@ -89,6 +89,12 @@ components/    presentation: reads state, calls actions
   `position` of anything they touch live in the class.
 - **Content tables move in pairs:** a new Лаборатория edits the `LabId` union and `LABS` together;
   `data/glossary.ts` timings are asserted against the code constants, so change both.
+- **A Правило is read through `ruleEffect(state, kind)`** (`economy/rules.ts`), never by looking up
+  the Поколение's own Правило: a Курс can carry the Правило of a passed Поколение (ADR-0013), and the
+  two act together. A Курс (`data/courses.ts`, offer and choice in `economy/course.ts`) changes only
+  what the player pays or earns, the same for every Модель, so the rank ladder stays; `courseLadder.test.ts`
+  asserts it for every Курс the pool can offer. Only `prestige` writes `GameState.course`; the store
+  refuses a Престиж until the offered Курс is chosen (`courseMissing`), the pure transition does not.
 - **Type is two faces and three steps** (ADR-0009). Departure Mono — headings, tabs, buttons,
   labels, numbers — only through `pixel-22`, `pixel-33` or `pixel-44`: the class sets family and size
   together, and there is no other way to name the face. Everything under 22 px is Nunito, never

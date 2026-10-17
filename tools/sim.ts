@@ -30,6 +30,11 @@
  *   --seed N         зерно генератора Событий (по умолчанию 1); тот же seed — тот же прогон
  *   --thermal MODE   как политика крутит Температуру: off (по умолчанию) | safe | ride | max;
  *                    safe держит безопасную Температуру офиса, ride — 1,0, max — предел шкалы
+ *   --course ID      какой Курс (ADR-0013) политика берёт на каждом Престиже: none (по умолчанию) |
+ *                    first (первый из трёх предложенных) | id Курса из `src/data/courses.ts`
+ *                    (`scale`, `rule:scarcity`…), когда пул Престижа его содержит
+ *   --catch          политика ловит каждое обычное Событие сразу (верхняя граница внимательного
+ *                    игрока); по умолчанию не ловит, и Золотые Токены ничего не платят
  *   --no-characters  выключить Характеры Лабораторий (ADR-0011): база для сравнения «с / без»;
  *                    таблица в памяти очищается, файлы не трогаются
  *   --verbose        строка на каждую минуту
@@ -59,6 +64,10 @@ const arg = (k: string, d: number) => {
   return i >= 0 ? Number(process.argv[i + 1]) : d;
 };
 const has = (k: string) => process.argv.includes(`--${k}`);
+const strArg = (k: string, d: string) => {
+  const i = process.argv.indexOf(`--${k}`);
+  return i >= 0 ? process.argv[i + 1] : d;
+};
 
 const modeArg = (): ThermalPolicy => {
   const i = process.argv.indexOf('--thermal');
@@ -75,6 +84,8 @@ const POLICY = {
   minGain: arg('min-gain', DEFAULT_POLICY.minGain),
   farmSec: arg('farm', DEFAULT_POLICY.farmSec),
   seed: arg('seed', DEFAULT_POLICY.seed),
+  course: strArg('course', DEFAULT_POLICY.course),
+  catchEvents: has('catch'),
 };
 const CAMPAIGN = has('campaign');
 const VERBOSE = has('verbose');
@@ -178,7 +189,7 @@ function run(minutes: number, withPrestige: boolean): void {
       results.push(done);
       console.log(
         `>>> ПРЕСТИЖ #${w.s.prestiges} на ${(w.t / 60).toFixed(1)} мин → ` +
-        `${CATALOG[w.s.generation].name}, прирост ${gain}, Compute ${w.s.compute}, Перков ${w.s.perks.length}`,
+        `${CATALOG[w.s.generation].name}, прирост ${gain}, Compute ${w.s.compute}, Перков ${w.s.perks.length}, Курс ${w.s.course ?? '—'}`,
       );
       const strengths = LAB_IDS.filter((l) => CHARACTERS[l]).map((l) => `${l} ${characterStrength(s, l).toFixed(2)}`).join(', ');
       console.log(`    Характеры в офисе перед Престижем: ${strengths || 'выключены'}; безопасная Температура ${safeTemp(s).toFixed(3)}`);

@@ -69,6 +69,7 @@ export const PRESTIGE_RESETS: readonly PrestigeEffect[] = [
   { label: 'Агенты', fields: ['agents'] },
   { label: 'Апгрейды', fields: ['upgrades'] },
   { label: 'Активное Испытание Забега (закрывается наградой)', fields: ['activeChallenge'] },
+  { label: 'Предложение Курса и выбор (выбранный Курс начнёт следующий Забег)', fields: ['courseOffer', 'courseNext'] },
   { label: 'Идущее Событие и цепочка пойманных', fields: ['event', 'eventCaughtAt', 'nextEventAt', 'combo'] },
 ];
 
@@ -108,6 +109,9 @@ export const PRESTIGE_BOOKKEEPING: readonly (keyof GameState)[] = [
   'lastBuyAt',
   'thought',
   'thoughtAt',
+  // Курс Забега не сбрасывается в пустоту, а заменяется выбранным из предложения: карточка называет это
+  // строкой про предложение выше.
+  'course',
   'challengesDone',
   'catchUpPaid',
   'eventsSeen',

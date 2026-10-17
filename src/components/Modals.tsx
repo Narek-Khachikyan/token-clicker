@@ -22,6 +22,7 @@ import {
 import { availableUpgrades } from '../economy/upgrades';
 import { SHADOW_ACHIEVEMENTS } from '../economy/shadow';
 import { LABS } from '../data/labs';
+import { courseById } from '../data/courses';
 import { Icon } from './Icon';
 import { MascotSprite } from './MascotSprite';
 import { Num } from './Num';
@@ -1492,6 +1493,8 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
   const state = useGameStore((s) => s.state);
 
   const preview = prestigePreview(state);
+  const openCourseChoice = useGameStore((s) => s.openCourseChoice);
+  const chosenCourse = courseById(state.courseNext);
   const gen = CATALOG[state.generation];
   const nextGen = CATALOG[preview.generation];
   const nextRule = generationRule(preview.generation);
@@ -1560,7 +1563,7 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={preview.blocked && !finale}
+            disabled={(preview.blocked && !finale) || preview.needsCourse}
             className="pixel-btn pixel-btn-gold"
             style={{ flex: 2, padding: 'var(--space-3)' }}
           >
@@ -1568,7 +1571,9 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
               ? 'Экран финала'
               : preview.blocked
                 ? 'Нужен Агент Флагмана'
-                : 'Сделать Престиж!'}
+                : preview.needsCourse
+                  ? 'Сначала выбери Курс'
+                  : 'Сделать Престиж!'}
           </button>
         </>
       }
@@ -1626,6 +1631,36 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
                 <Num>{`+${formatNumber(preview.gain, notation)}`}</Num>
               </span>
             </div>
+
+            {/* Курс выбирается до подтверждения и во вкладке «Престиж»: окно называет выбранный или ведёт к выбору. */}
+            {preview.needsCourse ? (
+              <div
+                style={{
+                  backgroundColor: 'var(--tint-strong)',
+                  padding: 'var(--space-2) var(--space-3)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 'var(--space-2)',
+                  fontSize: 'var(--text-sm)',
+                  color: 'var(--text-main)',
+                }}
+              >
+                <span>Сначала выбери Курс нового Забега: три Курса ждут во вкладке «Престиж».</span>
+                <button
+                  className="pixel-btn pixel-btn-accent"
+                  onClick={openCourseChoice}
+                  style={{ padding: 'var(--space-1) var(--space-2)' }}
+                >
+                  К выбору Курса
+                </button>
+              </div>
+            ) : (
+              chosenCourse && (
+                <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>
+                  Курс нового Забега: <b>{chosenCourse.name}</b> — {chosenCourse.summary}
+                </div>
+              )
+            )}
 
             <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-main)' }}>Сгорит:</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>

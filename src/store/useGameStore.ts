@@ -49,7 +49,9 @@ import {
   queueAgent as engineQueueAgent,
   unqueueAgent as engineUnqueueAgent,
 } from '../economy/purchaseQueue';
-import { activeRule, holdThought } from '../economy/rules';
+import { activeRule, holdThought, ruleEffect } from '../economy/rules';
+import { chooseCourse as engineChooseCourse, courseMissing } from '../economy/course';
+import { COURSE_BY_ID } from '../data/courses';
 import { HOLD_CLICK_MIN_GAP_MS, POINTER_HOLD_ARM_MS, POINTER_HOLD_RELEASE_MS, pushClick } from '../economy/streak';
 import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX, thermalModsFor } from '../economy/thermal';
 import { perkEffects } from '../economy/perks';
@@ -370,6 +372,14 @@ interface GameStore {
   requestPrestige: () => void;
   dismissPrestigePrompt: () => void;
   triggerPrestige: () => void;
+  /**
+   * Выбирает Курс нового Забега из трёх предложенных (ADR-0013). Решение «можно ли» — за ядром:
+   * чужой id и выбор без предложения (то есть всё время внутри Забега) возвращают то же состояние, и
+   * стор молчит. Выбор можно менять до подтверждения Престижа; Курс вступает в силу только с ним.
+   */
+  chooseCourse: (id: string) => void;
+  /** Закрывает окно Престижа и ведёт к выбору Курса: подраздел «Престиж» вкладки «Престиж» (UI-слой, не сейв). */
+  openCourseChoice: () => void;
   /** Принимает испытание Забега на свежем забеге (или отказ от него через null). */
   startChallenge: (id: 'no-synergy' | 'no-click' | null) => void;
 
@@ -1151,7 +1161,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         }
         // Правило молчит либо порция отказала (удержание оборвано, тик вот-вот выплатит): в Reasoning
         // повтор не платит, вне него — обычный Клик.
-        if (activeRule(state)?.effect.kind === 'heldThought') return false;
+        if (ruleEffect(state, 'heldThought')) return false;
       }
       get().clickPrompt(x, y);
       return true;
@@ -1165,7 +1175,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         pointerHoldSince = 0;
         return;
       }
-      if (activeRule(get().state)?.effect.kind !== 'heldThought') return;
+      if (!ruleEffect(get().state, 'heldThought')) return;
       pointerHoldSince = Date.now();
       pointerArmedUntil = 0;
       if (x !== undefined && y !== undefined) holdPoint = { x, y };
@@ -1491,6 +1501,8 @@ export const useGameStore = create<GameStore>((set, get) => {
       const { state } = get();
       // На финальном Поколении Престиж обнулил бы забег без перехода в новое Поколение.
       if (!canPrestige(state) || isContentFinale(state)) return;
+      // Курс выбирается до подтверждения: без выбора Забег начался бы без Курса, который игрок не отверг, а просто не заметил.
+      if (courseMissing(state)) return;
       playPrestigeSound(state.settings);
       duckMusic();
       const gain = prestigeGain(state);
@@ -1510,6 +1522,25 @@ export const useGameStore = create<GameStore>((set, get) => {
           prestige: { generation: next.generation, computeGain: gain, ...(done ? { challengeId: done } : {}) },
         },
       });
+      saveNow();
+    },
+
+    openCourseChoice: () => set({ prestigePrompt: false, activeTab: 'shop', shopTab: 'prestige', prestigeSection: 'prestige' }),
+
+    chooseCourse: (id: string) => {
+      const { state } = get();
+      const next = engineChooseCourse(state, id);
+      if (next === state) return;
+      playUpgradeSound(state.settings);
+      set({ state: next });
+      // Предложение озвучивают Маскоты: выбранный Курс говорит голосом своей Лаборатории. Реплика не из
+      // таблицы Переписки, в `quipsSeen` не пишется и Достижений не двигает, как реплика Правила.
+      const course = COURSE_BY_ID[id];
+      const nonce = ++quipCounter;
+      set({ lastQuip: { id: `course:${course.id}`, text: course.quip, lab: course.lab, nonce } });
+      setTimeout(() => {
+        if (get().lastQuip?.nonce === nonce) set({ lastQuip: null });
+      }, RULE_QUIP_HIDE_MS);
       saveNow();
     },
 
