@@ -33,6 +33,8 @@
  *   --course ID      какой Курс (ADR-0013) политика берёт на каждом Престиже: none (по умолчанию) |
  *                    first (первый из трёх предложенных) | id Курса из `src/data/courses.ts`
  *                    (`scale`, `rule:scarcity`…), когда пул Престижа его содержит
+ *   --challenge MODE Испытания Забега (ADR-0013, слой 5): none (по умолчанию) | all — все Испытания
+ *                    таблицы на каждом Забеге, то есть кампания на максимальном Классе риска
  *   --catch          политика ловит каждое обычное Событие сразу (верхняя граница внимательного
  *                    игрока); по умолчанию не ловит, и Золотые Токены ничего не платят
  *   --no-characters  выключить Характеры Лабораторий (ADR-0011): база для сравнения «с / без»;
@@ -75,6 +77,12 @@ const modeArg = (): ThermalPolicy => {
   if (v !== 'off' && v !== 'safe' && v !== 'ride' && v !== 'max') throw new Error(`--thermal: off|safe|ride|max, получено ${v}`);
   return v;
 };
+const challengeArg = (): 'none' | 'all' => {
+  const i = process.argv.indexOf('--challenge');
+  const v = i >= 0 ? process.argv[i + 1] : 'none';
+  if (v !== 'none' && v !== 'all') throw new Error(`--challenge: none|all, получено ${v}`);
+  return v;
+};
 if (has('no-characters')) for (const lab of LAB_IDS) delete CHARACTERS[lab];
 
 const POLICY = {
@@ -86,6 +94,7 @@ const POLICY = {
   seed: arg('seed', DEFAULT_POLICY.seed),
   course: strArg('course', DEFAULT_POLICY.course),
   catchEvents: has('catch'),
+  challenges: challengeArg(),
 };
 const CAMPAIGN = has('campaign');
 const VERBOSE = has('verbose');

@@ -1,4 +1,5 @@
 import { CATALOG, type Model } from './catalog';
+import { hasChallenge } from './challenges';
 import type { GameState } from './state';
 import { courseById } from '../data/courses';
 import { GENERATION_RULES, type GenerationRule, type RuleEffect } from '../data/generationRules';
@@ -235,7 +236,7 @@ export function ruleLiveIncomeMult(state: GameState, model: Model, now: number =
  */
 export function holdThought(state: GameState): GameState {
   const effect = ruleEffect(state, 'heldThought');
-  if (!effect || state.activeChallenge === 'no-click') return state;
+  if (!effect || hasChallenge(state, 'no-click')) return state;
   const now = state.lastTick;
   if (state.thoughtAt === 0) return { ...state, thoughtAt: now };
   const gap = (now - state.thoughtAt) / 1000;

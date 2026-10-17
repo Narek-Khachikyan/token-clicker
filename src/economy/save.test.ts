@@ -2,6 +2,7 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import { CORRUPT_SAVE_KEY, exportSave, importSave, MIGRATIONS, migrate, quarantineStoredSave, readStoredSave, SAVE_KEY } from './save';
 import { CRYSTAL_CYCLE_MS, crystalCycleMs } from './crystal';
 import { CATALOG } from './catalog';
+import { challengeIncomeMult } from './challenges';
 import { DEFAULT_VOLUME, newGame, SAVE_VERSION } from './state';
 
 const encodeRaw = (raw: unknown): string => {
@@ -205,6 +206,7 @@ describe('migration chain', () => {
       milestones: ['ms_click', 'ms_hire'],
       quipsSeen: ['q1'],
       challengesDone: ['no-click'],
+      challengesInherited: ['no-click'],
       temp: 0.9,
       heat: 0.2,
       settings: { notation: 'sci', muted: true, volume: 0.25, reducedMotion: true },
@@ -545,6 +547,92 @@ describe('migration of the Course', () => {
     expect(migrate({ ...newGame(T0), generation: 2, course: 'rule:think', thought: 2, thoughtAt: T0 }, T0).thought).toBe(2);
     const bare = migrate({ ...newGame(T0), generation: 2, course: 'scale', buyStreak: 7, lastBuyAt: T0, purchaseQueue: queue }, T0);
     expect([bare.buyStreak, bare.purchaseQueue]).toEqual([0, []]);
+  });
+});
+
+describe('migration of the risk class', () => {
+  /** Сохранение v13 в форме, какой его писала игра: одно активное Испытание, списка и унаследованной награды нет. */
+  const v13Save = (over: Record<string, unknown>) => {
+    const { activeChallenges: _a, challengesInherited: _b, ...base } = newGame(T0);
+    return { ...base, version: 13, activeChallenge: null, ...over };
+  };
+
+  it('turns the single active challenge into a list of one', () => {
+    const s = migrate(v13Save({ activeChallenge: 'no-synergy' }), T0);
+    expect(s.version).toBe(SAVE_VERSION);
+    expect(s.activeChallenges).toEqual(['no-synergy']);
+    expect('activeChallenge' in s).toBe(false);
+    expect(migrate(v13Save({ activeChallenge: null }), T0).activeChallenges).toEqual([]);
+  });
+
+  it('keeps the reward of the challenges already closed as inherited, so the update takes nothing the player earned', () => {
+    const s = migrate(v13Save({ challengesDone: ['no-synergy', 'no-click'], achievements: ['click_1'] }), T0);
+    expect(s.challengesInherited).toEqual(['no-synergy', 'no-click']);
+    expect(s.challengesDone).toEqual(['no-synergy', 'no-click']);
+    // +10% за каждое, как было: Доход закрывшего оба Испытания тот же, что до обновления.
+    expect(challengeIncomeMult(s)).toBeCloseTo(1.2);
+    expect(challengeIncomeMult(migrate(v13Save({ challengesDone: [] }), T0))).toBe(1);
+  });
+
+  it('keeps everything else the player had', () => {
+    const raw = v13Save({
+      generation: 5,
+      maxGeneration: 5,
+      tokens: 4e20,
+      agents: { [CATALOG[5].models[0].id]: 7 },
+      compute: 90,
+      computeSpent: 30,
+      perks: ['start_tokens'],
+      crystals: 3,
+      course: 'frugal',
+      achievements: ['click_1'],
+      prestiges: 5,
+    });
+    const s = migrate(raw, T0);
+    expect(s.generation).toBe(5);
+    expect(s.tokens).toBe(4e20);
+    expect(s.agents).toEqual({ [CATALOG[5].models[0].id]: 7 });
+    expect([s.compute, s.computeSpent]).toEqual([90, 30]);
+    expect(s.perks).toEqual(['start_tokens']);
+    expect([s.crystals, s.course, s.prestiges]).toEqual([3, 'frugal', 5]);
+    expect(s.achievements).toEqual(['click_1']);
+  });
+
+  it('loads an export code of the previous version without loss', () => {
+    const raw = v13Save({ generation: 4, maxGeneration: 6, tokens: 12345, crystals: 2, prestiges: 4, activeChallenge: 'no-click', challengesDone: ['no-synergy'] });
+    const s = importSave(encodeRaw(raw), T0)!;
+    expect(s).not.toBeNull();
+    expect(s.version).toBe(SAVE_VERSION);
+    expect(s.activeChallenges).toEqual(['no-click']);
+    expect(s.challengesInherited).toEqual(['no-synergy']);
+    expect(s.generation).toBe(4);
+    expect(s.maxGeneration).toBe(6);
+    expect(s.tokens).toBe(12345);
+    expect(s.crystals).toBe(2);
+    expect(s.prestiges).toBe(4);
+  });
+
+  it('migrates a save from every earlier version to the same list and the same inherited reward', () => {
+    for (let version = 6; version <= 13; version++) {
+      const s = migrate({ version, activeChallenge: 'no-click', challengesDone: ['no-synergy'], tokens: 77 }, T0);
+      expect(s.version, `v${version}`).toBe(SAVE_VERSION);
+      expect(s.activeChallenges, `v${version}`).toEqual(['no-click']);
+      expect(s.challengesInherited, `v${version}`).toEqual(['no-synergy']);
+      expect(s.tokens, `v${version}`).toBe(77);
+    }
+  });
+
+  it('keeps the list, the closed ones and the inherited reward through a save, an export and an import', () => {
+    const s = { ...newGame(T0), activeChallenges: ['no-dataset', 'cold'], temp: 0, challengesDone: ['no-click'], challengesInherited: ['no-click'] };
+    const kept = { activeChallenges: ['no-dataset', 'cold'], challengesDone: ['no-click'], challengesInherited: ['no-click'] };
+    const pick = (x: typeof s) => ({ activeChallenges: x.activeChallenges, challengesDone: x.challengesDone, challengesInherited: x.challengesInherited });
+    expect(pick(migrate(JSON.parse(JSON.stringify(s)), T0) as typeof s)).toEqual(kept);
+    expect(pick(importSave(exportSave(s), T0)! as typeof s)).toEqual(kept);
+  });
+
+  it('holds the scale at zero for a save that carries «temperature = 0» with a hot scale', () => {
+    const s = migrate({ ...newGame(T0), activeChallenges: ['cold'], temp: 1.4, heat: 0.5 }, T0);
+    expect([s.temp, s.heat]).toEqual([0, 0]);
   });
 });
 

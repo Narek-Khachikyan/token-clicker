@@ -33,7 +33,7 @@ import {
 import { activeSpec, grantAmount, isEventActive, isEventCaught } from '../economy/events';
 import { formatCount, formatNumber } from '../economy/format';
 import { buyCrystalUpgrade as engineBuyCrystalUpgrade } from '../economy/crystal';
-import { startChallenge as engineStartChallenge, type ChallengeDef } from '../economy/challenges';
+import { hasChallenge, toggleChallenge as engineToggleChallenge, type ChallengeDef } from '../economy/challenges';
 import { claimMilestones } from '../economy/milestones';
 import {
   buyLicense as engineBuyLicense,
@@ -53,7 +53,7 @@ import { activeRule, holdThought, ruleEffect } from '../economy/rules';
 import { chooseCourse as engineChooseCourse, courseMissing } from '../economy/course';
 import { COURSE_BY_ID } from '../data/courses';
 import { HOLD_CLICK_MIN_GAP_MS, POINTER_HOLD_ARM_MS, POINTER_HOLD_RELEASE_MS, pushClick } from '../economy/streak';
-import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX, thermalModsFor } from '../economy/thermal';
+import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX, TEMP_MIN, thermalModsFor } from '../economy/thermal';
 import { perkEffects } from '../economy/perks';
 import { pickQuip, recordQuip } from '../economy/quips';
 import type { CharacterQuipTrigger } from '../data/characterQuips';
@@ -147,10 +147,10 @@ export interface BurstEvent {
   /** Растёт на каждое событие: потребитель смотрит на него, а не на сам факт события, поэтому
    *  два одинаковых подряд не схлопываются в один отклик. */
   nonce: number;
-  /** Данные для оверлея Престижа: новое Поколение, полученный Compute и испытание, которое
-   *  было активно в завершённом Забеге (его награда — +10% к Доходу навсегда). Только UI-слой,
+  /** Данные для оверлея Престижа: новое Поколение, полученный Compute и Испытания, которые были
+   *  взяты на завершённый Забег (Престиж закрыл их и заплатил за них Compute). Только UI-слой,
    *  в GameState не попадает и в сейв не пишется. */
-  prestige?: { generation: number; computeGain: number; challengeId?: 'no-synergy' | 'no-click' };
+  prestige?: { generation: number; computeGain: number; challengeIds?: string[] };
 }
 
 export interface OfflineReport {
@@ -380,10 +380,11 @@ interface GameStore {
   chooseCourse: (id: string) => void;
   /** Закрывает окно Престижа и ведёт к выбору Курса: подраздел «Престиж» вкладки «Престиж» (UI-слой, не сейв). */
   openCourseChoice: () => void;
-  /** Принимает испытание Забега на свежем забеге (или отказ от него через null). */
-  startChallenge: (id: 'no-synergy' | 'no-click' | null) => void;
+  /** Берёт Испытание Забега на свежий Забег или кладёт его обратно; несколько можно взять сразу. */
+  toggleChallenge: (id: ChallengeDef['id']) => void;
 
-  /** Ставит Температуру напрямую: диапазон и защиту от мусора берёт на себя clampTemp. */
+  /** Ставит Температуру напрямую: диапазон и защиту от мусора берёт на себя clampTemp,
+   *  а Испытание «Забег без Температуры» держит шкалу на нуле и ползунок не слушает. */
   setTemp: (t: number) => void;
   /**
    * Пересобирает непрерывный голос Температуры под текущее состояние.
@@ -1506,8 +1507,8 @@ export const useGameStore = create<GameStore>((set, get) => {
       playPrestigeSound(state.settings);
       duckMusic();
       const gain = prestigeGain(state);
-      // Оверлей Престижа называет награду закрытого этим переходом Испытания.
-      const done = state.activeChallenge as ChallengeDef['id'] | null;
+      // Оверлей Престижа называет Испытания, которые закрыл этот переход.
+      const done = state.activeChallenges;
       const next = awardEarned(enginePrestige(state));
       // Момент награды прошлого Поколения не переходит в новое: Сцена пуста, и его место займёт
       // уже первая покупка.
@@ -1519,7 +1520,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         burst: {
           kind: 'prestige',
           nonce: ++burstCounter,
-          prestige: { generation: next.generation, computeGain: gain, ...(done ? { challengeId: done } : {}) },
+          prestige: { generation: next.generation, computeGain: gain, ...(done.length > 0 ? { challengeIds: done } : {}) },
         },
       });
       saveNow();
@@ -1545,14 +1546,14 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     /**
-     * Принимает испытание Забега. Решение «можно ли» — за ядром: несвежий забег возвращает
-     * тот же объект, и стор молчит. Испытание — не Достижение, поэтому awardEarned здесь нет:
-     * просто set, если объект сменился, и знакомый звук Апгрейда. Принятое испытание игрок видит
-     * на карточке Забега; тоста нет (тосты — только Достижения).
+     * Берёт Испытание Забега или кладёт обратно. Решение «можно ли» — за ядром: несвежий Забег
+     * возвращает тот же объект, и стор молчит. Испытание — не Достижение, поэтому awardEarned
+     * здесь нет: просто set, если объект сменился, и знакомый звук Апгрейда. Тоста нет — тосты
+     * только Достижения.
      */
-    startChallenge: (id: 'no-synergy' | 'no-click' | null) => {
+    toggleChallenge: (id: ChallengeDef['id']) => {
       const { state } = get();
-      const next = engineStartChallenge(state, id);
+      const next = engineToggleChallenge(state, id);
       if (next === state) return;
       playUpgradeSound(state.settings);
       set({ state: next });
@@ -1564,7 +1565,11 @@ export const useGameStore = create<GameStore>((set, get) => {
     // Голос идёт сразу после set, а не на следующем тике: шкала обязана звучать в ту же
     // миллисекунду, в которую игрок её двинул, иначе управление ощущается «ватным».
     setTemp: (t: number) => {
-      set((s) => ({ state: { ...s.state, temp: clampTemp(t) } }));
+      set((s) => ({
+        // «Забег без Температуры» держит шкалу на нуле и ползунок не слушает: иначе игрок двигал бы
+        // ручку, которую Испытание всё равно игнорирует, и думал, что греет.
+        state: { ...s.state, temp: hasChallenge(s.state, 'cold') ? TEMP_MIN : clampTemp(t) },
+      }));
       get().syncThermalVoice();
     },
 

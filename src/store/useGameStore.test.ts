@@ -1273,24 +1273,26 @@ describe('lab character lines', () => {
   });
 });
 
-describe('starting a challenge', () => {
-  it('sets the challenge on a fresh run and sounds the upgrade', () => {
+describe('taking challenges', () => {
+  it('takes a challenge on a fresh run and sounds the upgrade', () => {
     freshStore();
-    expect(state().activeChallenge).toBeNull();
+    expect(state().activeChallenges).toEqual([]);
     vi.mocked(playUpgradeSound).mockClear();
-    store().startChallenge('no-synergy');
-    expect(state().activeChallenge).toBe('no-synergy');
+    store().toggleChallenge('no-synergy');
+    expect(state().activeChallenges).toEqual(['no-synergy']);
     // Испытание — не Достижение: тоста нет.
     expect(store().toasts).toEqual([]);
     expect(vi.mocked(playUpgradeSound)).toHaveBeenCalledTimes(1);
   });
 
-  it('records declining without announcing it', () => {
+  it('takes a second challenge next to the first and puts one back', () => {
     freshStore();
-    store().startChallenge(null);
-    expect(state().activeChallenge).toBeNull();
-    // Отказ — тоже выбор, но объявлять его нечем: «принято» здесь врало бы.
-    expect(store().toasts).toEqual([]);
+    store().toggleChallenge('no-synergy');
+    store().toggleChallenge('no-click');
+    // Порядок списка — порядок таблицы: лёгкие Испытания идут первыми.
+    expect(state().activeChallenges).toEqual(['no-click', 'no-synergy']);
+    store().toggleChallenge('no-synergy');
+    expect(state().activeChallenges).toEqual(['no-click']);
   });
 
   it('stays silent on a stale run, because the kernel answers with the same object', () => {
@@ -1299,10 +1301,36 @@ describe('starting a challenge', () => {
     useGameStore.setState({ state: { ...state(), runClicks: 1 } });
     const before = state();
     vi.mocked(playUpgradeSound).mockClear();
-    store().startChallenge('no-click');
+    store().toggleChallenge('no-click');
     expect(state()).toBe(before);
     expect(store().toasts).toEqual([]);
     expect(vi.mocked(playUpgradeSound)).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Temperature scale at zero under «temperature = 0»', () => {
+    freshStore();
+    store().setTemp(1.2);
+    store().toggleChallenge('cold');
+    expect(state().temp).toBe(0);
+    store().setTemp(1.4);
+    expect(state().temp).toBe(0);
+    store().toggleChallenge('cold');
+    store().setTemp(1.4);
+    expect(state().temp).toBe(1.4);
+  });
+
+  it('pays the Prestige Compute with the Class of risk of the run it closes', () => {
+    freshStore();
+    store().toggleChallenge('no-synergy');
+    store().toggleChallenge('no-click');
+    useGameStore.setState({ state: engineBuyAgents({ ...state(), tokens: 1e16, runTokens: 1e16 }, g0.flagship.id, 1) });
+    const expected = prestigeGain(state());
+    const before = state().compute;
+    prestigeNow();
+    expect(state().compute).toBe(before + expected);
+    expect(expected).toBeGreaterThan(prestigeGain({ ...state(), runTokens: 1e16, activeChallenges: [] }));
+    expect(state().activeChallenges).toEqual([]);
+    expect(state().challengesDone.sort()).toEqual(['no-click', 'no-synergy']);
   });
 });
 

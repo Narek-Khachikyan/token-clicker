@@ -20,6 +20,7 @@ import {
   prestige,
   totalIncome,
 } from './engine';
+import { CHALLENGES, riskClass, toggleChallenge, type ChallengeDef } from './challenges';
 import { PERKS } from './perks';
 import { migrate } from './save';
 import { newGame, SAVE_VERSION, type GameState } from './state';
@@ -91,6 +92,10 @@ const firstGenerationCleared = (): GameState => {
   return idle(clickN(s, 10_000), 1e10);
 };
 
+/** Забег Поколения 1 под данными Испытаниями, закрытый настолько, что Престиж доступен: Флагман нанят. */
+const closedUnder = (...ids: ChallengeDef['id'][]): GameState =>
+  buyAgents(rich(ids.reduce((s, id) => toggleChallenge(s, id), newGame(T0)), 1e30), g0.flagship.id, 1);
+
 /** Состояние, в котором выполнено условие каждой тени. Шутка недостижима by design. */
 const REACH: Record<string, () => GameState> = {
   // Перк даёт Клик в секунду: 100 000 Кликов — это 27 суток непрерывной игры.
@@ -160,6 +165,10 @@ const REACH: Record<string, () => GameState> = {
   // Спринт: все Престижи за шесть секунд игровых часов. Счётчик Престижей упирается в
   // число Поколений (Престиж запрещён на последнем), поэтому ускоряется здесь только время.
   shadow_all_prestiges_15m: () => prestigeToFrontier(1_000),
+  // Три тени Класса риска: пороги по сумме тяжести взятых Испытаний, Флагман нанят — Забег можно закрыть.
+  shadow_risk_3: () => closedUnder('no-synergy', 'no-click'),
+  shadow_risk_6: () => closedUnder('no-perks', 'no-synergy', 'cold'),
+  shadow_risk_max: () => closedUnder(...CHALLENGES.map((c) => c.id)),
   // Три тени «Говорящих Моделей»: состояния собираются из той же таблицы реплик,
   // что и игра, а не из захардкоженных id, иначе правка таблицы тихо роняла бы тест.
   shadow_quips_5: () => ({ ...newGame(T0), quipsSeen: QUIPS.slice(0, 5).map((q) => q.id) }),
@@ -377,5 +386,30 @@ describe('детерминированность', () => {
       Date.now = clock;
       Math.random = dice;
     }
+  });
+});
+
+describe('тени Класса риска', () => {
+  const shadow = (id: string) => SHADOW_ACHIEVEMENTS.find((a) => a.id === id)!;
+
+  it('берутся только закрытым Забегом: взять Испытания мало, нужен Флагман', () => {
+    const taken = CHALLENGES.reduce((s, c) => toggleChallenge(s, c.id), newGame(T0));
+    for (const id of ['shadow_risk_3', 'shadow_risk_6', 'shadow_risk_max']) expect(shadow(id).check(taken), id).toBe(false);
+  });
+
+  it('открываются по порогам, и каждый следующий труднее предыдущего', () => {
+    const passes = (s: GameState) => ['shadow_risk_3', 'shadow_risk_6', 'shadow_risk_max'].map((id) => shadow(id).check(s));
+    expect(passes(closedUnder('no-click'))).toEqual([false, false, false]);
+    expect(riskClass(closedUnder('no-synergy', 'no-click'))).toBe(3);
+    expect(passes(closedUnder('no-synergy', 'no-click'))).toEqual([true, false, false]);
+    expect(passes(closedUnder('no-perks', 'no-synergy', 'cold'))).toEqual([true, true, false]);
+    expect(passes(closedUnder(...CHALLENGES.map((c) => c.id)))).toEqual([true, true, true]);
+  });
+
+  it('не прибавляют ни Дохода, ни Датасета, как любая тень', () => {
+    const earned = awardShadowAchievements(closedUnder(...CHALLENGES.map((c) => c.id))).state;
+    expect(shadowEarned(earned)).toBeGreaterThanOrEqual(3);
+    expect(nonShadowCount(earned)).toBe(0);
+    expect(totalIncome(earned)).toBe(totalIncome(closedUnder(...CHALLENGES.map((c) => c.id))));
   });
 });

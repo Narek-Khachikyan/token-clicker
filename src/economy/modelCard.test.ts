@@ -43,7 +43,7 @@ function stacked(gen: number): GameState {
     compute: 250,
     crystals: 3,
     covenant: true,
-    challengesDone: CHALLENGES.map((c) => c.id),
+    challengesInherited: CHALLENGES.map((c) => c.id),
   };
 }
 

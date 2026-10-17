@@ -1,4 +1,5 @@
 import { CATALOG, MODEL_BY_ID } from './catalog';
+import { CHALLENGES } from './challenges';
 import { COURSE_OFFER_SIZE, offerCourse } from './course';
 import { CRYSTAL_UPGRADE_BY_ID } from './crystal';
 import { uprisingStage } from './glitches';
@@ -182,6 +183,21 @@ export const MIGRATIONS: Record<number, Migration> = {
     courseOffer: raw.courseOffer ?? [],
     courseNext: raw.courseNext ?? null,
   }),
+  // Несколько Испытаний сразу и Класс риска (ADR-0013, слой 5) пришли в v14. Одиночное активное Испытание
+  // становится списком из одного (или пустым). Награда закрытых Испытаний была постоянным +10% к Доходу, а
+  // теперь за закрытие платится Compute, поэтому уже закрытые переезжают в `challengesInherited` и продолжают
+  // давать свои +10%: обновление ничего не отнимает у заработанного. `challengesDone` остаётся как память
+  // списка. Миграция дополняет, а не перезаписывает: присутствующее поле остаётся, разбор ниже сам отсеет
+  // неизвестные id.
+  13: (raw) => {
+    const { activeChallenge, ...rest } = raw;
+    return {
+      ...rest,
+      version: 14,
+      activeChallenges: raw.activeChallenges ?? (typeof activeChallenge === 'string' ? [activeChallenge] : []),
+      challengesInherited: raw.challengesInherited ?? strList(raw.challengesDone),
+    };
+  },
 };
 
 /** Особых Перков Поколения в прошлых версиях: по числу Поколений тогдашнего каталога. */
@@ -394,6 +410,7 @@ export function migrate(raw: unknown, now: number): GameState {
   const course = courseId(data.course);
   const rules = { generation, course };
   const courseOffer = courseOfferOf(data.courseOffer);
+  const coldRun = strList(data.activeChallenges).includes('cold');
 
   return offerCourse({
     version: SAVE_VERSION,
@@ -446,16 +463,19 @@ export function migrate(raw: unknown, now: number): GameState {
     // схлопывается, хвост длиннее капа обрезается спереди — это те же правила, что в
     // recordQuip, иначе загрузка вернула бы состояние, которое игра никогда не пишет.
     quipsSeen: [...new Set(strList(data.quipsSeen))].slice(-QUIPS_SEEN_CAP),
-    // Испытания — как Достижения, а не как Перки: id проверяются только на тип, а не на
-    // известность таблице, поэтому запись переживает правку таблицы Испытаний. Активное
-    // Испытание — строка или ничего: нестрока из повреждённого сохранения читается как
-    // «обычный забег», иначе мусор включал бы ограничение, которого игрок не выбирал.
-    activeChallenge: typeof data.activeChallenge === 'string' ? data.activeChallenge : null,
+    // Взятые Испытания, в отличие от закрытых, сверяются с таблицей: неизвестный id (из будущей версии
+    // или мусора) не должен включать ограничение, которого игрок не выбирал, и не имеет веса в Классе
+    // риска. Порядок — порядок таблицы, как у `toggleChallenge`, дубли схлопываются.
+    activeChallenges: CHALLENGES.map((c) => c.id).filter((id) => strList(data.activeChallenges).includes(id)),
+    // Закрытые и унаследованные — как Достижения, а не как Перки: id проверяются только на тип, а не на
+    // известность таблице, поэтому запись переживает правку таблицы Испытаний.
     challengesDone: [...new Set(strList(data.challengesDone))],
+    challengesInherited: [...new Set(strList(data.challengesInherited))],
     // clampTemp, а не `share`: испорченный или будущий сейв может принести любое число, а
     // шкала обязана остаться в своём диапазоне — иначе множитель Дохода стал бы произвольным.
-    temp: clampTemp(num(data.temp, TEMP_START)),
-    heat: share(data.heat),
+    // В «temperature = 0» шкала стоит на нуле: сейв, где она горячая, нарушал бы ограничение сам.
+    temp: coldRun ? 0 : clampTemp(num(data.temp, TEMP_START)),
+    heat: coldRun ? 0 : share(data.heat),
     overheatedAt: clampFuture(stamp(data.overheatedAt)),
     // Вехи фильтруются по таблице: неизвестный id из битого сейва не должен занимать
     // номер, который потом получит настоящая веха, и не должен показываться в интерфейсе.
@@ -528,6 +548,7 @@ const PROGRESS_FIELDS = [
   'quipsSeen',
   'challengesDone',
   'activeChallenge',
+  'activeChallenges',
   'eventsSeen',
   'glitches',
 ] as const;

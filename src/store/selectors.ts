@@ -14,7 +14,7 @@ import {
   shortfall,
   totalIncome,
 } from '../economy/engine';
-import { canStartChallenge, CHALLENGE_REWARD_PCT, type ChallengeDef } from '../economy/challenges';
+import { canStartChallenge, challengeComputeMult, hasChallenge, INHERITED_REWARD_PCT, riskClass, RISK_MULT_MAX, type ChallengeDef } from '../economy/challenges';
 import { crystalCycleMs, crystalIncomeMult, CRYSTAL_PER_STOCK_BONUS, type CrystalUpgrade } from '../economy/crystal';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
 import {
@@ -492,33 +492,45 @@ export function prestigeCardView(s: GameState): PrestigeCardView {
 }
 
 export interface ChallengeView {
-  /** Это Испытание выбрано на текущий Забег. */
+  /** Это Испытание взято на текущий Забег. */
   active: boolean;
-  /** Оно уже закрыто Престижем и платит прибавку. */
+  /** Оно уже закрыто Престижем: награда — Compute того Престижа, списком — память. */
   done: boolean;
 }
 
 export function challengeView(s: GameState, def: ChallengeDef): ChallengeView {
-  return { active: s.activeChallenge === def.id, done: s.challengesDone.includes(def.id) };
+  return { active: hasChallenge(s, def.id), done: s.challengesDone.includes(def.id) };
 }
 
 export interface ChallengeCardView {
-  /** Забег свежий: Испытание ещё можно выбрать или сменить. */
+  /** Забег свежий: Испытания ещё можно брать или класть обратно. */
   canStart: boolean;
-  /** Ничего не выбрано: обычный Забег. */
+  /** Взятых Испытаний нет: обычный Забег без Класса риска. */
   none: boolean;
-  /** Прибавка к Доходу от закрытых Испытаний, в процентах. */
-  bonusText: string;
+  /** Класс риска Забега: сумма тяжести взятых Испытаний. */
+  risk: number;
+  /** Множитель Compute за этот Престиж от Класса риска, отформатированный для показа. */
+  multText: string;
+  /** Множитель упёрся в потолок: лишняя тяжесть Compute уже не прибавляет. */
+  capped: boolean;
+  /** Награда Испытаний, закрытых до Compute-награды, в процентах — +10% за каждое. */
+  inheritedText: string;
+  /** Сколько Испытаний Престиж хоть раз закрывал; память для игрока, не награда. */
   doneCount: number;
 }
 
 export function challengeCardView(s: GameState): ChallengeCardView {
-  const doneCount = new Set(s.challengesDone).size;
+  const notation = s.settings.notation;
+  const inherited = new Set(s.challengesInherited).size;
+  const mult = challengeComputeMult(s);
   return {
     canStart: canStartChallenge(s),
-    none: s.activeChallenge === null,
-    bonusText: formatNumber(doneCount * CHALLENGE_REWARD_PCT, s.settings.notation),
-    doneCount,
+    none: s.activeChallenges.length === 0,
+    risk: riskClass(s),
+    multText: formatNumber(mult, notation),
+    capped: mult >= RISK_MULT_MAX,
+    inheritedText: formatNumber(inherited * INHERITED_REWARD_PCT, notation),
+    doneCount: new Set(s.challengesDone).size,
   };
 }
 
@@ -745,7 +757,7 @@ export function labCardView(s: GameState, lab: LabId, showShare: boolean): LabCa
   const notation = s.settings.notation;
   const count = labAgents(s, lab);
   const synergyOn =
-    s.activeChallenge !== 'no-synergy' && s.upgrades.includes(synergyUpgradeId(s.generation, lab));
+    !hasChallenge(s, 'no-synergy') && s.upgrades.includes(synergyUpgradeId(s.generation, lab));
   const synergy = synergyOn ? Math.round(count * SYNERGY_PER_AGENT * 100) : -1;
   return {
     agents: formatNumber(count, notation),
