@@ -43,6 +43,7 @@ import {
   uprisingStage,
 } from '../economy/glitches';
 import { pickNews } from '../economy/news';
+import { activeRule } from '../economy/rules';
 import { HOLD_CLICK_MIN_GAP_MS, pushClick } from '../economy/streak';
 import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX, thermalModsFor } from '../economy/thermal';
 import { perkEffects } from '../economy/perks';
@@ -467,6 +468,8 @@ export const SCENE_MOMENT_MS = 2000;
 /** Пузырь реплики висит 4.5 с: входной pop занимает 0.25 с, уходной fade стартует CSS-задержкой
  *  на 4.32 с, и стор гасит поле уже после него — fade видно целиком. */
 const QUIP_HIDE_MS = 4500;
+/** Реплика Правила Поколения: оверлей Престижа держит экран 2,8 с, и обычных 4,5 с после него осталось бы мало. */
+const RULE_QUIP_HIDE_MS = 7500;
 /** Сколько искры Клика висят в сторе, мс: чуть дольше их анимации в index.css, чтобы узел не
  *  исчезал на середине полёта; уборку делает этот таймер, а не animationend, которого отменённая
  *  анимация не даёт. */
@@ -716,6 +719,22 @@ export const useGameStore = create<GameStore>((set, get) => {
     computeRuleNotice = computeBonusDrop(initial.state);
     if (!computeRuleNotice) markComputeRuleSeen();
   }
+
+  /**
+   * Объявляет Правило Поколения репликой Модели, когда Престиж привёл в Поколение, у которого оно есть
+   * (строка ленты ставится рядом, в самом Престиже). Реплика Правила — не из таблицы Переписки: в
+   * `quipsSeen` она не пишется и полный набор Переписки не двигает. Висит дольше обычной: на входе
+   * её сначала перекрывает оверлей Престижа.
+   */
+  const announceRule = (entered: GameState): void => {
+    const rule = activeRule(entered);
+    if (!rule) return;
+    const nonce = ++quipCounter;
+    set({ lastQuip: { id: `rule:${rule.id}`, text: rule.quip.text, lab: rule.quip.lab, nonce } });
+    setTimeout(() => {
+      if (get().lastQuip?.nonce === nonce) set({ lastQuip: null });
+    }, RULE_QUIP_HIDE_MS);
+  };
 
   /**
    * Начисляет выполненные Достижения — обычные и теневые — и показывает тосты за обычные.
@@ -1348,7 +1367,8 @@ export const useGameStore = create<GameStore>((set, get) => {
       const next = awardEarned(enginePrestige(state));
       // Момент награды прошлого Поколения не переходит в новое: Сцена пуста, и его место займёт
       // уже первая покупка.
-      set({ state: next, news: pickNews(next), sceneMoment: null });
+      set({ state: next, news: activeRule(next)?.news ?? pickNews(next), sceneMoment: null });
+      announceRule(next);
       // Ставится после awardEarned намеренно: если тот же тик выполнил Достижение, тряска
       // перебивает его отклик. Тост Достижения всё равно живёт и озвучен — теряется только веер искр.
       set({

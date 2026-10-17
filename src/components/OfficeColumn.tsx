@@ -5,6 +5,7 @@ import { CATALOG } from '../economy/catalog';
 import { LABS, LAB_IDS, type LabId } from '../data/labs';
 import { canPrestige, isContentFinale } from '../economy/engine';
 import { labAgents } from '../economy/upgrades';
+import { generationRule } from '../economy/rules';
 import { formatCount, formatNumber } from '../economy/format';
 import { Hint } from './Hint';
 import { Icon } from './Icon';
@@ -454,6 +455,7 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
   const roster = { generation, agents };
 
   const gen = CATALOG[generation];
+  const rule = generationRule(generation);
   const flagship = gen.flagship;
   const flagshipOwned = (agents[flagship.id] ?? 0) >= 1;
 
@@ -809,6 +811,47 @@ const OfficeColumnView: React.FC<{ full?: boolean }> = ({ full = false }) => {
                 </button>
               )}
             </div>
+
+            {/* Правило Поколения стоит на HUD всё время Забега: оно действует, пока игрок в этом Поколении,
+                и забыть его после входа — значит играть вслепую. Полный текст — в подсказке, а строка
+                обрезается многоточием, как цель выше. «Рассвет» Правила не имеет, и строки там нет. */}
+            {rule && (
+              <Hint
+                key={rule.id}
+                content={<><b>{rule.name}.</b> {rule.summary}</>}
+                className="scene__rule"
+                style={{ minWidth: 0, animation: 'toast-fade 0.15s ease-out' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', minWidth: 0 }}>
+                  <span className="pixel-22" style={{ color: 'var(--accent-color)', flexShrink: 0 }}>
+                    ПРАВИЛО
+                  </span>
+                  <span
+                    style={{
+                      fontSize: '1rem',
+                      color: 'var(--text-main)',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {rule.name}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: 'var(--text-sm)',
+                    color: 'var(--text-muted)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {rule.summary}
+                </div>
+              </Hint>
+            )}
           </div>
           {/* Полоса кражи Дохода появляется вместе с первым Глюком и держит обратную связь
               на самой Сцене: без неё игрок узнавал бы об утечке только из модалки. */}

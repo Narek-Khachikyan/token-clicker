@@ -6,6 +6,7 @@ import { ThermalSection } from './ThermalSection';
 import { MAX_OWNED_PERKS } from '../economy/perks';
 import { exportSave } from '../economy/save';
 import { formatCount, formatDuration, formatNumber } from '../economy/format';
+import { generationRule } from '../economy/rules';
 import { CATALOG } from '../economy/catalog';
 import {
   computeBonus,
@@ -1493,6 +1494,7 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
   const preview = prestigePreview(state);
   const gen = CATALOG[state.generation];
   const nextGen = CATALOG[preview.generation];
+  const nextRule = generationRule(preview.generation);
   const flagship = gen.flagship;
   const finale = isContentFinale(state);
   const notation = state.settings.notation;
@@ -1578,6 +1580,12 @@ const PrestigeBody: React.FC<ModalBodyProps> = ({ closing, requestClose }) => {
             <>
               {' '}
               Престиж завершит Забег и перенесёт тебя в Поколение {nextGen.id}: {nextGen.name}.
+              {nextRule && (
+                <>
+                  {' '}
+                  Правило Поколения: <b>{nextRule.name}</b> — {nextRule.summary}
+                </>
+              )}
             </>
           )}
         </div>
