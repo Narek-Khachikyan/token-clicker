@@ -1117,16 +1117,44 @@ export function startingTokens(state: GameState, generation: number): number {
     : 0;
 }
 
+/**
+ * Поколения, в которые Престиж с Финала контента может вернуть игрока: все пройденные, то есть все
+ * до последнего. `maxGeneration` на Финале равно последнему, поэтому список — 0…последнее − 1.
+ */
+export function passedGenerations(maxGeneration: number): number[] {
+  return Array.from({ length: Math.min(Math.max(0, maxGeneration), LAST_GENERATION) }, (_, i) => i);
+}
+
+/** Поколения, куда Престиж может вернуть с Финала контента; вне Финала список пуст. */
+export function returnGenerations(state: GameState): number[] {
+  return isContentFinale(state) ? passedGenerations(state.maxGeneration) : [];
+}
+
+/**
+ * Поколение, в которое ведёт Престиж, или `null`, если Престиж сейчас закрыт.
+ *
+ * До Финала контента это всегда следующее Поколение, и `chosen` игнорируется. На Финале переход
+ * ведёт в пройденное Поколение, которое выбрал игрок: без выбора, с непройденным или выдуманным
+ * номером и без Флагмана Престиж закрыт. Выбор живёт вне сохранения (стор), ядро его только проверяет.
+ */
+export function prestigeDestination(state: GameState, chosen: number | null = null): number | null {
+  if (!canPrestige(state)) return null;
+  if (!isContentFinale(state)) return state.generation + 1;
+  return chosen !== null && returnGenerations(state).includes(chosen) ? chosen : null;
+}
+
 export interface PrestigePreview {
   /** Compute, который начислит Престиж. */
   gain: number;
   agentsLost: number;
   upgradesLost: number;
   tokensLost: number;
-  /** Поколение, в которое игрок перейдёт. */
+  /** Поколение, в которое игрок перейдёт (на Финале без выбора — последнее, куда переход ещё не ведёт). */
   generation: number;
-  /** Престиж сейчас невозможен: нет Флагмана или это финал контента. */
+  /** Престиж сейчас невозможен: нет Флагмана или на Финале не выбрано пройденное Поколение. */
   blocked: boolean;
+  /** Финал контента без выбранного Поколения: окно просит выбрать его во вкладке «Престиж». */
+  needsGeneration: boolean;
   /** Курс нового Забега ещё не выбран: Престиж откажет, пока игрок не выберет один из трёх. */
   needsCourse: boolean;
 }
@@ -1136,31 +1164,39 @@ export interface PrestigePreview {
  *
  * `gain` — это ровно `prestigeGain(state)`, а не вторая формула: модалка и кнопка
  * обязаны показывать одно число, иначе Compute, начисленный переходом, разойдётся
- * с обещанным. `blocked` повторяет условия отказа самого `prestige` (нет Флагмана
- * либо финал контента), чтобы UI объяснил причину, а не просто погасил кнопку.
+ * с обещанным. `blocked` берётся из `prestigeDestination`, то есть повторяет условия отказа самого
+ * `prestige`, чтобы UI объяснил причину, а не просто погасил кнопку.
  */
-export function prestigePreview(state: GameState): PrestigePreview {
+export function prestigePreview(state: GameState, chosen: number | null = null): PrestigePreview {
+  const destination = prestigeDestination(state, chosen);
   return {
     gain: prestigeGain(state),
     agentsLost: Object.values(state.agents).reduce((s, n) => s + n, 0),
     upgradesLost: state.upgrades.length,
     tokensLost: state.tokens,
-    generation: Math.min(state.generation + 1, LAST_GENERATION),
-    blocked: !canPrestige(state) || isContentFinale(state),
+    generation: destination ?? Math.min(state.generation + 1, LAST_GENERATION),
+    blocked: destination === null,
+    // Финал без допустимого выбора: и без выбора, и с выбором, которого не было в пройденных.
+    needsGeneration: isContentFinale(state) && destination === null,
     needsCourse: courseMissing(state),
   };
 }
 
-export function prestige(state: GameState, now: number = state.lastTick): GameState {
-  // На финальном Поколении перехода дальше нет: обнулять забег без нового Поколения нельзя.
-  if (!canPrestige(state) || isContentFinale(state)) return state;
+/**
+ * Престиж. На Финале контента `chosen` — пройденное Поколение, в которое вернуться; вне Финала он
+ * не нужен. Без допустимого перехода (см. `prestigeDestination`) возвращается тот же объект.
+ */
+export function prestige(state: GameState, now: number = state.lastTick, chosen: number | null = null): GameState {
+  const destination = prestigeDestination(state, chosen);
+  // Без перехода (нет Флагмана, финал без выбора) обнулять забег нельзя: тот же объект — отказ.
+  if (destination === null) return state;
   // Один источник часов: тик считает dt по игровым часам (lastTick + dt), поэтому Престиж
   // обязан ставить lastTick/runStartedAt из тех же часов, а не из Date.now() — иначе
   // неотработанное время между последним тиком и стенными часами сдвигало Лобби, окно Глюка
   // и созревание кристалла мимо их циклов. Дефолт — игровые часы; явный now нужен только
   // тестам, которые двигают часы вручную.
   const clock = Number.isFinite(now) ? now : state.lastTick;
-  const next = state.generation + 1;
+  const next = destination;
   // Испытания закрываются Престижем: взятые дописываются в закрытые без дублей. Награда за них — Compute
   // этого же Престижа (`prestigeGain` ниже множит прирост на Класс риска), поэтому повторное закрытие
   // платит снова: список нужен интерфейсу как память, а не как защита от двойной выплаты. Переписка при

@@ -4,14 +4,16 @@ import {
   CATALOG,
   computeGain,
   genScale,
+  LAST_GENERATION,
   prestigeDivisor,
   softMod,
 } from './catalog';
+import { riskClass, RISK_MULT_MAX } from './challenges';
 import {
   advance, advanceTime, applyOffline, assistClickBonus, BASE_OFFLINE_HOURS, bulkCost, buyAgents, buyPerk, buyUpgrade, canPrestige, click,
   clickValue, computeBonusDrop, computeShortfall, perkBonusLoss, datasetMult, datasetValue, discountMult, earnTokens, flagshipMult, incomeGain, isContentFinale,
   labIncomeShare, maxAffordable, modelIncome, offlineBreakdown, offlineCapHours, offlineIncome, offlineRateMult, prestige, prestigeGain, prestigePreview,
-  progressToNextAgent, sellAgents, START_PRICE_MULT, totalIncome,
+  progressToNextAgent, returnGenerations, sellAgents, START_PRICE_MULT, totalIncome,
 } from './engine';
 import {
   collectCrystals, buyCrystalUpgrade, CRYSTAL_CYCLE_MS, CRYSTAL_PER_STOCK_BONUS, CRYSTAL_STOCK_CAP, CRYSTAL_UPGRADES,
@@ -1692,6 +1694,79 @@ describe('prestige', () => {
     expect(prestigePreview(buyAgents(rich(finale), CATALOG[last].flagship.id, 1)).blocked).toBe(true);
     // Отказ — это отказ тем же объектом, а не «полупустой» переход.
     expect(prestige(finale, T0)).toBe(finale);
+  });
+});
+
+describe('prestige from the content finale', () => {
+  const LAST = LAST_GENERATION;
+  /** Финал контента: последнее Поколение, Флагман нанят, Забег набран. */
+  const finale = (over: Partial<GameState> = {}): GameState => ({
+    ...buyAgents(rich({ ...cold(newGame(T0)), generation: LAST, maxGeneration: LAST }), CATALOG[LAST].flagship.id, 1),
+    ...over,
+  });
+  const ALL_CHALLENGES = ['no-click', 'no-dataset', 'cold', 'no-synergy', 'no-perks'];
+
+  it('returns to the chosen passed generation, and the run after it is no longer the finale', () => {
+    const next = prestige(finale(), T0, 2);
+    expect(next.generation).toBe(2);
+    expect(next.maxGeneration).toBe(LAST);
+    expect(canPrestige(next)).toBe(false);
+    expect(isContentFinale(next)).toBe(false);
+  });
+
+  it('offers exactly the generations passed before the finale, and only from the finale', () => {
+    expect(returnGenerations(finale())).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(returnGenerations(cold(newGame(T0)))).toEqual([]);
+  });
+
+  it('pays Compute by the same rule as any Prestige, capped by the Risk class multiplier', () => {
+    const s = finale({ activeChallenges: ALL_CHALLENGES });
+    // Сумма тяжести пяти Испытаний — 8, выше потолка множителя: платит ровно потолок.
+    expect(riskClass(s)).toBe(8);
+    expect(prestigeGain(s)).toBe(computeGain(s.runTokens, LAST, RISK_MULT_MAX));
+    expect(prestige(s, T0, 0).compute - s.compute).toBe(prestigeGain(s));
+  });
+
+  it('closes the Испытания taken on the last run, so they can be finished at the finale', () => {
+    const s = finale({ activeChallenges: ['no-click'] });
+    const next = prestige(s, T0, 1);
+    expect(next.challengesDone).toEqual(['no-click']);
+    expect(next.activeChallenges).toEqual([]);
+    expect(next.compute - s.compute).toBe(prestigeGain(s));
+  });
+
+  it('keeps the Prestige before the finale going to the next generation, whatever choice is passed', () => {
+    const at2 = buyAgents(rich({ ...cold(newGame(T0)), generation: 2, maxGeneration: 2 }), CATALOG[2].flagship.id, 1);
+    expect(isContentFinale(at2)).toBe(false);
+    expect(prestige(at2, T0).generation).toBe(3);
+    expect(prestige(at2, T0, 0).generation).toBe(3);
+  });
+
+  it('refuses the finale without a choice, and a choice that was never passed', () => {
+    const s = finale();
+    expect(prestige(s, T0)).toBe(s);
+    expect(prestige(s, T0, null)).toBe(s);
+    expect(prestige(s, T0, LAST)).toBe(s);
+    expect(prestige(s, T0, LAST + 1)).toBe(s);
+    expect(prestige(s, T0, -1)).toBe(s);
+    expect(prestige(s, T0, 1.5)).toBe(s);
+  });
+
+  it('previews the destination and says what is missing until a generation is chosen', () => {
+    const blocked = prestigePreview(finale());
+    expect(blocked.blocked).toBe(true);
+    expect(blocked.needsGeneration).toBe(true);
+    // Выбор, которого нет среди пройденных, тоже не даёт перехода: окно просит выбрать заново.
+    const refused = prestigePreview(finale(), LAST_GENERATION);
+    expect(refused.blocked).toBe(true);
+    expect(refused.needsGeneration).toBe(true);
+
+    const chosen = prestigePreview(finale(), 3);
+    expect(chosen.blocked).toBe(false);
+    expect(chosen.needsGeneration).toBe(false);
+    expect(chosen.generation).toBe(3);
+    expect(chosen.gain).toBe(prestigeGain(finale()));
+    expect(prestigePreview(cold(newGame(T0))).needsGeneration).toBe(false);
   });
 });
 
