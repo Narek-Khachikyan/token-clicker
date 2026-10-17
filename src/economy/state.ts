@@ -1,6 +1,6 @@
 import { TEMP_START } from './thermal';
 
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 
 /**
  * Громкость по умолчанию: 0.6, а не 1.
@@ -66,6 +66,21 @@ export interface GameState {
    * Пуста вне этого Правила и после Престижа. Исполняется только в живом тике, в оффлайн не попадает.
    */
   purchaseQueue: string[];
+  /**
+   * Ряд покупок Правила «Дефицит GPU» (Эра GPT-4): сколько Агентов нанято подряд без паузы.
+   * Растёт только найм в этом Правиле; ноль вне него и после Престижа. Цена читает ряд вместе с
+   * `lastBuyAt`: ряд старше паузы Правила считается оборванной, и обнулять её тиком не нужно.
+   */
+  buyStreak: number;
+  /** Мс игровых часов последнего найма в ряду `buyStreak`; 0 = ряда нет. */
+  lastBuyAt: number;
+  /**
+   * Размышление Правила «Подумай ещё» (Reasoning): секунды, накопленные удержанием Клика и ещё не
+   * выплаченные. Платятся одним ударом в живом тике, когда удержание оборвалось; оффлайн не трогают.
+   */
+  thought: number;
+  /** Мс игровых часов последней порции размышления; 0 = удержания нет. */
+  thoughtAt: number;
   /** Бесплатный сброс дерева Перков уже использован в этом Забеге (ADR-0012). Престиж снимает отметку. */
   perkResetUsed: boolean;
   prestiges: number;
@@ -169,6 +184,10 @@ export function newGame(now: number): GameState {
     computeSpent: 0,
     perks: [],
     purchaseQueue: [],
+    buyStreak: 0,
+    lastBuyAt: 0,
+    thought: 0,
+    thoughtAt: 0,
     perkResetUsed: false,
     prestiges: 0,
     achievements: [],

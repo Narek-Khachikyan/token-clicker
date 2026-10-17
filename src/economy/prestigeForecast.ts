@@ -102,6 +102,12 @@ export const PRESTIGE_BOOKKEEPING: readonly (keyof GameState)[] = [
   'perkResetUsed',
   // Очередь закупок сгорает вместе с Агентами, которых ставила: отдельной строки в карточке у неё нет.
   'purchaseQueue',
+  // Ряд покупок «Дефицита GPU» и размышление «Подумай ещё» живут в своём Поколении и обнуляются Престижем:
+  // карточке нечего о них сказать, пока игрок не в этом Правиле.
+  'buyStreak',
+  'lastBuyAt',
+  'thought',
+  'thoughtAt',
   'challengesDone',
   'catchUpPaid',
   'eventsSeen',

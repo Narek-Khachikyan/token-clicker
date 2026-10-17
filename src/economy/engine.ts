@@ -16,7 +16,7 @@ import {
 import { perkEffects, perkLock, PERK_BY_ID, START_TOKENS_UNITS, type PerkEffect } from './perks';
 import type { GameState } from './state';
 import { queueCapacity } from './purchaseQueue';
-import { ruleIncomeMult, ruleLiveIncomeMult, rulePriceMult } from './rules';
+import { activeRule, noteHire, ruleIncomeMult, ruleLiveIncomeMult, rulePriceMult, thoughtMult } from './rules';
 import { nonShadowCount } from './achievements';
 import {
   catchUpClick,
@@ -700,7 +700,8 @@ export function buyAgents(state: GameState, modelId: string, n: number | 'max'):
   const { count, cost } = purchaseQuote(state, model, n);
   if (count <= 0) return state;
   if (cost > state.tokens) return state;
-  return { ...state, tokens: state.tokens - cost, agents: { ...state.agents, [modelId]: owned + count } };
+  // Найм продлевает ряд «Дефицита GPU»; вне Правила `noteHire` возвращает тот же объект.
+  return noteHire({ ...state, tokens: state.tokens - cost, agents: { ...state.agents, [modelId]: owned + count } }, count);
 }
 
 /**
@@ -726,6 +727,45 @@ export function runPurchaseQueue(state: GameState): GameState {
     rest.shift();
   }
   return rest.length === state.purchaseQueue.length ? state : { ...next, purchaseQueue: rest };
+}
+
+/**
+ * Выплачивает размышление Правила «Подумай ещё», когда удержание оборвалось (с последней порции
+ * прошло больше паузы Правила) или копилка дошла до предела: секунды × Клики в секунду × стоимость
+ * Клика в этот момент × надбавка за длину удержания. Платится одним ударом в Токены и в счётчики
+ * Кликов целыми Кликами. Без накопленного и вне Правила возвращает тот же объект.
+ *
+ * Зовётся только из `advance`, то есть из живого тика. Путь простоя (`applyOffline`) её не вызывает:
+ * размышление копит только живое удержание, а выплата за время отсутствия обошла бы потолок
+ * Оффлайн-дохода. Накопленное до ухода выплачивается первым же живым тиком по возвращении, и не
+ * больше предела копилки — оно уже заработано, а простой его не растит.
+ */
+export function settleThought(state: GameState, now: number): GameState {
+  const effect = activeRule(state)?.effect;
+  if (effect?.kind !== 'heldThought' || !thoughtDue(state, now)) return state;
+  const steps = state.thought * effect.clicksPerSec;
+  const cleared = { ...state, thought: 0, thoughtAt: 0 };
+  if (steps <= 0) return cleared;
+  const paid = earnTokens(cleared, thoughtPayout(state, now));
+  const clicks = Math.floor(steps);
+  return { ...paid, clicks: paid.clicks + clicks, runClicks: paid.runClicks + clicks };
+}
+
+/** Пора ли выплачивать размышление: удержание оборвалось или копилка на пределе. */
+function thoughtDue(state: GameState, now: number): boolean {
+  const effect = activeRule(state)?.effect;
+  if (effect?.kind !== 'heldThought' || state.thoughtAt === 0) return false;
+  return now - state.thoughtAt > effect.releaseSec * 1000 || state.thought >= effect.maxSec;
+}
+
+/**
+ * Сколько Токенов выплатит `settleThought` в момент `now`; ноль, если платить ещё рано или нечего.
+ * Отдельная функция, чтобы всплывающее число в сторе называло ту же сумму, что платит тик.
+ */
+export function thoughtPayout(state: GameState, now: number): number {
+  const effect = activeRule(state)?.effect;
+  if (effect?.kind !== 'heldThought' || !thoughtDue(state, now)) return 0;
+  return state.thought * effect.clicksPerSec * clickValue(state, undefined, now) * thoughtMult(effect, state.thought);
 }
 
 export function sellAgents(state: GameState, modelId: string, n: number): GameState {
@@ -809,8 +849,9 @@ export function advance(state: GameState, dt: number, rnd: () => number = Math.r
   // Глюки крадут из скорости без их множителя, поэтому десять штук отнимают ровно половину.
   const stepped = stepGlitches(state, rate, dt);
   const earned = earnTokens(stepped, rate * glitch * dt + auto);
-  // Очередь закупок платит из только что заработанных Токенов и только здесь, в живом тике.
-  const s = runPurchaseQueue(earned);
+  // Размышление «Подумай ещё» платится здесь же, в живом тике, до очереди закупок: выплата тоже
+  // Токены, из которых очередь может нанять.
+  const s = runPurchaseQueue(settleThought(earned, now));
   // Температура идёт после начисления: перегрев режет уже посчитанную скорость этого тика,
   // а не подменяет её на следующем — иначе игрок, пойманный перегревом, терял бы ещё
   // и тот Доход, который успел заработать до сброса.
@@ -1105,6 +1146,10 @@ export function prestige(state: GameState, now: number = state.lastTick): GameSt
     runClicks: 0,
     agents: {},
     purchaseQueue: [],
+    buyStreak: 0,
+    lastBuyAt: 0,
+    thought: 0,
+    thoughtAt: 0,
     upgrades: [],
     activeChallenge: null,
     challengesDone,

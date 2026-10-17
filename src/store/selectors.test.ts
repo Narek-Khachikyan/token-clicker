@@ -53,6 +53,8 @@ import {
   prestigeCardView,
   queueView,
   ruleStatusText,
+  scarcityView,
+  thoughtMeterView,
   purchaseProgressView,
   sparksView,
   thermalMiniView,
@@ -771,5 +773,68 @@ describe('purchase queue card in the shop', () => {
     expect(view.capacity).toBe(6);
     expect(view.full).toBe(false);
     expect(queueView({ ...agentic, purchaseQueue: ids.concat(ids).slice(0, 6) })!.full).toBe(true);
+  });
+});
+
+describe('GPU scarcity card in the shop', () => {
+  const gpt4: GameState = { ...newGame(T0), generation: 1, temp: 0, heat: 0, nextEventAt: FAR, nextGlitchAt: FAR };
+  const hired = (n: number): GameState =>
+    buyAgents({ ...gpt4, tokens: 1e18, agents: { [CATALOG[1].models[0].id]: 2 } }, CATALOG[1].models[0].id, n);
+
+  it('is absent outside the «Дефицит GPU» rule', () => {
+    expect(scarcityView({ ...gpt4, generation: 2 }).active).toBe(false);
+    expect(scarcityView(newGame(T0)).active).toBe(false);
+  });
+
+  it('is calm until the first hire and then names the markup and the seconds to cool down', () => {
+    expect(scarcityView(gpt4)).toEqual({ active: true, extra: 0, seconds: 0 });
+    const view = scarcityView(hired(10));
+    expect(view.active).toBe(true);
+    expect(view.extra).toBe(10);
+    expect(view.seconds).toBe(20);
+  });
+
+  it('counts the seconds down and cools to nothing after the pause', () => {
+    const s = hired(10);
+    expect(scarcityView({ ...s, lastTick: s.lastTick + 7_500 }).seconds).toBe(13);
+    expect(scarcityView({ ...s, lastTick: s.lastTick + 21_000 })).toEqual({ active: true, extra: 0, seconds: 0 });
+  });
+
+  it('feeds the Scene line only while the markup lives', () => {
+    expect(ruleStatusText(gpt4)).toBe('');
+    expect(ruleStatusText(hired(10))).toBe('Цены +10%');
+    expect(ruleStatusText({ ...hired(10), lastTick: T0 + 60_000 })).toBe('');
+  });
+
+  it('moves no more than once a second while the pause runs, and not at all after it', () => {
+    const states = idle(hired(10), 600);
+    expect(changes(states, scarcityView)).toBeLessThanOrEqual(21);
+    expect(changes(states.slice(450), scarcityView)).toBe(0);
+  });
+});
+
+describe('thought meter on the Click column', () => {
+  const reasoning: GameState = { ...newGame(T0), generation: 4, temp: 0, heat: 0, nextEventAt: FAR, nextGlitchAt: FAR };
+
+  it('is absent outside the «Подумай ещё» rule', () => {
+    expect(thoughtMeterView({ ...reasoning, generation: 3 }).active).toBe(false);
+    expect(thoughtMeterView(newGame(T0)).active).toBe(false);
+  });
+
+  it('invites to hold while nothing is gathered', () => {
+    const view = thoughtMeterView(reasoning);
+    expect(view).toMatchObject({ active: true, holding: false, width: 0 });
+  });
+
+  it('prints the gathered seconds, the multiplier and the fill of the limit', () => {
+    const view = thoughtMeterView({ ...reasoning, thought: 2, thoughtAt: reasoning.lastTick });
+    expect(view.holding).toBe(true);
+    expect(view.seconds).toBe(formatNumber(2, 'short'));
+    expect(view.mult).toBe(formatNumber(1.5, 'short'));
+    expect(view.width).toBe(50);
+  });
+
+  it('is steady across idle ticks of a calm run', () => {
+    expect(changes(idle(reasoning, 100), thoughtMeterView)).toBe(0);
   });
 });

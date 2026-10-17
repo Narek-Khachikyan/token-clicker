@@ -22,6 +22,7 @@ import {
   prestigeGain,
   sellAgents as engineSellAgents,
   shatterCrystal as engineShatterCrystal,
+  thoughtPayout,
   totalIncome,
 } from '../economy/engine';
 import {
@@ -48,8 +49,8 @@ import {
   queueAgent as engineQueueAgent,
   unqueueAgent as engineUnqueueAgent,
 } from '../economy/purchaseQueue';
-import { activeRule } from '../economy/rules';
-import { HOLD_CLICK_MIN_GAP_MS, pushClick } from '../economy/streak';
+import { activeRule, holdThought } from '../economy/rules';
+import { HOLD_CLICK_MIN_GAP_MS, POINTER_HOLD_ARM_MS, POINTER_HOLD_RELEASE_MS, pushClick } from '../economy/streak';
 import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX } from '../economy/thermal';
 import { perkEffects } from '../economy/perks';
 import { pickQuip, recordQuip } from '../economy/quips';
@@ -328,7 +329,14 @@ interface GameStore {
    * и любой другой слушатель (горячие клавиши) получит тот же предел. Возвращает true, если Клик
    * засчитан.
    */
-  holdClick: (x?: number, y?: number) => boolean;
+  holdClick: (x?: number, y?: number, repeat?: boolean) => boolean;
+  /**
+   * Нажатие и отпускание кнопки Клика мышью или пальцем при Правиле «Подумай ещё»: пока кнопку держат
+   * дольше `POINTER_HOLD_ARM_MS`, тик копит размышление. Вне Правила не делает ничего.
+   */
+  setPointerHold: (on: boolean, x?: number, y?: number) => void;
+  /** Закончилось ли только что удержание: тогда `click` после отпускания не платит обычного Клика. Одноразово. */
+  consumeHeldClick: () => boolean;
   /** `amount` — разовая покупка с модификатором (Shift ×10, Ctrl/Cmd Max); без него берётся
    *  множитель, выбранный кнопками, и он при этом не меняется. */
   buyAgents: (modelId: string, amount?: BuyAmount) => void;
@@ -463,6 +471,15 @@ let floaterCounter = 0;
 let sparkCounter = 0;
 /** Момент последнего Клика удержания: общий для всех слушателей, как и потолок. */
 let lastHoldClickAt = -Infinity;
+/**
+ * Удержание кнопки Клика мышью или пальцем при Правиле «Подумай ещё». Не в `GameState`: это жест,
+ * он не переживает перезагрузку, а накопленное им размышление — переживает (поля `thought`).
+ * `pointerHoldSince` — момент нажатия (0 = кнопку не держат); `pointerArmedUntil` — до какого момента
+ * следующий `click` считается концом удержания, а не новым Кликом; `holdPoint` — куда сажать число выплаты.
+ */
+let pointerHoldSince = 0;
+let pointerArmedUntil = 0;
+let holdPoint: { x: number; y: number } | null = null;
 let toastCounter = 0;
 let burstCounter = 0;
 let momentCounter = 0;
@@ -853,6 +870,24 @@ export const useGameStore = create<GameStore>((set, get) => {
     offlineWithReport(before, before.lastTick + dt * 1000).report;
 
   /**
+   * Выплата размышления «Подумай ещё»: одно крупное число над кнопкой Клика и звук высшей ступени
+   * Серии. Токены уже зачислил тик, здесь только отклик. Число гаснет по ограниченному таймеру, как
+   * число обычного Клика; выключатель чисел его гасит, а не выплату.
+   */
+  const showThoughtPayout = (amount: number, settings: GameState['settings']): void => {
+    playClickSound(settings, 4);
+    if (!settings.floaters) return;
+    const id = ++floaterCounter;
+    const at = holdPoint ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    set((s) => ({
+      floaters: [...s.floaters.slice(-10), { id, x: at.x, y: at.y, text: `+${formatNumber(amount, settings.notation)}`, level: 4 }],
+    }));
+    setTimeout(() => {
+      set((s) => ({ floaters: s.floaters.filter((f) => f.id !== id) }));
+    }, 900);
+  };
+
+  /**
    * Куда деть простой длинного тика: на открытый экран, в запас до возвращения или на новый экран.
    *
    * Открытый экран пополняется, а не заменяется и не дублируется: второй простой подряд — это
@@ -962,7 +997,13 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Что именно заплатил простой, спрашивается у той же `applyOffline`, что платит его внутри
       // `advanceTime`: она чистая, а своя формула потолка разошлась бы с настоящей.
       const away = longTick ? awayReport(state, dt) : null;
-      const ticked = announceQueued(state, advanceTime(state, dt, Math.random), longTick);
+      // Кнопку держат дольше порога: тик подкладывает порцию размышления, как повтор клавиши. Простой
+      // её не получает: долгий интервал игрок не держал.
+      const fed = !longTick && pointerHoldSince > 0 && Date.now() - pointerHoldSince >= POINTER_HOLD_ARM_MS ? holdThought(state) : state;
+      if (fed !== state) pointerArmedUntil = Infinity;
+      const ticked = announceQueued(fed, advanceTime(fed, dt, Math.random), longTick);
+      // Выплата размышления в этом тике: сумму называет та же функция, что платит.
+      const thoughtPaid = longTick ? 0 : thoughtPayout(fed, fed.lastTick + dt * 1000);
       const advanced = awardEarned(ticked);
       announceThermal(state, advanced, dt);
       // Вехи забираются после Достижений и до сериализации: награда обязана попасть в тот же
@@ -979,6 +1020,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       if (!longTick && advanced.crystals > state.crystals) playCrystalSound(advanced.settings);
       const eventWindow = watchEventWindow(withMilestones, longTick);
       set({ state: withMilestones, ...eventWindow, ...(away ? collectAway(away) : null) });
+      if (thoughtPaid > 0) showThoughtPayout(thoughtPaid, withMilestones.settings);
       // Голос идёт после set, чтобы читать уже новое состояние, и до записи в localStorage:
       // звук не должен ждать завершения сериализации.
       syncThermalVoice();
@@ -1070,13 +1112,47 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
     },
 
-    holdClick: (x?: number, y?: number) => {
+    holdClick: (x?: number, y?: number, repeat = false) => {
       const now = Date.now();
       // Часы, отведённые назад, дали бы отрицательную паузу и заперли бы удержание до нагона.
       if (now >= lastHoldClickAt && now - lastHoldClickAt < HOLD_CLICK_MIN_GAP_MS) return false;
       lastHoldClickAt = now;
+      // «Подумай ещё»: первое нажатие — обычный Клик, а повтор удержанной клавиши не платит по Клику,
+      // а копит размышление. Вне Правила holdThought возвращает тот же объект, и идёт обычный Клик.
+      if (repeat) {
+        holdPoint = x !== undefined && y !== undefined ? { x, y } : holdPoint;
+        const { state } = get();
+        const fed = holdThought(state);
+        if (fed !== state) {
+          set({ state: fed });
+          return false;
+        }
+        // Правило молчит либо порция отказала (удержание оборвано, тик вот-вот выплатит): в Reasoning
+        // повтор не платит, вне него — обычный Клик.
+        if (activeRule(state)?.effect.kind === 'heldThought') return false;
+      }
       get().clickPrompt(x, y);
       return true;
+    },
+
+    setPointerHold: (on: boolean, x?: number, y?: number) => {
+      if (!on) {
+        // Конец жеста: если тик уже копил размышление, ближайший `click` — отпускание, а не новый Клик.
+        if (pointerHoldSince > 0 && pointerArmedUntil === Infinity) pointerArmedUntil = Date.now() + POINTER_HOLD_RELEASE_MS;
+        else pointerArmedUntil = 0;
+        pointerHoldSince = 0;
+        return;
+      }
+      if (activeRule(get().state)?.effect.kind !== 'heldThought') return;
+      pointerHoldSince = Date.now();
+      pointerArmedUntil = 0;
+      if (x !== undefined && y !== undefined) holdPoint = { x, y };
+    },
+
+    consumeHeldClick: () => {
+      const held = pointerArmedUntil > 0 && pointerArmedUntil !== Infinity && Date.now() <= pointerArmedUntil;
+      pointerArmedUntil = 0;
+      return held;
     },
 
     buyAgents: (modelId: string, amount?: BuyAmount) => {
@@ -1591,6 +1667,8 @@ toggleMute: () => {
 
     resetGame: () => {
       lastHoldClickAt = -Infinity;
+      pointerHoldSince = 0;
+      pointerArmedUntil = 0;
       // Звук по настройкам, с которыми игрок нажал сброс: свежая игра пришла бы без мьюта.
       playRestartSound(get().state.settings);
       const fresh = newGame(Date.now());
