@@ -122,11 +122,11 @@ describe('risk class', () => {
   });
   it('multiplies the Compute a Prestige pays', () => {
     const base = buyAgents(rich(newGame(T0), 1e16), g0.flagship.id, 1);
-    // 1e16 Токенов Забега при делителе 4,5e11: корень из 22222 — 28,1 Compute без Испытаний.
-    expect(prestigeGain(base)).toBe(28);
+    // 1e16 Токенов Забега при делителе 7,65e11 (4,5e11 с поправкой темпа 1,7 «Рассвета»): корень из 13072 — 23,56 Compute без Испытаний.
+    expect(prestigeGain(base)).toBe(23);
     for (const def of CHALLENGES) {
       const taken = { ...base, activeChallenges: [def.id] };
-      expect(prestigeGain(taken), def.id).toBe(Math.floor(28.1 * riskMult(def.weight)));
+      expect(prestigeGain(taken), def.id).toBe(Math.floor(23.56 * riskMult(def.weight)));
       expect(challengeComputeMult(taken), def.id).toBe(riskMult(def.weight));
     }
     expect(challengeComputeMult(base)).toBe(1);

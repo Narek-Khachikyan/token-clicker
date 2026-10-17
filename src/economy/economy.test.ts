@@ -47,7 +47,7 @@ import { LAB_IDS, type LabId } from '../data/labs';
 import { HEAT_COOL_SEC, HEAT_PENALTY, heatRate, OVERHEAT_STUN_SEC, overheatStunMult, TEMP_MAX, TEMP_START, TEMP_YIELD_MAX, thermalRead } from './thermal';
 import { claimMilestones, MILESTONES, milestoneHint, nextMilestone } from './milestones';
 import { GLOSSARY } from '../data/glossary';
-import { GEN_SCALE } from './catalog';
+import { GEN_SCALE, PRESTIGE_DIVISOR_UNITS, PRESTIGE_PACE } from './catalog';
 
 const T0 = 1_000_000;
 const g0 = CATALOG[0];
@@ -1600,9 +1600,15 @@ describe('prestige', () => {
       // Заработок в 1 000 раз больше делителя — это ровно 1 000 Compute: кубический корень.
       const runTokens = prestigeDivisor(g.index) * 1e9;
       expect(computeGain(runTokens, g.index)).toBe(1000);
-      // Тот же заработок на Поколение раньше даёт в десять раз больше: шаг делителя ×1000 под
-      // корнем даёт ×10, и копия без масштаба Поколения эту лестницу бы потеряла.
-      if (g.index > 0) expect(computeGain(runTokens, g.index - 1)).toBe(10_000);
+      // Делитель — это общий делитель × масштаб Поколения × поправка темпа (`PRESTIGE_PACE`).
+      expect(prestigeDivisor(g.index)).toBeCloseTo(PRESTIGE_DIVISOR_UNITS * GEN_SCALE ** g.index * PRESTIGE_PACE[g.index], -3);
+      // Тот же заработок на Поколение раньше даёт больше: шаг делителя ×1000 под корнем даёт ×10
+      // (без поправок — ровно 10 000), поправка темпа сдвигает его кубическим корнем своего отношения.
+      // Копия без масштаба Поколения эту лестницу бы потеряла.
+      if (g.index > 0) {
+        const expected = 10_000 * Math.cbrt(PRESTIGE_PACE[g.index] / PRESTIGE_PACE[g.index - 1]);
+        expect(Math.abs(computeGain(runTokens, g.index - 1) - expected)).toBeLessThanOrEqual(1);
+      }
     }
     const s = buyAgents(rich(cold(newGame(T0)), 1e15), g0.flagship.id, 1);
     expect(prestigeGain(s)).toBe(computeGain(s.runTokens, s.generation));

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { effectAllowed, SAVE_INTERVAL_MS, SCENE_MOMENT_MS, useGameStore } from './useGameStore';
-import { CATALOG } from '../economy/catalog';
+import { CATALOG, PRESTIGE_PACE } from '../economy/catalog';
 import { CHARACTER_QUIPS } from '../data/characterQuips';
 import { QUIPS } from '../data/quips';
 import { pickQuip } from '../economy/quips';
@@ -585,7 +585,7 @@ describe('compute threshold', () => {
     freshStore();
     const gen0Missing = computeShortfall(run(0));
     reachedGeneration(1);
-    expect(computeShortfall(run(0)) / gen0Missing).toBeCloseTo(CATALOG[1].scale, 6);
+    expect(computeShortfall(run(0)) / gen0Missing).toBeCloseTo((CATALOG[1].scale * PRESTIGE_PACE[1]) / PRESTIGE_PACE[0], 6);
   });
 });
 

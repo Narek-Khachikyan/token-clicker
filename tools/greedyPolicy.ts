@@ -33,6 +33,7 @@ import { clampTemp, safeTemp, TEMP_MAX } from '../src/economy/thermal';
 import { migrate } from '../src/economy/save';
 import { chooseCourse, coursePool, offerCourse } from '../src/economy/course';
 import { CHALLENGES, toggleChallenge } from '../src/economy/challenges';
+import { popGlitch, uprisingStage } from '../src/economy/glitches';
 
 export const T0 = 1_700_000_000_000;
 /** Шаг симуляции, секунд: двадцать тиков в секунду, как у игры. */
@@ -79,6 +80,19 @@ export interface PolicyOptions {
    * максимального Класса риска, тяжести и потолка множителя Compute.
    */
   challenges: 'none' | 'all';
+  /**
+   * Поднимает ли политика стадию Восстания, как стор. Стадию поднимает не движок, а стор
+   * (`raiseUprising` в `useGameStore.ts`, сразу после найма Флагмана), а симулятор стора не гоняет —
+   * поэтому по умолчанию красных События в прогоне нет вовсе. Включённая — игра, какой её видит игрок:
+   * красные События без поимки платят и отнимают (замер — `tools/measureMeta.ts`).
+   */
+  uprising: boolean;
+  /**
+   * Что политика делает с Глюками. `live` — ничего: они копятся до десяти и отнимают половину Дохода
+   * (так меряется нижняя граница, и так играет `pace.test.ts`). `pop` — лопает каждого в тот же тик
+   * (внимательный игрок: три клика, выплата 1,1× украденного). `none` — Глюков нет вовсе.
+   */
+  glitches: 'live' | 'pop' | 'none';
 }
 
 /**
@@ -97,6 +111,8 @@ export const DEFAULT_POLICY: PolicyOptions = {
   course: 'none',
   catchEvents: false,
   challenges: 'none',
+  uprising: false,
+  glitches: 'live',
 };
 
 /** Mulberry32: одно зерно — один и тот же розыгрыш Событий, чтобы прогоны сравнивались. */
@@ -222,15 +238,31 @@ function catchEvent(s: GameState): GameState {
   return event.kind === 'grant' ? earnTokens(marked, grantAmount(s.tokens, totalIncome(s))) : marked;
 }
 
+/** Глюки по правилу `PolicyOptions.glitches`; выплата за лопнувшего идёт через `earnTokens`, как в сторе. */
+function handleGlitches(s: GameState, mode: PolicyOptions['glitches']): GameState {
+  if (mode === 'live' || s.glitches.length === 0) return s;
+  if (mode === 'none') return { ...s, glitches: [] };
+  let next = s;
+  for (const g of s.glitches) {
+    const popped = popGlitch(next, g.id);
+    next = earnTokens(popped.state, popped.payout);
+  }
+  return next;
+}
+
 /** Один тик: клики, время движка, покупки. */
 export function tick(w: Session): void {
   const target = thermalTarget(w.s, w.opts.thermal);
   if (target !== null && w.s.temp !== clampTemp(target)) w.s = { ...w.s, temp: clampTemp(target) };
+  w.s = handleGlitches(w.s, w.opts.glitches);
   w.clickCarry += w.opts.cps * DT;
   while (w.clickCarry >= 1) { w.clickCarry -= 1; w.s = click(w.s); }
   w.s = advanceTime(w.s, DT, w.rnd);
   if (w.opts.catchEvents) w.s = catchEvent(w.s);
   w.s = spend(w.s, w.opts.reserve);
+  if (w.opts.uprising && canPrestige(w.s) && w.s.uprising < uprisingStage(w.s.generation)) {
+    w.s = { ...w.s, uprising: uprisingStage(w.s.generation) };
+  }
   if (canPrestige(w.s) && w.flagshipAt === null) w.flagshipAt = w.t;
   w.t += DT;
 }
@@ -277,4 +309,30 @@ export function firstPrestigeMinutes(capMinutes: number, opts: Partial<PolicyOpt
     if (prestigeDue(w)) return w.t / 60;
   }
   return null;
+}
+
+/** Сколько минут политика провела в Поколении; `null` — Поколение не закончилось за отведённое время. */
+export interface GenerationPace {
+  generation: number;
+  minutes: number | null;
+}
+
+/**
+ * Вся кампания на политике: минуты в каждом Поколении, от входа до Престижа, а у последнего — до
+ * покупки Флагмана (Финал контента). Тот же прогон, что `tools/sim.ts --campaign`, без печати.
+ * Поколения, до которых политика не дошла за `capMinutes`, в ответ не попадают.
+ */
+export function campaignPace(capMinutes: number, opts: Partial<PolicyOptions> = {}): GenerationPace[] {
+  const w = newSession(opts);
+  const out: GenerationPace[] = [];
+  const steps = Math.round((capMinutes * 60) / DT);
+  for (let i = 0; i < steps; i++) {
+    tick(w);
+    if (isContentFinale(w.s)) {
+      out.push({ generation: w.s.generation, minutes: (w.t - w.genStart) / 60 });
+      break;
+    }
+    if (prestigeDue(w)) out.push(doPrestige(w));
+  }
+  return out;
 }
