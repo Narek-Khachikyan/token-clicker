@@ -43,6 +43,11 @@ import {
   uprisingStage,
 } from '../economy/glitches';
 import { pickNews } from '../economy/news';
+import {
+  clearQueue as engineClearQueue,
+  queueAgent as engineQueueAgent,
+  unqueueAgent as engineUnqueueAgent,
+} from '../economy/purchaseQueue';
 import { activeRule } from '../economy/rules';
 import { HOLD_CLICK_MIN_GAP_MS, pushClick } from '../economy/streak';
 import { clampTemp, HALLUC_HEAT, heatRate, TEMP_MAX } from '../economy/thermal';
@@ -327,6 +332,10 @@ interface GameStore {
   /** `amount` — разовая покупка с модификатором (Shift ×10, Ctrl/Cmd Max); без него берётся
    *  множитель, выбранный кнопками, и он при этом не меняется. */
   buyAgents: (modelId: string, amount?: BuyAmount) => void;
+  /** Очередь закупок Правила «Агенты сами»: поставить одного Агента Модели, снять запись, очистить. */
+  queueAgent: (modelId: string) => void;
+  unqueueAgent: (index: number) => void;
+  clearQueue: () => void;
   sellAgents: (modelId: string, amount?: BuyAmount) => void;
   buyUpgrade: (upgradeId: string) => void;
   buyPerk: (perkId: string) => void;
@@ -769,6 +778,26 @@ export const useGameStore = create<GameStore>((set, get) => {
   };
 
   /**
+   * Очередь закупок наняла Агентов на живом тике: голос и последствия те же, что у ручной покупки.
+   *
+   * Движок исполняет очередь сам, а `buyAgents` стора — единственное место, где покупка Агента
+   * звучит и поднимает Восстание за Флагман. Без этой сверки «до / после» Агент из очереди
+   * молчал бы, а Флагман, нанятый очередью, не открывал бы Восстания Поколения. Звук один на тик,
+   * а не на Агента: за тик очередь может нанять нескольких. Длинный тик очередь не исполняет вовсе.
+   */
+  const announceQueued = (before: GameState, after: GameState, longTick: boolean): GameState => {
+    if (longTick || after.purchaseQueue.length >= before.purchaseQueue.length) return after;
+    playBuySound(before.settings);
+    const flagshipId = CATALOG[before.generation].flagship.id;
+    const flagshipHired = (before.agents[flagshipId] ?? 0) === 0 && (after.agents[flagshipId] ?? 0) > 0;
+    const risen = flagshipHired ? raiseUprising(after) : after;
+    if (risen !== after || availableUpgrades(after).length > availableUpgrades(before).length) {
+      playUpgradeSound(before.settings);
+    }
+    return risen;
+  };
+
+  /**
    * Звук и слова Температуры: охлаждение после перегрева и провал от Галлюцинации.
    *
    * Оба события читаются по МЕСТУ в истории состояния, а не по флагу: перегрев виден по
@@ -933,7 +962,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       // Что именно заплатил простой, спрашивается у той же `applyOffline`, что платит его внутри
       // `advanceTime`: она чистая, а своя формула потолка разошлась бы с настоящей.
       const away = longTick ? awayReport(state, dt) : null;
-      const ticked = advanceTime(state, dt, Math.random);
+      const ticked = announceQueued(state, advanceTime(state, dt, Math.random), longTick);
       const advanced = awardEarned(ticked);
       announceThermal(state, advanced, dt);
       // Вехи забираются после Достижений и до сериализации: награда обязана попасть в тот же
@@ -1093,6 +1122,33 @@ export const useGameStore = create<GameStore>((set, get) => {
           if (get().sceneMoment?.nonce === nonce) set({ sceneMoment: null });
         }, SCENE_MOMENT_MS);
       }
+      saveNow();
+    },
+
+    queueAgent: (modelId: string) => {
+      const { state } = get();
+      const next = engineQueueAgent(state, modelId);
+      if (next === state) return;
+      playToggleSound(state.settings);
+      set({ state: next });
+      saveNow();
+    },
+
+    unqueueAgent: (index: number) => {
+      const { state } = get();
+      const next = engineUnqueueAgent(state, index);
+      if (next === state) return;
+      playToggleSound(state.settings);
+      set({ state: next });
+      saveNow();
+    },
+
+    clearQueue: () => {
+      const { state } = get();
+      const next = engineClearQueue(state);
+      if (next === state) return;
+      playToggleSound(state.settings);
+      set({ state: next });
       saveNow();
     },
 

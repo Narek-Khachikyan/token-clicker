@@ -297,6 +297,74 @@ describe('migration of the perk tree', () => {
   });
 });
 
+describe('migration of the purchase queue', () => {
+  /** Сохранение v10 в форме, какой его писала игра: поля очереди закупок в нём ещё нет. */
+  const v10Save = (over: Record<string, unknown>) => {
+    const { purchaseQueue: _drop, ...base } = newGame(T0);
+    return { ...base, version: 10, ...over };
+  };
+
+  const agentic = CATALOG[5].models;
+
+  it('gives a save of the previous version an empty queue and keeps everything the player had', () => {
+    const raw = v10Save({
+      generation: 5,
+      maxGeneration: 5,
+      tokens: 4e20,
+      agents: { [agentic[0].id]: 7 },
+      compute: 90,
+      computeSpent: 30,
+      perks: ['start_tokens'],
+      crystals: 3,
+      achievements: ['click_1'],
+    });
+    const s = migrate(raw, T0);
+    expect(s.version).toBe(SAVE_VERSION);
+    expect(s.purchaseQueue).toEqual([]);
+    expect(s.generation).toBe(5);
+    expect(s.tokens).toBe(4e20);
+    expect(s.agents).toEqual({ [agentic[0].id]: 7 });
+    expect(s.compute).toBe(90);
+    expect(s.computeSpent).toBe(30);
+    expect(s.perks).toEqual(['start_tokens']);
+    expect(s.crystals).toBe(3);
+    expect(s.achievements).toEqual(['click_1']);
+  });
+
+  it('loads an export code of the previous version without loss', () => {
+    const raw = v10Save({ generation: 6, maxGeneration: 6, tokens: 12345, crystals: 2, prestiges: 6 });
+    const s = importSave(encodeRaw(raw), T0)!;
+    expect(s).not.toBeNull();
+    expect(s.version).toBe(SAVE_VERSION);
+    expect(s.purchaseQueue).toEqual([]);
+    expect(s.tokens).toBe(12345);
+    expect(s.crystals).toBe(2);
+    expect(s.prestiges).toBe(6);
+  });
+
+  it('keeps the queue the player set through a save, an export and an import', () => {
+    const queue = [agentic[0].id, agentic[3].id, agentic[0].id];
+    const s = { ...newGame(T0), generation: 5, maxGeneration: 5, purchaseQueue: queue };
+    expect(migrate(JSON.parse(JSON.stringify(s)), T0).purchaseQueue).toEqual(queue);
+    expect(importSave(exportSave(s), T0)!.purchaseQueue).toEqual(queue);
+  });
+
+  it('drops queue entries that are not models of the current generation and any queue outside the rule', () => {
+    const foreign = CATALOG[4].models[0].id;
+    const mixed = migrate({ ...newGame(T0), generation: 5, purchaseQueue: [agentic[1].id, foreign, 'нет-такой', 7, agentic[2].id] }, T0);
+    expect(mixed.purchaseQueue).toEqual([agentic[1].id, agentic[2].id]);
+    const elsewhere = migrate({ ...newGame(T0), generation: 4, purchaseQueue: [CATALOG[4].models[0].id] }, T0);
+    expect(elsewhere.purchaseQueue).toEqual([]);
+  });
+
+  it('caps a queue longer than the rule allows and reads a non-list as empty', () => {
+    const long = Array.from({ length: 40 }, () => agentic[0].id);
+    expect(migrate({ ...newGame(T0), generation: 5, purchaseQueue: long }, T0).purchaseQueue).toHaveLength(6);
+    expect(migrate({ ...newGame(T0), generation: 5, purchaseQueue: 'oops' }, T0).purchaseQueue).toEqual([]);
+    expect(migrate({ ...newGame(T0), generation: 5, purchaseQueue: { length: 3 } }, T0).purchaseQueue).toEqual([]);
+  });
+});
+
 describe('import rejects non-saves', () => {
   it('rejects an empty object, an empty array and arbitrary JSON without progress fields', () => {
     expect(importSave(encodeRaw({}), T0)).toBeNull();

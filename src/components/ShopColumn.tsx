@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { effectAllowed, useGameStore, useStateSlice, type BuyAmount } from '../store/useGameStore';
 import {
   availableUpgradesOf,
@@ -11,6 +11,8 @@ import {
   modelView,
   pledgeAlert,
   pledgeView,
+  queueEntries,
+  queueSlots,
   upgradeView,
 } from '../store/selectors';
 import { useMotionAllowed } from './EventSprites';
@@ -404,6 +406,8 @@ const ModelCard: React.FC<{
   const buyAgents = useGameStore((s) => s.buyAgents);
   const sellAgents = useGameStore((s) => s.sellAgents);
   const view = useStateSlice((s) => modelView(s, m, buyAmount, sellMode));
+  const queueAgent = useGameStore((s) => s.queueAgent);
+  const queue = useStateSlice(queueSlots);
   const { owned, count, canAfford, showsGain, goalTicks } = view;
   const lab = LABS[m.lab];
   // Полная запись читает те же числа, что напечатаны на кнопке, но только в момент наведения.
@@ -645,6 +649,18 @@ const ModelCard: React.FC<{
         </div>
       </div>
 
+      {/* Очередь закупок («Агенты сами»): один Агент в конец очереди по цене ручной покупки. */}
+      {queue.active && !sellMode && (
+        <button
+          onClick={() => queueAgent(m.id)}
+          disabled={queue.full}
+          className="pixel-btn"
+          style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)' }}
+        >
+          {queue.full ? 'Очередь заполнена' : 'В очередь'}
+        </button>
+      )}
+
       {/* Прогресс до синергий Лаборатории: одиночный датасет — счёт одной лабы,
           совместный — состав пары. Только чтение состояния, без своих таймеров. */}
       <SynergyNotes model={m} />
@@ -664,6 +680,58 @@ const ModelCard: React.FC<{
   );
 };
 
+/** Очередь закупок Правила «Агенты сами»: записи в порядке найма, их можно снять. Исполняется только пока игрок в игре. */
+const PurchaseQueueCard: React.FC = () => {
+  const slots = useStateSlice(queueSlots);
+  const ids = useGameStore((s) => s.state.purchaseQueue);
+  const entries = useMemo(() => queueEntries(ids), [ids]);
+  const unqueueAgent = useGameStore((s) => s.unqueueAgent);
+  const clearQueue = useGameStore((s) => s.clearQueue);
+  if (!slots.active) return null;
+  return (
+    <section
+      aria-label="Очередь закупок"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-1)',
+        padding: 'var(--space-2)',
+        border: 'var(--frame-w) solid var(--border)',
+        fontSize: 'var(--text-sm)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-2)' }}>
+        <span>
+          Очередь закупок: <Num>{slots.count}</Num> из <Num>{slots.capacity}</Num>
+        </span>
+        {slots.count > 0 && (
+          <button onClick={clearQueue} className="pixel-btn" style={{ padding: 'var(--space-0) var(--space-2)' }}>
+            Очистить
+          </button>
+        )}
+      </div>
+      <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
+        Агенты нанимаются сами, по порядку, пока ты в игре. Без тебя очередь стоит.
+      </div>
+      {entries.map((e) => (
+        <div key={e.index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>
+            {e.index + 1}. {e.name}
+          </span>
+          <button
+            onClick={() => unqueueAgent(e.index)}
+            className="pixel-btn"
+            aria-label={`Снять из очереди: ${e.name}`}
+            style={{ padding: 'var(--space-0) var(--space-2)' }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </section>
+  );
+};
+
 /** Вкладка Моделей: список карточек Поколения и атрибуция AA. */
 const ModelsTab: React.FC<{
   expandedAA: Record<string, boolean>;
@@ -677,6 +745,7 @@ const ModelsTab: React.FC<{
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+      <PurchaseQueueCard />
       {CATALOG[generation].models.slice(0, shown).map((m, i) => (
         <ModelCard
           key={m.id}
